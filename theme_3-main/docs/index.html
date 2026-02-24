@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Google -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <!-- Main CSS -->
+    <link rel="stylesheet" href="css/styles.css" >
+    <link rel="stylesheet" href="css/inc/prism.css" >
+    
+    <title> Theme_3 Docs </title>
+    <link rel="icon" type="image/x-icon" href="img/favicon.png">
+  </head>
+  <body>
+  
+    <svg aria-hidden="true" style="position: absolute; width: 0; height: 0; overflow: hidden;" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+      <defs>
+        <symbol id="icon-search" viewBox="0 0 32 32">
+          <path d="M31.008 27.231l-7.58-6.447c-0.784-0.705-1.622-1.029-2.299-0.998 1.789-2.096 2.87-4.815 2.87-7.787 0-6.627-5.373-12-12-12s-12 5.373-12 12 5.373 12 12 12c2.972 0 5.691-1.081 7.787-2.87-0.031 0.677 0.293 1.515 0.998 2.299l6.447 7.58c1.104 1.226 2.907 1.33 4.007 0.23s0.997-2.903-0.23-4.007zM12 20c-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8-3.582 8-8 8z"></path>
+        </symbol>
+        <symbol id="icon-first" viewBox="0 0 32 32">
+          <path d="M4 28v-24h4v11l10-10v10l10-10v22l-10-10v10l-10-10v11z"></path>
+        </symbol>
+        <symbol id="icon-insert-template" viewBox="0 0 32 32">
+          <path d="M12 6h4v2h-4zM18 6h4v2h-4zM28 6v8h-6v-2h4v-4h-2v-2zM10 12h4v2h-4zM16 12h4v2h-4zM6 8v4h2v2h-4v-8h6v2zM12 18h4v2h-4zM18 18h4v2h-4zM28 18v8h-6v-2h4v-4h-2v-2zM10 24h4v2h-4zM16 24h4v2h-4zM6 20v4h2v2h-4v-8h6v2zM30 2h-28v28h28v-28zM32 0v0 32h-32v-32h32z"></path>
+        </symbol>
+        <symbol id="icon-github" viewBox="0 0 32 32">
+          <path d="M16 0.395c-8.836 0-16 7.163-16 16 0 7.069 4.585 13.067 10.942 15.182 0.8 0.148 1.094-0.347 1.094-0.77 0-0.381-0.015-1.642-0.022-2.979-4.452 0.968-5.391-1.888-5.391-1.888-0.728-1.849-1.776-2.341-1.776-2.341-1.452-0.993 0.11-0.973 0.11-0.973 1.606 0.113 2.452 1.649 2.452 1.649 1.427 2.446 3.743 1.739 4.656 1.33 0.143-1.034 0.558-1.74 1.016-2.14-3.554-0.404-7.29-1.777-7.29-7.907 0-1.747 0.625-3.174 1.649-4.295-0.166-0.403-0.714-2.030 0.155-4.234 0 0 1.344-0.43 4.401 1.64 1.276-0.355 2.645-0.532 4.005-0.539 1.359 0.006 2.729 0.184 4.008 0.539 3.054-2.070 4.395-1.64 4.395-1.64 0.871 2.204 0.323 3.831 0.157 4.234 1.026 1.12 1.647 2.548 1.647 4.295 0 6.145-3.743 7.498-7.306 7.895 0.574 0.497 1.085 1.47 1.085 2.963 0 2.141-0.019 3.864-0.019 4.391 0 0.426 0.288 0.925 1.099 0.768 6.354-2.118 10.933-8.113 10.933-15.18 0-8.837-7.164-16-16-16z"></path>
+        </symbol>
+        <symbol id="icon-linkedin" viewBox="0 0 32 32">
+          <path d="M29 0h-26c-1.65 0-3 1.35-3 3v26c0 1.65 1.35 3 3 3h26c1.65 0 3-1.35 3-3v-26c0-1.65-1.35-3-3-3zM12 26h-4v-14h4v14zM10 10c-1.106 0-2-0.894-2-2s0.894-2 2-2c1.106 0 2 0.894 2 2s-0.894 2-2 2zM26 26h-4v-8c0-1.106-0.894-2-2-2s-2 0.894-2 2v8h-4v-14h4v2.481c0.825-1.131 2.087-2.481 3.5-2.481 2.488 0 4.5 2.238 4.5 5v9z"></path>
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="wrap">
+   
+      <div class="header-wrap">
+        <header class="header">
+          <a href="#" class="logo">
+            <img src="img/theme_3_logo.png" alt="site logo" class="logo">
+          </a>
+          <div class="menu ">
+          
+            <nav class="nav font-nav nav-btn ">
+              <ul class="nav__list util__ls-none nav__list-hidden">
+                <li class="nav__item">
+                  <a href="#" class="nav__link"> Docs</a>  
+                
+                </li>
+                <li class="nav__item"> 
+                  <a href="#" class="nav__link"> Theme</a> 
+                </li>
+              </ul>
+            </nav>
+          
+          </div>
+          
+          <div class="search__nav">
+            <form action="#" class="search">
+              <input type="text" class="search__input input-placeholder" placeholder="Search">
+              <button class="search__button">
+                <svg class="search__icon">
+                  <use xlink:href="#icon-search"></use>
+                </svg>
+              </button>
+            </form>
+          </div>
+          
+          
+          <nav class="social-nav">
+            <a class="social-nav__link" href="#">
+              <svg class="social-nav__icon">
+                <use xlink:href="#icon-github"></use>
+              </svg>
+            </a>
+            <a class="social-nav__link" href="#">
+              <svg class="social-nav__icon">
+                <use xlink:href="#icon-linkedin"></use>
+              </svg>
+            </a>
+            <a class="social-nav__link" href="#">
+              <svg class="social-nav__icon">
+                <use xlink:href="#icon-insert-template"></use>
+              </svg>
+            </a>
+          
+            <a class="social-nav__link btn btn-primary" href="#">
+              Download
+            </a>
+          
+            <div class="dropdown">
+              <button class="dropdown-btn">
+                <span class="dropdown-btn__text"> V1.2.5-d </span>
+                <span class="dropdown-btn__icon"> &#x25BC; </span>
+              </button>
+                <div class="dropdown-content">
+          
+                  <ul class="util__ls-none">
+                    <li><a href="#">Version x.y.x</a></li>
+                    <li><a href="#">Version x.y</a></li>
+                    <li>  <a href="#">Version x.y</a></li>
+                    <li> <a href="#">Version x.xx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</a></li>
+                    <li>  <a href="#">Version x.y</a></li>
+                  </ul>
+                </div>
+              
+            </div>
+          
+          </nav>
+          
+        </header>
+    </div>
+    
+      <div class="container">
+        <!-- Body of The Pages -->
+        <aside class="sidebar">
+            <svg class="side-nav__icon">
+                <use xlink:href="#icon-first"></use>
+            </svg>
+            <div class="nav-sidebar nav-sidebar-hidden">
+                
+                <h4> Getting Started </h4>
+            
+                <ul class="util__ls-none nav-sidebar__lists">
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link nav-active"> 
+                            Introduction 
+                        </a>    
+                    </li>
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link"> Commands </a>    
+                    </li>
+            
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link"> Bootstrap and Bootstrap Icons </a>    
+                    </li>
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link">fontawesome and fontawesome Icons </a>    
+                    </li>
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link">NPM </a>    
+                    </li>
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link">Command line </a>    
+                    </li>
+                </ul>
+            
+                <h4> Information sets </h4>
+                <ul class="util__ls-none nav-sidebar__lists">
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link">NPM </a>    
+                    </li>
+                    <li class="nav-sidebar__list font-nav__sidebar">
+                        <a href="#" class="nav-sidebar__link">Command line </a>    
+                    </li>
+                </ul>
+            </div>
+        </aside>
+        <div class="contents th_article-reset">
+            <!-- 
+            <div class="content-fix">
+              <div class="page-content" id="page-content">
+                <span class="btn btn-listItem" id="btnClick"> <> </span> 
+                <ul class="items-list" id="items-list">
+                  <li><a href="#introduction">Introduction </a></li>
+                  <li> <a href="#subject1">Subject 1 </a></li>
+                  <li> <a href="#subject1">Subject 1 </a></li>
+                  <li> <a href="#subject1">Subject 1 </a></li>
+                </ul>
+              
+              </div>
+            </div>
+            
+            -->
+            
+            
+            <h1 id="introduction"> Introduction  <a href="#introduction"> #</a></h1>
+            <p style="color:#fff">
+                Lorem ipsum, dolor sit amet consectetur adipisicing elit. 
+                Perferendis illo tempora odit illum facere soluta error 
+                eaque voluptates, ratione et iste aperiam odio aliquid 
+                accusantium atque recusandae incidunt magni libero!
+            </p>
+            
+            <h2 id="subject1"> Subject 1 <a href="#subject1"> #</a></h2>
+                <p>  Lorem ipsum, dolor sit amet consectetur adipisicing elit. 
+                    Perferendis illo tempora odit illum facere soluta error 
+                    eaque voluptates, ratione et iste aperiam odio aliquid 
+                    accusantium atque recusandae incidunt magni libero!</p>
+            <h3> Sub 1 </h3>
+            
+            
+            <h2 id=""> Subject 1</h2>
+                <p>  Lorem ipsum, dolor sit amet consectetur adipisicing elit. 
+                    Perferendis illo tempora odit illum facere soluta error 
+                    eaque voluptates, ratione et iste aperiam odio aliquid 
+                    accusantium atque recusandae incidunt magni libero!</p>
+            <h3> Sub 1 </h3>
+            <p>  Lorem ipsum, dolor sit amet consectetur adipisicing elit. 
+                Perferendis illo tempora odit illum facere soluta error 
+                eaque voluptates, ratione et iste aperiam odio aliquid 
+                accusantium atque recusandae incidunt magni libero!</p>
+            
+                <ul>
+                    <li>Test 1</li>
+                    <li>Test 2</li>
+                    <li>Test 3</li>
+                </ul>
+            
+                <ol>
+                    <li>list 1</li>
+                    <li>list 2</li>
+                    <li>list 3</li>
+                </ol>
+            
+            
+            <div class="highlight">
+                <pre>
+            <code class="language-html" data-lang="html">
+            &lt;!DOCTYPE html&gt;
+            &lt;html&gt;
+            &lt;head&gt;
+            &lt;title&gt;My Web Page&lt;/title&gt;
+            &lt;/head&gt;
+            &lt;body&gt;
+            &lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello, World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello,  World!&lt;/h1&gt;&lt;h1&gt;Hello, , 
+            &lt;/html&gt;
+            &lt;/html&gt;
+            </code>
+                    </pre>
+            </div>
+            
+            <h3> Tables </h3>
+            <table>
+                <thead>
+                  <tr>
+                    <th>Column 1</th>
+                    <th>Column 2</th>
+                    <th><a href="#"> sample link</a></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Data 1</td>
+                    <td>Data 2</td>
+                    <td><a href="#"> sample link</a></td>
+                  </tr>
+                  <tr>
+                    <td>Data 4</td>
+                    <td>Data 5</td>
+                    <td>Data 6</td>
+                  </tr>
+                  <!-- Add more rows as needed -->
+                </tbody>
+              </table>
+        </div>
+      </div>
+      <div class="footer-wrap">
+        <footer class="footer">
+          
+            <div class="footer__logo">
+              <a href="#" class="logo"><img src="img/theme_3_logo.png" alt="site logo" class="logo"></a>
+            
+          
+              <a href="#">
+                  by Rontea 2024
+              </a>
+            </div>
+            <div class="footer__social">
+              <nav class="footer__social-nav">
+                  <a class="footer-nav__link" href="#">
+                    <svg class="footer-nav__icon">
+                      <use xlink:href="#icon-github"></use>
+                    </svg>
+                  </a>
+                  <a class="footer-nav__link" href="#">
+                    <svg class="footer-nav__icon">
+                      <use xlink:href="#icon-linkedin"></use>
+                    </svg>
+                  </a>
+                  <a class="footer-nav__link" href="#">
+                    <svg class="footer-nav__icon">
+                      <use xlink:href="#icon-insert-template"></use>
+                    </svg>
+                  </a>
+              </nav>
+            </div>
+          
+        </footer>
+      </div>
+ 
+    </div>
+        <script src="js/main.js"></script>
+        <script defer src="js/svgxuse.js"></script>
+        <script defer src="js/prism.js"></script>
+  </body>
+</html>
