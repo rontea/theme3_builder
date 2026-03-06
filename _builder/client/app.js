@@ -1,0 +1,1639 @@
+/**
+ * Theme_3 Visual Builder - Main Application
+ */
+
+class VisualBuilder {
+    constructor() {
+        this.siteProjectName = 'theme_3';
+        this.project = { name: this.siteProjectName, createdAt: new Date().toISOString() };
+        this.currentPageName = null;
+        this.currentLayoutFileName = null;
+        this.historyUndo = [];
+        this.historyRedo = [];
+        this.historyUndo = [];
+        this.historyRedo = [];
+        this.partials = [];
+        this.pageComponents = [];
+        this.pageCreated = false;
+        this.partialHeightCache = {};
+        this.currentDragPartialPath = null;
+        this.selectedItem = null;
+        this.apiBase = '';
+        this.pendingDeleteTarget = null;
+        
+        this.init();
+    }
+
+    async init() {
+        try {
+            // Wait for DOM to be ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => this.setup());
+            } else {
+                this.setup();
+            }
+        } catch (error) {
+            console.error('Initialization error:', error);
+            this.showToast('Failed to initialize builder', 'error');
+        }
+    }
+
+    async setup() {
+        this.bindElements();
+        this.bindEvents();
+        this.initSortable();
+        this.updateEditorBreadcrumb();
+        this.showLandingScreen();
+    }
+
+    bindElements() {
+        // Sidebar elements
+        this.searchInput = document.getElementById('searchPartials');
+        this.partialsList = document.getElementById('partialsList');
+        this.syncPagePartials = document.getElementById('syncPagePartials');
+        
+        // Canvas elements
+        this.canvas = document.getElementById('canvas');
+        this.canvasDropZone = document.getElementById('canvasDropZone');
+        this.canvasEmpty = document.getElementById('canvasEmpty');
+        this.componentCount = document.getElementById('componentCount');
+        
+        // Buttons
+        this.btnUndo = document.getElementById('btnUndo');
+        this.btnRedo = document.getElementById('btnRedo');
+        this.btnClear = document.getElementById('btnClear');
+        this.btnPreview = document.getElementById('btnPreview');
+        this.btnToggleStitchMode = document.getElementById('btnToggleStitchMode');
+        this.btnExport = document.getElementById('btnExport');
+        this.btnSave = document.getElementById('btnSave');
+        this.btnLoadLayout = document.getElementById('btnLoadLayout');
+        this.btnClosePage = document.getElementById('btnClosePage');
+        this.btnCreateProject = document.getElementById('btnCreateProject');
+        this.projectNameDisplay = document.getElementById('projectNameDisplay');
+
+        // Modals
+        this.previewModal = document.getElementById('previewModal');
+        this.exportModal = document.getElementById('exportModal');
+        this.loadLayoutModal = document.getElementById('loadLayoutModal');
+        this.deleteProjectModal = document.getElementById('deleteProjectModal');
+        this.createProjectModal = document.getElementById('createProjectModal');
+        this.createPageModal = document.getElementById('createPageModal');
+        this.partialCodeModal = document.getElementById('partialCodeModal');
+        this.previewFrame = document.getElementById('previewFrame');
+        this.exportOutput = document.getElementById('exportOutput');
+        this.partialCodeTitle = document.getElementById('partialCodeTitle');
+        this.partialCodeOutput = document.getElementById('partialCodeOutput');
+        this.projectNameInput = document.getElementById('projectNameInput');
+        this.openCreateProjectButton = document.getElementById('openCreateProjectModal');
+        this.confirmCreateProject = document.getElementById('confirmCreateProject');
+        this.closeCreateProjectButton = document.getElementById('closeCreateProjectModal');
+        this.cancelCreateProjectButton = document.getElementById('cancelCreateProject');
+        this.pageNameInput = document.getElementById('pageNameInput');
+        this.confirmCreatePage = document.getElementById('confirmCreatePage');
+        this.closeCreatePageButton = document.getElementById('closeCreatePageModal');
+        this.cancelCreatePageButton = document.getElementById('cancelCreatePage');
+        this.closeDeleteProject = document.getElementById('closeDeleteProject');
+        this.cancelDeleteProject = document.getElementById('cancelDeleteProject');
+        this.confirmDeleteProject = document.getElementById('confirmDeleteProject');
+        this.deleteProjectName = document.getElementById('deleteProjectName');
+        this.savedLayoutsList = document.getElementById('savedLayoutsList');
+        this.landingScreen = document.getElementById('landingScreen');
+        this.landingProjectsList = document.getElementById('landingProjectsList');
+        this.landingContentTitle = document.getElementById('landingContentTitle');
+        this.syncLandingPages = document.getElementById('syncLandingPages');
+        this.closeProjectDashboard = document.getElementById('closeProjectDashboard');
+        this.refreshLandingProjects = document.getElementById('refreshLandingProjects');
+        
+        // Page title
+        this.pageTitleInput = document.getElementById('pageTitle');
+        
+        // Properties panel
+        this.propertiesPanel = document.getElementById('propertiesPanel');
+        this.propertiesContent = document.getElementById('propertiesContent');
+        this.closeProperties = document.getElementById('closeProperties');
+    }
+
+    bindEvents() {
+        // Search
+        this.searchInput.addEventListener('input', () => this.filterComponents());
+        
+        // Toolbar buttons
+        this.btnUndo.addEventListener('click', () => this.undo());
+        this.btnRedo.addEventListener('click', () => this.redo());
+        this.btnClear.addEventListener('click', () => this.clearCanvas());
+        this.btnPreview.addEventListener('click', () => this.showPreview());
+        this.btnToggleStitchMode.addEventListener('click', () => this.toggleStitchMode());
+        this.btnExport.addEventListener('click', () => this.showExportModal());
+        this.btnSave.addEventListener('click', () => this.saveLayout());
+        this.btnLoadLayout.addEventListener('click', () => this.openLoadLayoutModal());
+        this.btnClosePage.addEventListener('click', () => this.closeCurrentPageToDashboard());
+        this.btnCreateProject.addEventListener('click', () => this.openProjectModal());
+        this.syncLandingPages.addEventListener('click', () => this.syncPagesFromFilesystem());
+        this.syncPagePartials.addEventListener('click', () => this.syncCurrentPagePartials());
+        this.refreshLandingProjects.addEventListener('click', () => this.loadLandingProjects());
+        this.closeProjectDashboard.addEventListener('click', () => this.closeProjectToMainDashboard());
+        this.openCreateProjectButton.addEventListener('click', () => this.handleLandingPrimaryAction());
+        
+        // Modal close buttons
+        document.getElementById('closePreview').addEventListener('click', () => this.hideModal(this.previewModal));
+        document.getElementById('closeExport').addEventListener('click', () => this.hideModal(this.exportModal));
+        document.getElementById('closeLoadLayout').addEventListener('click', () => this.hideModal(this.loadLayoutModal));
+        document.getElementById('closePartialCodeModal').addEventListener('click', () => this.hideModal(this.partialCodeModal));
+        this.closeCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
+        this.cancelCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
+        this.closeCreatePageButton.addEventListener('click', () => this.closeCreatePageModal());
+        this.cancelCreatePageButton.addEventListener('click', () => this.closeCreatePageModal());
+        this.closeDeleteProject.addEventListener('click', () => this.closeDeleteProjectModal());
+        this.cancelDeleteProject.addEventListener('click', () => this.closeDeleteProjectModal());
+        this.confirmDeleteProject.addEventListener('click', () => this.confirmDeleteProjectAction());
+        
+        // Export buttons
+        document.getElementById('copyExport').addEventListener('click', () => this.copyToClipboard());
+        document.getElementById('downloadExport').addEventListener('click', () => this.downloadExport());
+        
+        // Close modals on background click
+        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.createProjectModal, this.createPageModal, this.partialCodeModal].forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    if (modal === this.deleteProjectModal) {
+                        this.closeDeleteProjectModal();
+                    } else if (modal === this.createProjectModal) {
+                        this.closeCreateProjectModal();
+                    } else if (modal === this.createPageModal) {
+                        this.closeCreatePageModal();
+                    } else {
+                        this.hideModal(modal);
+                    }
+                }
+            });
+        });
+        
+        // Properties panel
+        this.closeProperties.addEventListener('click', () => this.hidePropertiesPanel());
+        this.confirmCreateProject.addEventListener('click', () => this.createProject());
+        this.projectNameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.createProject();
+            }
+        });
+        this.confirmCreatePage.addEventListener('click', () => this.createPage());
+        this.pageNameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.createPage();
+            }
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.hideModal(this.previewModal);
+                this.hideModal(this.exportModal);
+                this.hideModal(this.partialCodeModal);
+                this.closeCreateProjectModal();
+                this.closeCreatePageModal();
+                this.closeDeleteProjectModal();
+            }
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                this.saveLayout();
+            }
+            if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                this.undo();
+            }
+            if ((e.ctrlKey && e.key.toLowerCase() === 'y') || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')) {
+                e.preventDefault();
+                this.redo();
+            }
+        });
+    }
+
+    initSortable() {
+        // Sidebar partials - clone on drag
+        this.partialsSortable = new Sortable(this.partialsList, {
+            group: {
+                name: 'builder',
+                pull: 'clone',
+                put: false
+            },
+            draggable: '.component-item',
+            filter: '.component-view-code',
+            preventOnFilter: false,
+            sort: false,
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            onStart: (evt) => {
+                const partialPath = evt?.item?.dataset?.path || '';
+                this.currentDragPartialPath = partialPath;
+                const cachedHeight = this.partialHeightCache[partialPath];
+                const previewHeight = Number.isFinite(cachedHeight) ? cachedHeight : 240;
+                this.canvasDropZone.style.setProperty('--drag-preview-height', `${Math.max(140, Math.round(previewHeight))}px`);
+                this.canvasDropZone.classList.add('is-dragging-partial');
+            },
+            onEnd: () => {
+                this.clearDragPreviewIndicator();
+            }
+        });
+
+        // Canvas drop zone
+        this.canvasSortable = new Sortable(this.canvasDropZone, {
+            group: {
+                name: 'builder',
+                pull: false,
+                put: ['builder']
+            },
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            chosenClass: 'sortable-chosen',
+            handle: '.canvas-item-header',
+            onAdd: (evt) => this.handleDrop(evt),
+            onRemove: (evt) => this.handleRemove(evt),
+            onUpdate: (evt) => this.handleReorder(evt)
+        });
+    }
+
+    setProjectLockState(isLocked) {
+        this.btnUndo.disabled = isLocked;
+        this.btnRedo.disabled = isLocked;
+        this.btnClear.disabled = isLocked;
+        this.btnPreview.disabled = isLocked;
+        this.btnToggleStitchMode.disabled = isLocked;
+        this.btnExport.disabled = isLocked;
+        this.btnSave.disabled = isLocked;
+        this.btnClosePage.disabled = isLocked;
+        this.syncPagePartials.disabled = isLocked;
+        this.searchInput.disabled = isLocked;
+        this.pageTitleInput.disabled = isLocked;
+        if (this.partialsSortable) this.partialsSortable.option('disabled', isLocked);
+        if (this.canvasSortable) this.canvasSortable.option('disabled', isLocked);
+    }
+
+    getSnapshot() {
+        return JSON.parse(JSON.stringify(this.pageComponents));
+    }
+
+    pushHistory() {
+        this.historyUndo.push(this.getSnapshot());
+        if (this.historyUndo.length > 100) {
+            this.historyUndo.shift();
+        }
+        this.historyRedo = [];
+    }
+
+    undo() {
+        if (this.historyUndo.length === 0) {
+            this.showToast('Nothing to undo', 'warning');
+            return;
+        }
+        this.historyRedo.push(this.getSnapshot());
+        this.pageComponents = this.historyUndo.pop();
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+    }
+
+    redo() {
+        if (this.historyRedo.length === 0) {
+            this.showToast('Nothing to redo', 'warning');
+            return;
+        }
+        this.historyUndo.push(this.getSnapshot());
+        this.pageComponents = this.historyRedo.pop();
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+    }
+
+    refreshLivePreview() {
+        if (this.previewModal.classList.contains('active')) {
+            this.previewFrame.srcdoc = this.generatePreviewHTML();
+        }
+    }
+
+    toggleStitchMode() {
+        const isActive = this.canvas.classList.toggle('stitch-mode');
+        this.btnToggleStitchMode.classList.toggle('btn-primary', isActive);
+        this.btnToggleStitchMode.classList.toggle('btn-secondary', !isActive);
+        this.btnToggleStitchMode.querySelector('span').textContent = isActive ? 'Edit View' : 'Stitch View';
+        this.btnToggleStitchMode.title = isActive ? 'Switch to Edit View' : 'Switch to Stitch View';
+    }
+
+    openProjectModal() {
+        this.showLandingScreen();
+    }
+
+    showLandingScreen() {
+        this.landingScreen.classList.add('active');
+        this.setProjectLockState(true);
+        this.updateLandingPrimaryAction();
+        this.loadLandingProjects();
+    }
+
+    closeProjectToMainDashboard() {
+        this.currentPageName = null;
+        this.pageCreated = false;
+        this.currentLayoutFileName = null;
+        this.updateEditorBreadcrumb();
+        this.updateLandingPrimaryAction();
+        this.loadLandingProjects();
+    }
+
+    updateEditorBreadcrumb() {
+        const pageName = this.currentPageName || '';
+        this.projectNameDisplay.textContent = pageName || 'No Page';
+    }
+
+    showCreateProjectModal() {
+        this.createProjectModal.classList.add('active');
+        setTimeout(() => this.projectNameInput.focus(), 0);
+    }
+
+    closeCreateProjectModal() {
+        this.createProjectModal.classList.remove('active');
+    }
+
+    showCreatePageModal() {
+        this.createPageModal.classList.add('active');
+        setTimeout(() => this.pageNameInput.focus(), 0);
+    }
+
+    closeCreatePageModal() {
+        this.createPageModal.classList.remove('active');
+    }
+
+    updateLandingPrimaryAction() {
+        this.openCreateProjectButton.innerHTML = '<i class="fas fa-file"></i> Create Page';
+    }
+
+    handleLandingPrimaryAction() {
+        this.showCreatePageModal();
+    }
+
+    enterBuilder() {
+        this.landingScreen.classList.remove('active');
+        this.setProjectLockState(false);
+    }
+
+    closeCurrentPageToDashboard() {
+        if (!this.project) {
+            this.showLandingScreen();
+            return;
+        }
+
+        if (this.pageComponents.length > 0) {
+            const confirmed = confirm('Close this page and discard unsaved changes?');
+            if (!confirmed) {
+                return;
+            }
+        }
+
+        this.pageCreated = false;
+        this.currentLayoutFileName = null;
+        this.historyUndo = [];
+        this.historyRedo = [];
+        this.pageComponents = [];
+        this.pageTitleInput.value = '';
+        this.currentPageName = null;
+        this.updateEditorBreadcrumb();
+        this.renderCanvasFromState();
+        this.showLandingScreen();
+        this.showToast(`Returned to ${this.project.name} dashboard`, 'success');
+    }
+
+    async createProject() {
+        const projectName = (this.projectNameInput.value || '').trim();
+        if (!projectName) {
+            this.showToast('Project name is required', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ projectName })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to create project');
+            }
+
+            this.project = {
+                name: result?.data?.projectName || projectName,
+                createdAt: result?.data?.createdAt || new Date().toISOString()
+            };
+        } catch (error) {
+            console.error('Failed to create project:', error);
+            this.showToast(`Failed to create project: ${error.message}`, 'error');
+            return;
+        }
+
+        this.pageCreated = false;
+        this.currentPageName = null;
+        this.currentLayoutFileName = null;
+        this.historyUndo = [];
+        this.historyRedo = [];
+        this.pageComponents = [];
+        this.renderCanvasFromState();
+
+        this.updateEditorBreadcrumb();
+        this.pageTitleInput.value = '';
+        this.partials = [];
+        this.partialsList.innerHTML = '<div class="loading">Create a page to load partials...</div>';
+
+        this.projectNameInput.value = '';
+        this.closeCreateProjectModal();
+        this.showLandingScreen();
+        this.updateLandingPrimaryAction();
+        this.showToast(`Project created: ${projectName}. Create a page from the left panel.`, 'success');
+    }
+
+    async createPage() {
+        const pageName = (this.pageNameInput.value || '').trim();
+        if (!pageName) {
+            this.showToast('Page name is required', 'warning');
+            return;
+        }
+
+        const normalizedPageName = pageName
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        if (!normalizedPageName) {
+            this.showToast('Page name must include letters or numbers', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/pages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    projectName: this.siteProjectName,
+                    pageName: normalizedPageName,
+                    pageTitle: normalizedPageName
+                })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to create page');
+            }
+        } catch (error) {
+            console.error('Failed to create page:', error);
+            this.showToast(`Failed to create page: ${error.message}`, 'error');
+            return;
+        }
+
+        this.currentPageName = normalizedPageName;
+        this.currentLayoutFileName = null;
+        this.pageTitleInput.value = normalizedPageName;
+        this.updateEditorBreadcrumb();
+        this.pageNameInput.value = '';
+        this.pageCreated = true;
+
+        await this.loadPartials();
+        this.closeCreatePageModal();
+        this.enterBuilder();
+        this.updateLandingPrimaryAction();
+        this.showToast(`Page created: ${this.pageTitleInput.value}`, 'success');
+    }
+
+    async loadLandingProjects() {
+        this.landingContentTitle.textContent = 'Pages';
+        this.closeProjectDashboard.style.display = 'none';
+        this.landingProjectsList.innerHTML = '<div class="text-sm text-slate-400">Loading pages...</div>';
+        try {
+            const response = await fetch(`/api/pages?projectName=${encodeURIComponent(this.siteProjectName)}`);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to load pages');
+            }
+
+            let items = Array.isArray(result.data) ? result.data : [];
+
+            if (items.length === 0) {
+                this.landingProjectsList.innerHTML = '<div class="text-sm text-slate-400">No pages found. Click Create Page on the left.</div>';
+                return;
+            }
+
+            let html = '';
+            items.forEach((item) => {
+                const itemName = item.pageName;
+                const iconClass = 'fa-html5';
+                const deleteTitle = 'Delete page';
+                const partials = Array.isArray(item.partials) ? item.partials : [];
+                const partialPreview = partials.slice(0, 4);
+                const remainingCount = partials.length - partialPreview.length;
+                const partialsHtml = partials.length > 0
+                    ? `<div class="mt-2 flex flex-wrap gap-1">${partialPreview.map((p) => `<span class="inline-flex max-w-full truncate rounded-md border border-slate-600/70 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-300" title="${p}">${p}</span>`).join("")}${remainingCount > 0 ? `<span class="inline-flex rounded-md border border-slate-600/70 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-400">+${remainingCount}</span>` : ""}</div>`
+                    : '<div class="mt-2 text-[10px] text-slate-500">No detected partials</div>';
+                html += `
+                    <div class="group rounded-2xl border border-slate-700/60 bg-slate-800/50 p-4 shadow-md transition hover:-translate-y-0.5 hover:border-slate-500/70 hover:shadow-xl" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}">
+                        <div class="flex items-center gap-4 min-w-0">
+                            <div class="relative shrink-0">
+                                <button class="landing-project-open" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
+                                    <span class="inline-flex h-14 w-14 items-center justify-center rounded-xl border border-slate-600/80 bg-slate-900/80">
+                                        <i class="fas ${iconClass} text-2xl text-orange-500"></i>
+                                    </span>
+                                </button>
+                                <button class="landing-project-delete absolute bottom-0 right-0 translate-x-1/4 translate-y-1/4 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-rose-500 text-white shadow-md transition hover:scale-110 hover:bg-rose-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="${deleteTitle}">
+                                    <i class="fas fa-trash-alt text-[10px]"></i>
+                                </button>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <button class="landing-project-open block w-full truncate text-left text-sm font-semibold text-slate-100 transition hover:text-white" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
+                                    ${itemName}
+                                </button>
+                                <div class="mt-1 truncate text-xs text-slate-400">${item.updatedAt}</div>
+                                ${partialsHtml}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            this.landingProjectsList.innerHTML = html;
+
+            this.landingProjectsList.querySelectorAll('.landing-project-open').forEach((card) => {
+                card.addEventListener('click', async (e) => {
+                    const pageName = e.currentTarget.dataset.pageName;
+                    const layoutFileName = e.currentTarget.dataset.layoutFileName;
+
+                    await this.openPageFromDashboard(pageName, layoutFileName);
+                });
+            });
+            this.landingProjectsList.querySelectorAll('.landing-project-delete').forEach((button) => {
+                button.addEventListener('click', (e) => {
+                    const projectName = e.currentTarget.dataset.projectName;
+                    const pageName = e.currentTarget.dataset.pageName;
+                    const layoutFileName = e.currentTarget.dataset.layoutFileName;
+                    this.openDeleteProjectModal({
+                        type: 'page',
+                        projectName,
+                        pageName,
+                        layoutFileName
+                    });
+                });
+            });
+        } catch (error) {
+            console.error('Failed to load landing projects:', error);
+            this.landingProjectsList.innerHTML = '<div class="text-sm text-rose-300">Failed to load pages</div>';
+        }
+    }
+
+    async syncPagesFromFilesystem() {
+        this.syncLandingPages.disabled = true;
+        try {
+            const response = await fetch('/api/pages/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ projectName: this.siteProjectName })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to sync pages');
+            }
+            const syncedCount = Number(result?.data?.syncedCount || 0);
+            this.showToast(`Sync complete: ${syncedCount} page(s) loaded`, 'success');
+            await this.loadLandingProjects();
+        } catch (error) {
+            console.error('Failed to sync pages:', error);
+            this.showToast(`Sync failed: ${error.message}`, 'error');
+        } finally {
+            this.syncLandingPages.disabled = false;
+        }
+    }
+
+    async openLoadLayoutModal() {
+        this.loadLayoutModal.classList.add('active');
+        await this.loadSavedLayoutsList();
+    }
+
+    async loadSavedLayoutsList() {
+        this.savedLayoutsList.innerHTML = '<div class="loading">Loading saved layouts...</div>';
+        try {
+            const response = await fetch('/api/saved-layouts');
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to load saved layouts');
+            }
+
+            if (!Array.isArray(result.data) || result.data.length === 0) {
+                this.savedLayoutsList.innerHTML = '<div class="loading">No saved layouts found</div>';
+                return;
+            }
+
+            let html = '';
+            result.data.forEach((item) => {
+                html += `
+                    <div class="saved-layout-item" data-file-name="${item.fileName}">
+                        <div class="saved-layout-meta">
+                            <div class="saved-layout-name">${item.fileName}</div>
+                            <div class="saved-layout-date">${item.updatedAt}</div>
+                        </div>
+                        <div class="saved-layout-actions">
+                            <button class="btn btn-primary btn-load-item">Load</button>
+                            <button class="btn btn-danger btn-delete-item" title="Delete project">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            this.savedLayoutsList.innerHTML = html;
+
+            this.savedLayoutsList.querySelectorAll('.btn-load-item').forEach((button) => {
+                button.addEventListener('click', async (e) => {
+                    const container = e.currentTarget.closest('.saved-layout-item');
+                    const fileName = container.dataset.fileName;
+                    await this.loadLayoutByFileName(fileName);
+                });
+            });
+            this.savedLayoutsList.querySelectorAll('.btn-delete-item').forEach((button) => {
+                button.addEventListener('click', (e) => {
+                    const container = e.currentTarget.closest('.saved-layout-item');
+                    const fileName = container.dataset.fileName;
+                    this.openDeleteProjectModal(fileName);
+                });
+            });
+        } catch (error) {
+            console.error('Failed to load saved layouts list:', error);
+            this.savedLayoutsList.innerHTML = '<div class="loading">Failed to load saved layouts</div>';
+        }
+    }
+
+    async openPageFromDashboard(pageName, layoutFileName) {
+        this.currentPageName = pageName;
+        this.pageCreated = true;
+        this.pageTitleInput.value = pageName;
+        this.currentLayoutFileName = layoutFileName || null;
+        this.historyUndo = [];
+        this.historyRedo = [];
+
+        if (layoutFileName) {
+            await this.loadLayoutByFileName(layoutFileName, pageName);
+            return;
+        }
+
+        this.pageComponents = [];
+        this.renderCanvasFromState();
+        await this.loadPartials();
+        this.enterBuilder();
+        this.showToast('Page opened. Click "Sync Page Partials" to load its current structure.', 'warning');
+        this.showToast(`Opened page: ${pageName}`, 'success');
+    }
+
+    async syncCurrentPagePartials() {
+        if (!this.currentPageName) {
+            this.showToast('Open a page first', 'warning');
+            return;
+        }
+
+        this.syncPagePartials.disabled = true;
+        try {
+            const response = await fetch(
+                `/api/pages/partials?projectName=${encodeURIComponent(this.siteProjectName)}&pageName=${encodeURIComponent(this.currentPageName)}`
+            );
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to detect page partials');
+            }
+
+            const partialPaths = Array.isArray(result?.data?.partials) ? result.data.partials : [];
+            if (partialPaths.length === 0) {
+                this.showToast('No partial markers found in this page html', 'warning');
+                return;
+            }
+
+            const components = [];
+            for (const componentPath of partialPaths) {
+                const partialResponse = await fetch(`/api/partial?path=${encodeURIComponent(componentPath)}`);
+                const partialResult = await partialResponse.json();
+                if (!partialResult.success) {
+                    throw new Error(partialResult.error || `Failed to load partial: ${componentPath}`);
+                }
+                components.push({
+                    instanceId: 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+                    type: 'partial',
+                    componentPath,
+                    name: componentPath.split('/').pop().replace('.html', ''),
+                    props: {},
+                    content: partialResult.data
+                });
+            }
+
+            this.pageComponents = components;
+            this.historyUndo = [];
+            this.historyRedo = [];
+            this.renderCanvasFromState();
+            this.showToast(`Synced ${components.length} partial(s) from ${this.currentPageName}.html`, 'success');
+        } catch (error) {
+            console.error('Failed to sync current page partials:', error);
+            this.showToast(`Sync failed: ${error.message}`, 'error');
+        } finally {
+            this.syncPagePartials.disabled = false;
+        }
+    }
+
+    openDeleteProjectModal(target) {
+        if (typeof target === 'string') {
+            this.pendingDeleteTarget = {
+                type: 'layout',
+                fileName: target
+            };
+        } else {
+            this.pendingDeleteTarget = target;
+        }
+        this.deleteProjectName.textContent = this.pendingDeleteTarget?.pageName
+            || this.pendingDeleteTarget?.projectName
+            || this.pendingDeleteTarget?.fileName
+            || '';
+        this.deleteProjectModal.classList.add('active');
+    }
+
+    closeDeleteProjectModal() {
+        this.pendingDeleteTarget = null;
+        this.deleteProjectName.textContent = '';
+        this.deleteProjectModal.classList.remove('active');
+    }
+
+    async confirmDeleteProjectAction() {
+        if (!this.pendingDeleteTarget) {
+            return;
+        }
+
+        this.confirmDeleteProject.disabled = true;
+        try {
+            const target = this.pendingDeleteTarget;
+            let response;
+            if (target.type === 'project') {
+                response = await fetch('/api/projects', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ projectName: target.projectName })
+                });
+            } else if (target.type === 'page') {
+                response = await fetch('/api/pages', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        projectName: target.projectName,
+                        pageName: target.pageName
+                    })
+                });
+            } else {
+                response = await fetch('/api/saved-layout', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ fileName: target.fileName })
+                });
+            }
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to delete item');
+            }
+
+            if (target.type === 'layout' && this.currentLayoutFileName === target.fileName) {
+                this.currentLayoutFileName = null;
+            }
+            if (target.type === 'page' && this.currentPageName === target.pageName) {
+                this.currentPageName = null;
+                this.pageCreated = false;
+                this.updateEditorBreadcrumb();
+            }
+            if (target.type === 'project' && this.project?.name === target.projectName) {
+                this.currentPageName = null;
+                this.pageCreated = false;
+                this.currentLayoutFileName = null;
+                this.updateEditorBreadcrumb();
+            }
+
+            this.showToast('Deleted successfully', 'success');
+            this.closeDeleteProjectModal();
+            await this.loadLandingProjects();
+
+            if (this.loadLayoutModal.classList.contains('active')) {
+                await this.loadSavedLayoutsList();
+            }
+        } catch (error) {
+            console.error('Failed to delete project:', error);
+            this.showToast(`Delete failed: ${error.message}`, 'error');
+        } finally {
+            this.confirmDeleteProject.disabled = false;
+        }
+    }
+
+    async loadLayoutByFileName(fileName, pageNameHint = '') {
+        try {
+            const response = await fetch(`/api/saved-layout?fileName=${encodeURIComponent(fileName)}`);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to load layout');
+            }
+
+            const layoutData = result.data;
+            const components = await this.buildPageComponentsFromLayout(layoutData.layout || []);
+            this.pageComponents = components;
+            this.historyUndo = [];
+            this.historyRedo = [];
+            this.renderCanvasFromState();
+
+            this.project = {
+                name: this.siteProjectName,
+                createdAt: this.project?.createdAt || new Date().toISOString()
+            };
+            this.pageTitleInput.value = layoutData.pageTitle || layoutData.pageName || this.pageTitleInput.value;
+            this.currentLayoutFileName = fileName;
+            this.currentPageName = layoutData.pageName || this.pageTitleInput.value;
+            this.updateEditorBreadcrumb();
+            this.pageCreated = true;
+
+            await this.loadPartials();
+
+            this.enterBuilder();
+            this.hideModal(this.loadLayoutModal);
+            this.updateLandingPrimaryAction();
+            const displayPageName = this.currentPageName || layoutData.pageName || pageNameHint || this.pageTitleInput.value;
+            this.showToast(`Loaded page: ${displayPageName}`, 'success');
+        } catch (error) {
+            console.error('Failed to load layout:', error);
+            this.showToast(`Failed to load layout: ${error.message}`, 'error');
+        }
+    }
+
+    async buildPageComponentsFromLayout(layoutItems) {
+        const components = [];
+        for (const item of layoutItems) {
+            const componentPath = item.componentPath || item.partial;
+            const endpoint = item.type === 'layout' ? '/api/layout' : '/api/partial';
+            const response = await fetch(`${endpoint}?path=${encodeURIComponent(componentPath)}`);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || `Failed to load component ${componentPath}`);
+            }
+
+            components.push({
+                instanceId: item.id || ('instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)),
+                type: item.type || 'partial',
+                componentPath,
+                name: item.name || componentPath.split('/').pop().replace('.html', ''),
+                props: item.props || {},
+                content: result.data
+            });
+        }
+        return components;
+    }
+
+    async loadPartials() {
+        try {
+            this.partialsList.innerHTML = '<div class="loading">Loading components...</div>';
+            
+            const response = await fetch('/api/partials');
+            const result = await response.json();
+            
+            if (result.success) {
+                const items = Array.isArray(result.data) ? result.data : [];
+                this.partials = items.filter((item) => {
+                    const partialPath = String(item?.path || '');
+                    return partialPath.endsWith('.html')
+                        && !partialPath.includes('..')
+                        && !partialPath.startsWith('/')
+                        && !partialPath.startsWith('\\');
+                });
+                this.renderPartials(this.partials);
+            } else {
+                throw new Error(result.error);
+            }
+        } catch (error) {
+            console.error('Error loading partials:', error);
+            this.partialsList.innerHTML = '<div class="loading">Error loading components</div>';
+            this.showToast('Failed to load components', 'error');
+        }
+    }
+
+    renderPartials(partials) {
+        if (!partials || partials.length === 0) {
+            this.partialsList.innerHTML = '<div class="loading">No components match the current search/filter</div>';
+            return;
+        }
+
+        const sorted = [...partials].sort((a, b) => {
+            const byCategory = String(a.category || '').localeCompare(String(b.category || ''));
+            if (byCategory !== 0) return byCategory;
+            return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+
+        let html = '';
+        sorted.forEach((partial) => {
+            html += this.createComponentItem(partial);
+        });
+        
+        this.partialsList.innerHTML = html;
+        this.bindPartialCodeButtons();
+        
+        // Reinitialize sortable for new items
+        this.partialsSortable.option('disabled', false);
+    }
+
+    bindPartialCodeButtons() {
+        this.partialsList.querySelectorAll('.component-view-code').forEach((button) => {
+            button.addEventListener('mousedown', (e) => e.stopPropagation());
+            button.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const partialPath = e.currentTarget.dataset.path;
+                await this.openPartialCodeModal(partialPath);
+            });
+        });
+    }
+
+    async openPartialCodeModal(partialPath) {
+        if (!partialPath) {
+            return;
+        }
+
+        this.partialCodeTitle.textContent = `Partial Code: ${partialPath}`;
+        this.partialCodeOutput.textContent = 'Loading...';
+        this.partialCodeModal.classList.add('active');
+
+        try {
+            const response = await fetch(`/api/partial?path=${encodeURIComponent(partialPath)}`);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to load partial code');
+            }
+            this.partialCodeOutput.textContent = result.data || '';
+        } catch (error) {
+            console.error('Failed to load partial code:', error);
+            this.partialCodeOutput.textContent = `Error: ${error.message}`;
+        }
+    }
+
+    createComponentItem(partial) {
+        const preview = partial.preview && partial.preview.trim().length > 0
+            ? partial.preview
+            : 'No preview available';
+        return `
+            <div class="component-item" data-type="partial" data-path="${partial.path}" data-id="${partial.id}">
+                <i class="fas fa-puzzle-piece"></i>
+                <div class="component-meta">
+                    <span class="component-name">${partial.name}</span>
+                    <span class="component-preview">${preview}</span>
+                </div>
+                <button type="button" class="component-folder component-view-code" data-path="${partial.path}" title="View Partial Code">
+                    <i class="fab fa-html5" aria-hidden="true"></i>
+                </button>
+            </div>
+        `;
+    }
+
+    groupByCategory(items) {
+        const grouped = {};
+        
+        items.forEach(item => {
+            const category = item.category || 'General';
+            if (!grouped[category]) {
+                grouped[category] = [];
+            }
+            grouped[category].push(item);
+        });
+        
+        return grouped;
+    }
+
+    filterComponents() {
+        const query = (this.searchInput.value || '').trim().toLowerCase();
+
+        const filtered = this.partials.filter(p => {
+            const queryMatch = !query ||
+                p.name.toLowerCase().includes(query) ||
+                p.path.toLowerCase().includes(query) ||
+                (p.category || '').toLowerCase().includes(query);
+            return queryMatch;
+        });
+
+        this.renderPartials(filtered);
+    }
+
+    handleDrop(evt) {
+        if (!this.project) {
+            evt.item.remove();
+            this.openProjectModal();
+            this.showToast('Create or open a page first', 'warning');
+            return;
+        }
+
+        if (!this.pageCreated) {
+            evt.item.remove();
+            this.showCreatePageModal();
+            this.showToast('Create a page first', 'warning');
+            return;
+        }
+
+        const item = evt.item;
+        const type = item.dataset.type;
+        const path = item.dataset.path;
+        
+        // Remove the dragged clone and create a canvas item
+        item.remove();
+        
+        // Fetch the content and create canvas item
+        this.createCanvasItem(type, path);
+    }
+
+    async createCanvasItem(type, path) {
+        try {
+            if (type !== 'partial') {
+                throw new Error('Only partial components are supported');
+            }
+
+            const endpoint = '/api/partial';
+            const response = await fetch(`${endpoint}?path=${encodeURIComponent(path)}`);
+            const result = await response.json();
+            
+            if (!result.success) {
+                throw new Error(result.error);
+            }
+            
+            const content = result.data;
+            const instanceId = 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            this.pushHistory();
+
+            const pageComponent = {
+                instanceId,
+                type: type,
+                componentPath: path,
+                name: path.split('/').pop().replace('.html', ''),
+                props: {},
+                content
+            };
+            
+            this.pageComponents.push(pageComponent);
+            this.renderCanvasFromState();
+            this.refreshLivePreview();
+            
+        } catch (error) {
+            console.error('Error creating canvas item:', error);
+            this.showToast('Failed to load component content', 'error');
+        }
+    }
+
+    renderCanvasFromState() {
+        this.canvasDropZone.innerHTML = '';
+        this.pageComponents.forEach((item) => this.renderCanvasItem(item));
+        this.updateCanvasState();
+    }
+
+    renderCanvasItem(item) {
+        const div = document.createElement('div');
+        div.className = 'canvas-item';
+        div.dataset.instanceId = item.instanceId;
+        div.dataset.type = item.type;
+        div.dataset.path = item.componentPath;
+        
+        div.innerHTML = `
+            <div class="canvas-item-header">
+                <div class="canvas-item-info">
+                    <i class="fas fa-${item.type === 'partial' ? 'puzzle-piece' : 'layer-group'}"></i>
+                    <span class="item-name">${item.name}</span>
+                    <span class="item-path">${item.componentPath}</span>
+                </div>
+                <div class="canvas-item-actions">
+                    <button class="btn-duplicate" title="Duplicate">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                    <button class="btn-edit" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-delete" title="Delete">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="canvas-item-content">
+                <div class="content-preview">${this.getRenderedComponentContent(item)}</div>
+            </div>
+        `;
+        
+        // Bind events
+        div.querySelector('.btn-delete').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.removeCanvasItem(item.instanceId);
+        });
+
+        div.querySelector('.btn-duplicate').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.duplicateCanvasItem(item.instanceId);
+        });
+        
+        div.querySelector('.btn-edit').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.selectCanvasItem(item.instanceId);
+        });
+        
+        div.addEventListener('click', () => this.selectCanvasItem(item.instanceId));
+        
+        this.canvasDropZone.appendChild(div);
+
+        // Cache rendered height to make future drag placeholders match this partial's block size.
+        if (item.componentPath) {
+            const measuredHeight = Math.ceil(div.getBoundingClientRect().height || 0);
+            if (measuredHeight > 0) {
+                this.partialHeightCache[item.componentPath] = measuredHeight;
+            }
+        }
+    }
+
+    removeCanvasItem(instanceId) {
+        this.pushHistory();
+        const index = this.pageComponents.findIndex(item => item.instanceId === instanceId);
+        if (index > -1) {
+            this.pageComponents.splice(index, 1);
+        }
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+        this.showToast('Component removed', 'success');
+    }
+
+    duplicateCanvasItem(instanceId) {
+        const index = this.pageComponents.findIndex(item => item.instanceId === instanceId);
+        if (index === -1) {
+            return;
+        }
+        this.pushHistory();
+
+        const original = this.pageComponents[index];
+        const duplicate = {
+            ...original,
+            instanceId: 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
+        };
+        this.pageComponents.splice(index + 1, 0, duplicate);
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+        this.showToast('Component duplicated', 'success');
+    }
+
+    selectCanvasItem(instanceId) {
+        // Remove previous selection
+        document.querySelectorAll('.canvas-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        
+        // Add selection to clicked item
+        const element = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
+        if (element) {
+            element.classList.add('selected');
+            this.selectedItem = instanceId;
+            this.showPropertiesPanel(instanceId);
+        }
+    }
+
+    handleRemove(evt) {
+        this.pushHistory();
+        const instanceId = evt.item.dataset.instanceId;
+        const index = this.pageComponents.findIndex(item => item.instanceId === instanceId);
+        if (index > -1) {
+            this.pageComponents.splice(index, 1);
+        }
+        this.updateCanvasState();
+        this.refreshLivePreview();
+    }
+
+    handleReorder(evt) {
+        this.pushHistory();
+        this.updateCanvasItemsOrder();
+        this.refreshLivePreview();
+    }
+
+    updateCanvasItemsOrder() {
+        const newOrder = [];
+        const elements = this.canvasDropZone.querySelectorAll('.canvas-item');
+        
+        elements.forEach(el => {
+            const instanceId = el.dataset.instanceId;
+            const item = this.pageComponents.find(i => i.instanceId === instanceId);
+            if (item) {
+                newOrder.push(item);
+            }
+        });
+        
+        this.pageComponents = newOrder;
+    }
+
+    updateCanvasState() {
+        const count = this.pageComponents.length;
+        this.componentCount.textContent = `${count} component${count !== 1 ? 's' : ''}`;
+        
+        if (count > 0) {
+            this.canvasEmpty.classList.add('hidden');
+            this.canvasDropZone.classList.remove('is-empty');
+        } else {
+            this.canvasEmpty.classList.remove('hidden');
+            this.canvasDropZone.classList.add('is-empty');
+        }
+    }
+
+    clearDragPreviewIndicator() {
+        this.currentDragPartialPath = null;
+        this.canvasDropZone.classList.remove('is-dragging-partial');
+        this.canvasDropZone.style.removeProperty('--drag-preview-height');
+    }
+
+    clearCanvas() {
+        if (this.pageComponents.length === 0) {
+            this.showToast('Canvas is already empty', 'warning');
+            return;
+        }
+        
+        if (confirm('Are you sure you want to clear all components?')) {
+            this.pushHistory();
+            this.pageComponents = [];
+            this.canvasDropZone.innerHTML = '';
+            this.updateCanvasState();
+            this.refreshLivePreview();
+            this.showToast('Canvas cleared', 'success');
+        }
+    }
+
+    showPropertiesPanel(instanceId) {
+        const item = this.pageComponents.find(i => i.instanceId === instanceId);
+        if (!item) return;
+        const defaults = this.extractDefaultsFromContent(item.content);
+        const props = { ...defaults, ...(item.props || {}) };
+        
+        this.propertiesPanel.classList.add('active');
+        
+        this.propertiesContent.innerHTML = `
+            <div class="form-group">
+                <label>Component Type</label>
+                <input type="text" value="${item.type}" disabled>
+            </div>
+            <div class="form-group">
+                <label>File Path</label>
+                <input type="text" value="${item.componentPath}" disabled>
+            </div>
+            <div class="form-group">
+                <label>Component Name</label>
+                <input type="text" value="${item.name}" id="propName">
+            </div>
+            <div class="form-group">
+                <label>Title Text</label>
+                <input type="text" value="${props.title || ''}" id="propTitle">
+            </div>
+            <div class="form-group">
+                <label>Paragraph Text</label>
+                <input type="text" value="${props.text || ''}" id="propText">
+            </div>
+            <div class="form-group">
+                <label>Link Text</label>
+                <input type="text" value="${props.linkText || ''}" id="propLinkText">
+            </div>
+            <div class="form-group">
+                <label>Link Href</label>
+                <input type="text" value="${props.linkHref || ''}" id="propLinkHref">
+            </div>
+            <div class="form-group">
+                <label>Image Src</label>
+                <input type="text" value="${props.imageSrc || ''}" id="propImageSrc">
+            </div>
+            <div class="form-group">
+                <label>Image Alt</label>
+                <input type="text" value="${props.imageAlt || ''}" id="propImageAlt">
+            </div>
+        `;
+
+        const bindProp = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', (e) => fn(e.target.value));
+        };
+
+        bindProp('propName', (value) => this.updateComponentProps(instanceId, { name: value }));
+        bindProp('propTitle', (value) => this.updateComponentProps(instanceId, { props: { title: value } }));
+        bindProp('propText', (value) => this.updateComponentProps(instanceId, { props: { text: value } }));
+        bindProp('propLinkText', (value) => this.updateComponentProps(instanceId, { props: { linkText: value } }));
+        bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
+        bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
+        bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
+    }
+
+    extractDefaultsFromContent(html) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = html;
+        const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+        const paragraph = wrapper.querySelector('p');
+        const link = wrapper.querySelector('a');
+        const image = wrapper.querySelector('img');
+        return {
+            title: heading ? heading.textContent : '',
+            text: paragraph ? paragraph.textContent : '',
+            linkText: link ? link.textContent : '',
+            linkHref: link ? (link.getAttribute('href') || '') : '',
+            imageSrc: image ? (image.getAttribute('src') || '') : '',
+            imageAlt: image ? (image.getAttribute('alt') || '') : ''
+        };
+    }
+
+    getRenderedComponentContent(item) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = item.content;
+        const props = item.props || {};
+        const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+        const paragraph = wrapper.querySelector('p');
+        const link = wrapper.querySelector('a');
+        const image = wrapper.querySelector('img');
+
+        if (heading && typeof props.title === 'string') heading.textContent = props.title;
+        if (paragraph && typeof props.text === 'string') paragraph.textContent = props.text;
+        if (link && typeof props.linkText === 'string') link.textContent = props.linkText;
+        if (link && typeof props.linkHref === 'string') link.setAttribute('href', props.linkHref);
+        if (image && typeof props.imageSrc === 'string') image.setAttribute('src', props.imageSrc);
+        if (image && typeof props.imageAlt === 'string') image.setAttribute('alt', props.imageAlt);
+
+        return wrapper.innerHTML;
+    }
+
+    updateComponentProps(instanceId, patch) {
+        const item = this.pageComponents.find(i => i.instanceId === instanceId);
+        if (!item) return;
+
+        if (typeof patch.name === 'string') {
+            item.name = patch.name;
+        }
+        if (patch.props && typeof patch.props === 'object') {
+            item.props = { ...(item.props || {}), ...patch.props };
+        }
+
+        const element = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
+        if (element) {
+            const nameEl = element.querySelector('.item-name');
+            if (nameEl) {
+                nameEl.textContent = item.name;
+            }
+            const contentEl = element.querySelector('.content-preview');
+            if (contentEl) {
+                contentEl.innerHTML = this.getRenderedComponentContent(item);
+            }
+        }
+
+        this.refreshLivePreview();
+    }
+
+    hidePropertiesPanel() {
+        this.propertiesPanel.classList.remove('active');
+        this.selectedItem = null;
+        
+        document.querySelectorAll('.canvas-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+    }
+
+    async showPreview() {
+        if (this.pageComponents.length === 0) {
+            this.showToast('Add components to preview', 'warning');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/watch/start', { method: 'POST' });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to start watch');
+            }
+        } catch (error) {
+            console.error('Failed to start watch process:', error);
+            this.showToast(`Watch start failed: ${error.message}`, 'warning');
+        }
+
+        const pageName = (this.currentPageName || this.pageTitleInput.value || '').trim();
+        if (!pageName) {
+            this.showToast('Set a page name first', 'warning');
+            return;
+        }
+
+        const previewUrl = `http://localhost:3001/${encodeURIComponent(pageName)}.html`;
+        window.open(previewUrl, '_blank');
+        this.showToast(`Opening hosted preview: ${pageName}.html`, 'success');
+    }
+
+    generatePreviewHTML() {
+        let html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${this.pageTitleInput.value || 'Preview'}</title>
+    <link rel="stylesheet" href="../../../build/css/styles.css">
+    <style>
+        body { margin: 0; padding: 20px; }
+        * { box-sizing: border-box; }
+    </style>
+</head>
+<body>
+`;
+        
+        this.pageComponents.forEach(item => {
+            html += this.getRenderedComponentContent(item) + '\n';
+        });
+        
+        html += `
+</body>
+</html>`;
+        
+        return html;
+    }
+
+    showExportModal() {
+        if (!this.project) {
+            this.openProjectModal();
+            this.showToast('Create or open a page first', 'warning');
+            return;
+        }
+
+        if (this.pageComponents.length === 0) {
+            this.showToast('Add components to export', 'warning');
+            return;
+        }
+        
+        const layoutData = this.getLayoutData();
+        this.exportOutput.value = JSON.stringify(layoutData, null, 2);
+        
+        this.exportModal.classList.add('active');
+    }
+
+    getLayoutData() {
+        const effectivePageName = this.currentPageName || this.pageTitleInput.value || 'untitled-page';
+        return {
+            project: this.project,
+            pageName: effectivePageName,
+            pageTitle: this.pageTitleInput.value || 'Untitled Page',
+            createdAt: new Date().toISOString(),
+            meta: {
+                version: 1,
+                updatedAt: new Date().toISOString()
+            },
+            layout: this.pageComponents.map((item, index) => ({
+                id: item.instanceId,
+                order: index + 1,
+                type: item.type,
+                partial: item.componentPath,
+                componentPath: item.componentPath,
+                name: item.name,
+                props: item.props || {},
+                renderedContent: this.getRenderedComponentContent(item)
+            }))
+        };
+    }
+
+    copyToClipboard() {
+        this.exportOutput.select();
+        document.execCommand('copy');
+        this.showToast('Copied to clipboard', 'success');
+    }
+
+    downloadExport() {
+        const data = this.exportOutput.value;
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.pageTitleInput.value || 'layout'}-${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        this.showToast('Layout downloaded', 'success');
+    }
+
+    async saveLayout() {
+        if (!this.project) {
+            this.openProjectModal();
+            this.showToast('Create or open a page first', 'warning');
+            return;
+        }
+
+        if (this.pageComponents.length === 0) {
+            this.showToast('Add components before saving', 'warning');
+            return;
+        }
+        
+        const layoutData = this.getLayoutData();
+        
+        try {
+            let savePayload = {
+                layoutData,
+                pageName: this.currentPageName || this.pageTitleInput.value || 'layout',
+                overwrite: false,
+                saveAs: false,
+                layoutFileName: this.currentLayoutFileName
+            };
+
+            let response = await fetch('/api/save-layout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(savePayload)
+            });
+
+            let result = await response.json();
+
+            if (!result.success && response.status === 409) {
+                const shouldOverwrite = confirm(`${result.error}\n\nOverwrite existing page?`);
+                if (shouldOverwrite) {
+                    savePayload.overwrite = true;
+                } else {
+                    const saveAsName = prompt('Enter new page name (Save As):', `${this.pageTitleInput.value || 'layout'}-copy`);
+                    if (!saveAsName) {
+                        this.showToast('Save cancelled', 'warning');
+                        return;
+                    }
+                    savePayload.pageName = saveAsName;
+                    savePayload.saveAs = true;
+                    savePayload.layoutFileName = null;
+                }
+
+                response = await fetch('/api/save-layout', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(savePayload)
+                });
+                result = await response.json();
+            }
+
+            if (!result.success) {
+                const details = result.details || {};
+                const componentPath = details.componentPath || details.sourcePath;
+                const componentIndex = Number.isFinite(details.index) ? details.index + 1 : null;
+                let actionable = result.error || 'Save failed';
+                if (componentPath) {
+                    actionable += ` (component: ${componentPath})`;
+                }
+                if (componentIndex !== null) {
+                    actionable += ` [item ${componentIndex}]`;
+                }
+                throw new Error(actionable);
+            }
+
+            this.currentLayoutFileName = result?.data?.layoutFileName || this.currentLayoutFileName;
+            this.currentPageName = result?.data?.pageName || this.currentPageName;
+            this.updateEditorBreadcrumb();
+            const pagePath = result?.data?.pagePath;
+            if (pagePath) {
+                this.showToast(`Layout saved and page created: ${pagePath}`, 'success');
+            } else {
+                this.showToast('Layout saved successfully', 'success');
+            }
+        } catch (error) {
+            console.error('Error saving layout:', error);
+            this.showToast('Failed to save layout', 'error');
+        }
+    }
+
+    hideModal(modal) {
+        modal.classList.remove('active');
+    }
+
+    showToast(message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' ? 'check-circle' : 
+                     type === 'error' ? 'exclamation-circle' : 
+                     'exclamation-triangle';
+        
+        toast.innerHTML = `
+            <i class="fas fa-${icon}"></i>
+            <span class="toast-message">${message}</span>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Auto remove after 3 seconds
+        setTimeout(() => {
+            toast.style.animation = 'slideIn 0.3s ease reverse';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+}
+
+// Initialize the builder
+const builder = new VisualBuilder();

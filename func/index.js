@@ -12,7 +12,6 @@ const configLoader = require('./config/configLoader');
 const GulpCSSTaskManager = require('./gulp/classes/GulpCSSTaskManager');
 
 /** Gulp Classes*/
-const GulpCSSTaskManager = require('./gulp/classes/GulpCSSTaskManager');
 const GulpHTMLTasks = require('./gulp/classes/GulpHTMLTasks');
 const GulpIconTasks = require('./gulp/classes/GulpIconTasks');
 const GulpImageTasks = require('./gulp/classes/GulpImageTasks');

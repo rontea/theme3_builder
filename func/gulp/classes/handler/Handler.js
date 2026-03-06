@@ -7,177 +7,213 @@ const config = require('../../../config/configLoader');
 
 /**
  * Event Handler
+ * Provides error handling utilities for file system operations
  */
 
 class Handler {
 
     /**
-     * Handle the file delete
-     * @param {string} file 
-     * @param {string} src 
-     * @param {string} dest 
-    */
+     * Validates that required parameters are provided
+     * @param {string} param - The parameter value to validate
+     * @param {string} paramName - The name of the parameter
+     * @throws {Error} If parameter is invalid
+     */
+    #validateParam(param, paramName) {
+        if (param === undefined || param === null) {
+            throw new Error(`Missing required parameter: ${paramName}`);
+        }
+        if (typeof param !== 'string' || param.trim() === '') {
+            throw new Error(`Invalid parameter ${paramName}: must be a non-empty string`);
+        }
+    }
 
-    handlerOnDeleteFile(file,src,dest) {
+    /**
+     * Handle the file delete with proper error handling
+     * @param {string} file - Source file path
+     * @param {string} src - Source directory
+     * @param {string} dest - Destination directory
+     * @returns {Promise<boolean>} Success status
+     */
+    async handlerOnDeleteFile(file, src, dest) {
+        try {
+            // Validate input parameters
+            this.#validateParam(file, 'file');
+            this.#validateParam(src, 'src');
+            this.#validateParam(dest, 'dest');
 
-        try{
             console.log("... On Delete > ", file);
             const relativePath = path.relative(src, file);
             const destFile = path.join(dest, relativePath);
 
-            fs.remove(destFile)
-            .then( () => {
-                console.log("Removed File Success , Path", destFile);
-            }).catch(err => {
-                console.error(err);
-            });
-        }catch(err){
-            logErr.writeLog(err , {customKey: 'Handler delete file failed'});
+            await fs.remove(destFile);
+            console.log("Removed File Success, Path:", destFile);
+            return true;
+        } catch (err) {
+            const errorMessage = `Handler delete file failed: ${err.message}`;
+            logErr.writeLog(err, { customKey: 'Handler delete file failed', context: { file, src, dest } });
+            console.error("Error deleting file:", err.message);
+            return false;
         }
-
     }
 
     /**
-     * Handle the file delete
-     * @param {string} destFile 
+     * Handle the file delete with destination path
+     * @param {string} destFile - Destination file path
+     * @returns {Promise<boolean>} Success status
      */
-
-    handlerSetOnDeleteFile(destFile){
-
-        try{
-
-            fs.remove(destFile)
-            .then( () => {
-                console.log("Removed File Success , Path", destFile);
-            }).catch(err => {
-                console.error(err);
-                logErr.writeLog(err , {customKey: 'fse remove error'});
-            });
-
-        }catch(err){
-            logErr.writeLog(err , {customKey: 'Handler set on delete file failed'});
-        }
-
-    }
-
-    /**
-     * Handle the Directory Add
-     * @param {string} dir 
-     * @param {string} src 
-     * @param {string} dest 
-     */
-
-    handlerOnDirAdd(dir,src,dest) {
-        
+    async handlerSetOnDeleteFile(destFile) {
         try {
+            // Validate input parameter
+            this.#validateParam(destFile, 'destFile');
+
+            await fs.remove(destFile);
+            console.log("Removed File Success, Path:", destFile);
+            return true;
+        } catch (err) {
+            const errorMessage = `Handler set on delete file failed: ${err.message}`;
+            logErr.writeLog(err, { customKey: 'Handler set on delete file failed', context: { destFile } });
+            console.error("Error removing file:", err.message);
+            return false;
+        }
+    }
+
+    /**
+     * Handle the Directory Add with proper error handling
+     * @param {string} dir - Source directory
+     * @param {string} src - Source base path
+     * @param {string} dest - Destination base path
+     * @returns {Promise<boolean>} Success status
+     */
+    async handlerOnDirAdd(dir, src, dest) {
+        try {
+            // Validate input parameters
+            this.#validateParam(dir, 'dir');
+            this.#validateParam(src, 'src');
+            this.#validateParam(dest, 'dest');
+
             console.log("... On Dir Created > ", dir);
-            
+
             const relativePath = path.relative(src, dir);
             const destFile = path.join(dest, relativePath);
 
-            fs.ensureDir(destFile)
-            .then( () => {
-                console.log(".... Dir Created >" , destFile);
-            }).catch(err => {
-                console.error(err);
-            });
-        }catch(err){
-            logErr.writeLog(err , {customKey: 'Handler on DIR add error'});
+            await fs.ensureDir(destFile);
+            console.log(".... Dir Created >", destFile);
+            return true;
+        } catch (err) {
+            logErr.writeLog(err, { customKey: 'Handler on DIR add error', context: { dir, src, dest } });
+            console.error("Error creating directory:", err.message);
+            return false;
         }
-        
-        
     }
 
     /**
      * Handle on DIR delete
-     * @param {string} dir 
-     * @param {string} src 
-     * @param {string} dest 
+     * @param {string} dir - Directory to delete
+     * @param {string} src - Source base path
+     * @param {string} dest - Destination base path
+     * @returns {Promise<boolean>} Success status
      */
+    async handlerOnDirDelete(dir, src, dest) {
+        try {
+            // Validate input parameters
+            this.#validateParam(dir, 'dir');
+            this.#validateParam(src, 'src');
+            this.#validateParam(dest, 'dest');
 
-    handlerOnDirDelete(dir,src,dest) {
+            console.log("... On Dir Deleted > ", dir);
+            const relativePath = path.relative(src, dir);
+            const destDir = path.join(dest, relativePath);
 
-    
+            await fs.remove(destDir);
+            console.log("Removed Dir Success, Path:", destDir);
+            return true;
+        } catch (err) {
+            logErr.writeLog(err, { customKey: 'Handler on DIR delete error', context: { dir, src, dest } });
+            console.error("Error deleting directory:", err.message);
+            return false;
+        }
     }
 
     /**
-     * Handle Error
-     * @param {*} error 
+     * Handle errors with proper classification
+     * @param {Error} err - Error object
      */
-
     handlerError(err) {
-
-        if (err.code === 'EPERM') {
-            
-            logErr.writeLog(err , {customKey: 'Permission error'});
-        } else {
-            
-            logErr.writeLog(err , {customKey: 'Error watching files'});
+        if (!err) {
+            console.error("handlerError called with no error object");
+            return;
         }
 
+        const errorContext = {
+            code: err.code,
+            message: err.message,
+            stack: err.stack
+        };
+
+        if (err.code === 'EPERM') {
+            logErr.writeLog(err, { customKey: 'Permission error', context: errorContext });
+            console.error("Permission Error:", err.message);
+        } else if (err.code === 'ENOENT') {
+            logErr.writeLog(err, { customKey: 'File not found error', context: errorContext });
+            console.error("File Not Found Error:", err.message);
+        } else if (err.code === 'ENOTDIR') {
+            logErr.writeLog(err, { customKey: 'Not a directory error', context: errorContext });
+            console.error("Not a Directory Error:", err.message);
+        } else {
+            logErr.writeLog(err, { customKey: 'Error watching files', context: errorContext });
+            console.error("Error:", err.message);
+        }
     }
 
     /**
      * This method checks if a file exists.
-     * @param {string} filePath - The path to the file.
-     * @returns {boolean}
-    */
-
+     * @param {string|string[]} filePath - The path to the file or array of paths.
+     * @returns {Promise<boolean>} Returns true if all files exist
+     */
     async fileExistsSync(filePath) {
-
         try {
+            if (!filePath) {
+                throw new Error('filePath parameter is required');
+            }
 
-            let isExist = true;
-
-            if(Array.isArray(filePath)){
-                filePath.forEach( (file) => {
-
-                    let fileSrc = path.join(config.settings.mainfolder, file);
-                    
-                    let fileExist = fs.existsSync(fileSrc);
-                    
-                    if(!fileExist){
-                        isExist = false;
-                        return isExist;
+            if (Array.isArray(filePath)) {
+                for (const file of filePath) {
+                    const fileSrc = path.join(config.settings.mainfolder, file);
+                    if (!fs.existsSync(fileSrc)) {
+                        return false;
                     }
-                });
-            }else {
-                let fileExist = fs.existsSync(filePath);
-                
-
-                if(!fileExist) {
-                    isExist = false;
-                }else{
-                    isExist = true;
                 }
-
-            }  
-            
-            return isExist;
-
-
-        }catch (err) {
-            logErr.writeLog(err , {customKey: ` File exist checker error `});   
+                return true;
+            } else {
+                return fs.existsSync(filePath);
+            }
+        } catch (err) {
+            logErr.writeLog(err, { customKey: 'File exist checker error', context: { filePath } });
+            console.error("Error checking file existence:", err.message);
+            return false;
         }
-    
     }
 
     /**
      * This method checks if a directory exists.
      * @param {string} dirPath - The path to the directory.
      * @returns {boolean}
-    */
-
+     */
     directoryExists(dirPath) {
         try {
+            if (!dirPath) {
+                throw new Error('dirPath parameter is required');
+            }
+            if (typeof dirPath !== 'string') {
+                throw new Error('dirPath must be a string');
+            }
             return fs.existsSync(dirPath) && fs.lstatSync(dirPath).isDirectory();
         } catch (err) {
-            console.error("Error checking directory existence:", err);
+            logErr.writeLog(err, { customKey: 'Directory existence check error', context: { dirPath } });
+            console.error("Error checking directory existence:", err.message);
             return false;
         }
     }
-    
-
 }
 
 const handler = new Handler();

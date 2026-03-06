@@ -7,7 +7,7 @@
     "th3": "./bin/cli.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node test/builder-fix.test.js",
     "semantic-release": "semantic-release",
     "start:dev": "cross-env NODE_ENV=development node ./func/config/config",
     "start:prod": "cross-env NODE_ENV=production node ./func/config/config"
@@ -30,9 +30,11 @@
     "bootstrap-icons": "^1.13.1",
     "browser-sync": "^3.0.4",
     "bulma": "^1.0.4",
+    "cors": "^2.8.5",
     "cssnano": "^7.0.7",
     "del": "^8.0.0",
     "dependencies": "^0.0.1",
+    "express": "^4.21.2",
     "fs-extra": "^11.3.0",
     "glob": "^11.0.2",
     "gulp": "^5.0.0",
@@ -47,9 +49,11 @@
     "iconv-lite": "^0.6.3",
     "jquery": "^3.7.1",
     "latest-version": "^9.0.0",
+    "open": "^10.1.0",
     "panini": "^1.7.2",
     "prismjs": "^1.30.0",
     "sass": "^1.89.0",
+    "sqlite3": "^5.1.7",
     "tether": "^2.0.0",
     "yargs": "^17.7.2"
   },

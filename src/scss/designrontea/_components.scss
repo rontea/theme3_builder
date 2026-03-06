@@ -1,0 +1,98 @@
+@use 'variables' as *;
+
+/* ==========================================================================
+   RonTea Portfolio: UI Components Refinement
+   ========================================================================== */
+
+// Navigation
+.navbar.sticky-top {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.4s ease;
+  
+  &.navbar-scrolled {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom-color: rgba(0, 0, 0, 0.1);
+  }
+}
+
+// Circular Action Button (Mockup support button)
+.btn-support-round {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.4s $p-ease-smooth;
+  
+  &:hover {
+    background: var(--primary-text);
+    color: var(--primary-bg);
+    transform: scale(1.1);
+  }
+}
+
+// Project Card Refinement
+.project-card {
+  position: relative;
+  
+  .ratio {
+    border-radius: 2rem;
+    overflow: hidden;
+    transition: transform 0.8s $p-ease-smooth;
+    
+    img {
+      transition: transform 0.8s $p-ease-smooth;
+    }
+  }
+
+  .project-arrow-btn {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: #fff;
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0,0,0,0.05);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+    transition: all 0.5s $p-ease-smooth;
+    font-size: 1.5rem;
+  }
+
+  &:hover {
+    .ratio img { transform: scale(1.05); }
+    .project-arrow-btn {
+      transform: rotate(45deg) scale(1.1);
+      background: var(--primary-text);
+      color: var(--primary-bg);
+    }
+  }
+}
+
+// Blog Card
+.blog-card {
+  .ratio {
+    border-radius: 1.5rem;
+    img { transition: transform 0.8s $p-ease-smooth; }
+  }
+  &:hover {
+    .ratio img { transform: scale(1.1); }
+  }
+}
+
+html.dark {
+  .navbar.sticky-top {
+    background-color: rgba(10, 10, 10, 0.8) !important;
+  }
+  .project-arrow-btn {
+    background: #111;
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}

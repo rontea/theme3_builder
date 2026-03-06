@@ -1,48 +1,27 @@
 @charset "utf-8";
-/* CSS Document */
 
-/* Import List */
+/* ==========================================================================
+   RonTea Portfolio: Compiled Application Styles
+   ========================================================================== */
 
-/* ====================================
-   Import List
-   ==================================== */
+@use "designrontea/main-theme";
 
+// Additional utility layer for things Tailwind might miss
+.transition-slow {
+    transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-/**
-* Note: Bulma and Bootstrap do not work 
-* properly when compiled simultaneously.
-*/
+.bg-blur {
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
 
+::selection {
+    background-color: #1a1a1a;
+    color: #fff;
+}
 
-
-/**
- * Import List Please Clean This is not needed
- */
-//@import "google/google_font";
-//@import "bootstrap/bootstrap";
-//@import "bulma/bulma";
-//@import "fontawesome/fontawesome";
-//@import "bootstrap/bootstrap-icon";
-
-
-/* Global CSS V 0.0.0 */
-
-/*
-Theme Name: Rontea
-Theme URI: https://live-rontea.pantheonsite.io/node/54
-Author: Ronryan Teano
-Author URI: https://live-rontea.pantheonsite.io/
-Description: Theme_3 2024
-Version: 0.0
-License:
-License URI: 
-Text Domain: 
-*/
-
-/** Test */
-@use "theme_3/theme_3-styles";
-
-.autoPrefixSample {
-   user-select: auto;
-   background: linear-gradient(to bottom, white, black);
+html.dark ::selection {
+    background-color: #f0f0f0;
+    color: #0a0a0a;
 }

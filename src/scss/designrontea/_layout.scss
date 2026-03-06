@@ -1,0 +1,63 @@
+@use 'variables' as *;
+
+/* ==========================================================================
+   RonTea Portfolio: Luxury Layout & Motion System
+   ========================================================================== */
+
+main {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+// Reveal Animation System
+.reveal {
+  opacity: 0;
+  transform: translateY(60px);
+  transition: opacity 1.5s cubic-bezier(0.23, 1, 0.32, 1), 
+              transform 1.5s cubic-bezier(0.23, 1, 0.32, 1);
+  
+  &.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Infinite Marquee logic
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  animation: marquee 60s linear infinite; // Slower, more elegant movement
+  will-change: transform;
+  &:hover {
+    animation-play-state: paused;
+  }
+}
+
+// Image Column specific logic
+.hero-img-col {
+  img {
+    object-position: center 20%;
+  }
+}
+
+// Split Hero Responsiveness
+@media (max-width: 767px) {
+  .hero-section {
+    flex-direction: column-reverse;
+    .hero-img-col {
+      min-height: 50vh;
+    }
+    .hero-content-col {
+      padding-top: 100px;
+    }
+  }
+}
+
+// Smooth scrolling adjustments for high-DPI screens
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+}
