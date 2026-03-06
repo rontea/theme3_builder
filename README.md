@@ -108,6 +108,7 @@ Builder endpoints:
 - `POST /api/save-layout`
 - `GET /api/saved-layouts`
 - `GET /api/saved-layout?fileName=<name.json>`
+- Full contract reference: `docs/builder-api-contracts.md`
 
 Saved layout files:
 - All saved layout JSON files are written to `_builder/layouts`.
