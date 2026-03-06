@@ -8,6 +8,22 @@ const fs = require("fs-extra");
 const sqlite3 = require("sqlite3");
 const { spawn } = require("child_process");
 const logErr = require("../../utils/TimeLogger");
+const { resolveSafePath, isPathInside } = require("./builder-backend/utils/pathSafety");
+const { buildPartialPreview, formatCategory } = require("./builder-backend/utils/formatting");
+const { validateLayoutData } = require("./builder-backend/utils/validation");
+const { sanitizeName, sanitizePageName } = require("./builder-backend/utils/sanitizers");
+const { registerLayoutsRoutes } = require("./builder-backend/routes/layouts.routes");
+const { registerPartialsRoutes } = require("./builder-backend/routes/partials.routes");
+const { registerPagesRoutes } = require("./builder-backend/routes/pages.routes");
+const { createLayoutsController } = require("./builder-backend/controllers/layouts.controller");
+const { createPartialsController } = require("./builder-backend/controllers/partials.controller");
+const { createPagesController } = require("./builder-backend/controllers/pages.controller");
+const { createLayoutsService } = require("./builder-backend/services/layouts.service");
+const { createPartialsService } = require("./builder-backend/services/partials.service");
+const { createPagesService } = require("./builder-backend/services/pages.service");
+const { createLayoutsRepository } = require("./builder-backend/repositories/layouts.repository");
+const { createPartialsRepository } = require("./builder-backend/repositories/partials.repository");
+const { createPagesRepository } = require("./builder-backend/repositories/pages.repository");
 
 /**
  * BuilderTask - Handles the visual drag-and-drop interface builder
@@ -29,115 +45,48 @@ class BuilderTask {
         this.maxLayoutItems = options.maxLayoutItems || 200;
         this.maxLayoutTextLength = options.maxLayoutTextLength || 200;
         this.maxLayoutBytes = options.maxLayoutBytes || 512 * 1024;
+        this.enableBoundaryLogs = options.enableBoundaryLogs ?? process.env.BUILDER_BOUNDARY_LOGS === "1";
         this.db = null;
         this.watchProcess = null;
+        this.layoutsRepository = null;
+        this.layoutsService = null;
+        this.layoutsController = null;
+        this.partialsRepository = null;
+        this.partialsService = null;
+        this.partialsController = null;
+        this.pagesRepository = null;
+        this.pagesService = null;
+        this.pagesController = null;
+    }
+
+    logBoundary(layer, action, details = {}) {
+        if (!this.enableBoundaryLogs) {
+            return;
+        }
+        const payload = Object.keys(details).length ? ` ${JSON.stringify(details)}` : "";
+        console.log(`[builder:${layer}] ${action}${payload}`);
     }
 
     resolveSafePath(basePath, userPath) {
-        if (typeof userPath !== "string" || userPath.trim() === "") {
-            const err = new Error("Invalid path parameter");
-            err.statusCode = 400;
-            throw err;
-        }
-
-        const normalized = userPath.replace(/\\/g, "/");
-        const resolved = path.resolve(basePath, normalized);
-        const relative = path.relative(basePath, resolved);
-
-        if (relative.startsWith("..") || path.isAbsolute(relative)) {
-            const err = new Error("Path traversal is not allowed");
-            err.statusCode = 400;
-            throw err;
-        }
-
-        return resolved;
+        return resolveSafePath(basePath, userPath);
     }
 
     isPathInside(basePath, targetPath) {
-        const resolvedBase = path.resolve(basePath);
-        const resolvedTarget = path.resolve(targetPath);
-        const relative = path.relative(resolvedBase, resolvedTarget);
-        return !(relative.startsWith("..") || path.isAbsolute(relative));
+        return isPathInside(basePath, targetPath);
     }
 
     buildPartialPreview(html) {
-        if (typeof html !== "string") {
-            return "";
-        }
-
-        // Remove scripts/styles and compact to human-readable sample text.
-        const cleaned = html
-            .replace(/<script[\s\S]*?<\/script>/gi, " ")
-            .replace(/<style[\s\S]*?<\/style>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        return cleaned.slice(0, 140);
+        return buildPartialPreview(html);
     }
 
     formatCategory(folder) {
-        if (!folder || folder === "." || folder === "root") {
-            return "General";
-        }
-
-        return folder
-            .split(/[\\/]/)
-            .map((part) => part.replace(/[-_.]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()))
-            .join(" / ");
+        return formatCategory(folder);
     }
 
     validateLayoutData(layoutData) {
-        if (!layoutData || typeof layoutData !== "object" || Array.isArray(layoutData)) {
-            const err = new Error("layoutData must be an object");
-            err.statusCode = 400;
-            throw err;
-        }
-
-        if (!Array.isArray(layoutData.layout)) {
-            const err = new Error("layoutData.layout must be an array");
-            err.statusCode = 400;
-            throw err;
-        }
-
-        if (layoutData.layout.length > this.maxLayoutItems) {
-            const err = new Error(`layoutData.layout exceeds limit of ${this.maxLayoutItems} items`);
-            err.statusCode = 413;
-            throw err;
-        }
-
-        if (typeof layoutData.pageTitle === "string" && layoutData.pageTitle.length > this.maxLayoutTextLength) {
-            const err = new Error(`pageTitle exceeds ${this.maxLayoutTextLength} characters`);
-            err.statusCode = 400;
-            throw err;
-        }
-
-        layoutData.layout.forEach((item, index) => {
-            if (!item || typeof item !== "object" || Array.isArray(item)) {
-                const err = new Error(`layoutData.layout[${index}] must be an object`);
-                err.statusCode = 400;
-                throw err;
-            }
-
-            const stringFields = ["id", "type", "partial", "name"];
-            stringFields.forEach((field) => {
-                if (typeof item[field] !== "string" || item[field].trim() === "") {
-                    const err = new Error(`layoutData.layout[${index}].${field} must be a non-empty string`);
-                    err.statusCode = 400;
-                    throw err;
-                }
-                if (item[field].length > this.maxLayoutTextLength) {
-                    const err = new Error(`layoutData.layout[${index}].${field} exceeds ${this.maxLayoutTextLength} characters`);
-                    err.statusCode = 400;
-                    throw err;
-                }
-            });
-
-            if (typeof item.order !== "number" || !Number.isFinite(item.order)) {
-                const err = new Error(`layoutData.layout[${index}].order must be a number`);
-                err.statusCode = 400;
-                throw err;
-            }
+        return validateLayoutData(layoutData, {
+            maxLayoutItems: this.maxLayoutItems,
+            maxLayoutTextLength: this.maxLayoutTextLength
         });
     }
 
@@ -229,6 +178,7 @@ class BuilderTask {
     }
 
     dbRun(sql, params = []) {
+        this.logBoundary("repo", "dbRun:start", { sql: String(sql || "").trim().slice(0, 120) });
         return new Promise((resolve, reject) => {
             this.db.run(sql, params, function onRun(err) {
                 if (err) {
@@ -237,10 +187,13 @@ class BuilderTask {
                 }
                 resolve(this);
             });
+        }).finally(() => {
+            this.logBoundary("repo", "dbRun:done");
         });
     }
 
     dbGet(sql, params = []) {
+        this.logBoundary("repo", "dbGet:start", { sql: String(sql || "").trim().slice(0, 120) });
         return new Promise((resolve, reject) => {
             this.db.get(sql, params, (err, row) => {
                 if (err) {
@@ -249,10 +202,13 @@ class BuilderTask {
                 }
                 resolve(row);
             });
+        }).finally(() => {
+            this.logBoundary("repo", "dbGet:done");
         });
     }
 
     dbAll(sql, params = []) {
+        this.logBoundary("repo", "dbAll:start", { sql: String(sql || "").trim().slice(0, 120) });
         return new Promise((resolve, reject) => {
             this.db.all(sql, params, (err, rows) => {
                 if (err) {
@@ -261,24 +217,17 @@ class BuilderTask {
                 }
                 resolve(rows || []);
             });
+        }).finally(() => {
+            this.logBoundary("repo", "dbAll:done");
         });
     }
 
     sanitizeName(value, fallback = "") {
-        return String(value || "")
-            .trim()
-            .replace(/[^a-zA-Z0-9-_ ]/g, "")
-            .replace(/\s+/g, " ")
-            .slice(0, 80) || fallback;
+        return sanitizeName(value, fallback);
     }
 
     sanitizePageName(value, fallback = "page") {
-        return String(value || "")
-            .toLowerCase()
-            .replace(/[^a-z0-9-_]/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-|-$/g, "")
-            .slice(0, 80) || fallback;
+        return sanitizePageName(value, fallback);
     }
 
     async upsertProjectRecord(projectName) {
@@ -355,6 +304,7 @@ class BuilderTask {
     }
 
     async setPagePartialsSynced({ projectName, pageName, partialsSynced }) {
+        this.logBoundary("service", "setPagePartialsSynced:start", { projectName, pageName, partialsSynced: Boolean(partialsSynced) });
         const safeProjectName = this.sanitizeName(projectName);
         const safePageName = this.sanitizePageName(pageName);
         if (!safeProjectName || !safePageName) {
@@ -525,6 +475,7 @@ class BuilderTask {
     }
 
     async listProjects() {
+        this.logBoundary("service", "listProjects:start");
         const rows = await this.dbAll(`
             SELECT
                 p.project_name AS projectName,
@@ -536,19 +487,23 @@ class BuilderTask {
             GROUP BY p.project_name, p.created_at, p.updated_at
             ORDER BY datetime(p.updated_at) DESC
         `);
+        this.logBoundary("service", "listProjects:done", { count: rows.length });
         return rows;
     }
 
     async createProject(projectName) {
+        this.logBoundary("service", "createProject:start", { projectName });
         const safeProjectName = await this.upsertProjectRecord(projectName);
         const row = await this.dbGet(
             "SELECT project_name AS projectName, created_at AS createdAt, updated_at AS updatedAt FROM builder_projects WHERE project_name = ?",
             [safeProjectName]
         );
+        this.logBoundary("service", "createProject:done", { projectName: safeProjectName });
         return row;
     }
 
     async listPages(projectName) {
+        this.logBoundary("service", "listPages:start", { projectName });
         const safeProjectName = this.sanitizeName(projectName);
         if (!safeProjectName) {
             throw this.createActionableError("Invalid project name", 400, "INVALID_PROJECT_NAME", { projectName });
@@ -580,96 +535,37 @@ class BuilderTask {
                 partials
             };
         }));
+        this.logBoundary("service", "listPages:done", { projectName: safeProjectName, count: enriched.length });
         return enriched;
     }
 
     async createPage({ projectName, pageName, pageTitle = "" }) {
+        this.logBoundary("service", "createPage:start", { projectName, pageName });
         return this.upsertPageRecord({ projectName, pageName, pageTitle, layoutFileName: null });
     }
 
     async buildPartialLookup() {
-        const items = await this.scanPartials();
-        const lookup = new Map();
-        for (const item of items) {
-            const rel = String(item.path || "").replace(/\\/g, "/");
-            const noExt = rel.replace(/\.html$/i, "");
-            const base = path.basename(noExt);
-            const keys = [rel, noExt, base, `${base}.html`];
-            keys.forEach((key) => {
-                if (!lookup.has(key)) {
-                    lookup.set(key, rel);
-                }
-            });
-        }
-        return lookup;
+        this.initPartialsSlice();
+        return this.partialsService.buildPartialLookup();
     }
 
     extractPartialTokensFromPage(content) {
-        const tokens = [];
-        if (!content || typeof content !== "string") {
-            return tokens;
-        }
-
-        const seen = new Set();
-        const combinedRegex = /<!--\s*partial:\s*([^>]+?)\s*-->|{{>\s*([a-zA-Z0-9_./-]+)\s*}}/g;
-        let match = null;
-        while ((match = combinedRegex.exec(content)) !== null) {
-            const token = String(match[1] || match[2] || "").trim();
-            if (token && !seen.has(token)) {
-                seen.add(token);
-                tokens.push(token);
-            }
-        }
-
-        return tokens;
+        this.initPartialsSlice();
+        return this.partialsService.extractPartialTokensFromPage(content);
     }
 
     resolvePartialTokenToPath(token, lookup) {
-        const normalized = String(token || "").trim().replace(/\\/g, "/");
-        if (!normalized) return null;
-
-        const candidates = [
-            normalized,
-            normalized.replace(/\.html$/i, ""),
-            normalized.replace(/\.html$/i, "") + ".html",
-            path.basename(normalized),
-            path.basename(normalized, ".html"),
-            path.basename(normalized, ".html") + ".html"
-        ];
-
-        for (const candidate of candidates) {
-            if (lookup.has(candidate)) {
-                return lookup.get(candidate);
-            }
-        }
-        return null;
+        this.initPartialsSlice();
+        return this.partialsService.resolvePartialTokenToPath(token, lookup);
     }
 
     async getPagePartials(pageName, partialLookup = null) {
-        const safePageName = this.sanitizePageName(pageName);
-        if (!safePageName) {
-            return [];
-        }
-        const pagePath = path.join(this.pagesOutputPath, `${safePageName}.html`);
-        const exists = await fs.pathExists(pagePath);
-        if (!exists) {
-            return [];
-        }
-
-        const content = await fs.readFile(pagePath, "utf8");
-        const tokens = this.extractPartialTokensFromPage(content);
-        const lookup = partialLookup || await this.buildPartialLookup();
-        const resolved = [];
-        for (const token of tokens) {
-            const relPath = this.resolvePartialTokenToPath(token, lookup);
-            if (relPath) {
-                resolved.push(relPath);
-            }
-        }
-        return [...new Set(resolved)];
+        this.initPartialsSlice();
+        return this.partialsService.getPagePartials(pageName, partialLookup);
     }
 
     async syncPagesFromFilesystem(projectName) {
+        this.logBoundary("service", "syncPagesFromFilesystem:start", { projectName });
         const safeProjectName = await this.upsertProjectRecord(projectName || "theme_3");
         await fs.ensureDir(this.pagesOutputPath);
         const files = await glob(path.join(this.pagesOutputPath, "*.html").replace(/\\/g, "/"));
@@ -690,6 +586,11 @@ class BuilderTask {
         }
 
         const pages = await this.listPages(safeProjectName);
+        this.logBoundary("service", "syncPagesFromFilesystem:done", {
+            projectName: safeProjectName,
+            syncedCount: synced,
+            totalPages: pages.length
+        });
         return {
             projectName: safeProjectName,
             syncedCount: synced,
@@ -753,6 +654,7 @@ class BuilderTask {
     }
 
     async getSavedLayout(fileName) {
+        this.logBoundary("service", "getSavedLayout:start", { fileName });
         if (typeof fileName !== "string" || !/^[a-zA-Z0-9._-]+\.json$/.test(fileName)) {
             throw this.createActionableError(
                 "Invalid fileName parameter",
@@ -768,6 +670,7 @@ class BuilderTask {
         );
 
         if (row && row.layoutJson) {
+            this.logBoundary("service", "getSavedLayout:done", { fileName, source: "db" });
             return JSON.parse(row.layoutJson);
         }
 
@@ -781,6 +684,7 @@ class BuilderTask {
             );
         }
 
+        this.logBoundary("service", "getSavedLayout:done", { fileName, source: "filesystem" });
         return fs.readJson(fullPath);
     }
 
@@ -840,40 +744,8 @@ class BuilderTask {
      * @returns {Promise<Array>} Array of partial file objects
      */
     async scanPartials() {
-        try {
-            const pattern = path.join(this.partialsPath, "**/*.html").replace(/\\/g, "/");
-            const files = await glob(pattern);
-
-            const items = await Promise.all(files.map(async (file) => {
-                const relativePath = path.relative(this.partialsPath, file);
-                const folder = path.dirname(relativePath);
-                const name = path.basename(file, ".html");
-                const componentKey = relativePath.replace(/\\/g, "/").replace(/\.html$/i, "");
-                const content = await fs.readFile(file, "utf8");
-                const preview = this.buildPartialPreview(content);
-                const category = this.formatCategory(folder);
-
-                return {
-                    id: componentKey,
-                    componentKey,
-                    name: name,
-                    path: relativePath,
-                    fullPath: file,
-                    folder: folder === "." ? "root" : folder,
-                    category,
-                    type: "partial",
-                    preview
-                };
-            }));
-
-            return items;
-        } catch (err) {
-            logErr.writeLog(err, {
-                customKey: "BUILDER_SCAN_PARTIALS_ERROR",
-                context: { partialsPath: this.partialsPath }
-            });
-            throw err;
-        }
+        this.initPartialsSlice();
+        return this.partialsService.scanPartials();
     }
 
     /**
@@ -912,26 +784,8 @@ class BuilderTask {
      * @returns {Promise<string>} HTML content
      */
     async getPartialContent(filePath) {
-        try {
-            const fullPath = this.resolveSafePath(this.partialsPath, filePath);
-
-            if (!fs.existsSync(fullPath)) {
-                throw this.createActionableError(
-                    `Partial not found: ${filePath}`,
-                    404,
-                    "PARTIAL_NOT_FOUND",
-                    { filePath }
-                );
-            }
-
-            return await fs.readFile(fullPath, "utf-8");
-        } catch (err) {
-            logErr.writeLog(err, {
-                customKey: "BUILDER_GET_PARTIAL_CONTENT_ERROR",
-                context: { filePath }
-            });
-            throw err;
-        }
+        this.initPartialsSlice();
+        return this.partialsService.getPartialContent(filePath);
     }
 
     /**
@@ -992,6 +846,11 @@ class BuilderTask {
      */
     async saveLayout(layoutData, options = {}) {
         try {
+            this.logBoundary("service", "saveLayout:start", {
+                pageName: options.pageName || layoutData?.pageName || "page",
+                overwrite: Boolean(options.overwrite),
+                saveAs: Boolean(options.saveAs)
+            });
             this.validateLayoutData(layoutData);
             await fs.ensureDir(this.pagesOutputPath);
 
@@ -1061,6 +920,7 @@ class BuilderTask {
             const pagePath = await this.createPageFromLayout(layoutData, safePageName);
             console.log(`Layout saved to database: ${layoutFileName}`);
             console.log(`Page generated at: ${pagePath}`);
+            this.logBoundary("service", "saveLayout:done", { pageName: safePageName, layoutFileName });
 
             return { layoutPath: `db://${layoutFileName}`, pagePath, pageName: safePageName, layoutFileName };
         } catch (err) {
@@ -1073,36 +933,8 @@ class BuilderTask {
     }
 
     async createPageFromLayout(layoutData, pageName) {
-        await fs.ensureDir(this.pagesOutputPath);
-
-        const sections = [];
-        for (let index = 0; index < layoutData.layout.length; index++) {
-            const item = layoutData.layout[index];
-            const sourcePath = item.componentPath || item.partial;
-            try {
-                this.validateComponentPath(item, index);
-            } catch (err) {
-                throw this.createActionableError(
-                    err.message,
-                    err.statusCode || 400,
-                    err.code || "COMPONENT_VALIDATION_ERROR",
-                    {
-                        ...(err.details || {}),
-                        index,
-                        componentPath: sourcePath
-                    }
-                );
-            }
-
-            const partialName = path.basename(sourcePath, ".html");
-            sections.push(`{{> ${partialName}}}`);
-        }
-
-        const html = sections.join("\n") + "\n";
-
-        const pageFilePath = path.join(this.pagesOutputPath, `${pageName}.html`);
-        await fs.writeFile(pageFilePath, html, "utf8");
-        return pageFilePath;
+        this.initLayoutsSlice();
+        return this.layoutsService.createPageFromLayout(layoutData, pageName);
     }
 
     sendError(res, err, fallbackCode = "BUILDER_SERVER_ERROR") {
@@ -1142,6 +974,33 @@ class BuilderTask {
         return { alreadyRunning: false, pid: this.watchProcess.pid };
     }
 
+    initLayoutsSlice() {
+        if (this.layoutsRepository && this.layoutsService && this.layoutsController) {
+            return;
+        }
+        this.layoutsRepository = createLayoutsRepository(this);
+        this.layoutsService = createLayoutsService(this, this.layoutsRepository);
+        this.layoutsController = createLayoutsController(this, this.layoutsService);
+    }
+
+    initPartialsSlice() {
+        if (this.partialsRepository && this.partialsService && this.partialsController) {
+            return;
+        }
+        this.partialsRepository = createPartialsRepository(this);
+        this.partialsService = createPartialsService(this, this.partialsRepository);
+        this.partialsController = createPartialsController(this, this.partialsService);
+    }
+
+    initPagesSlice() {
+        if (this.pagesRepository && this.pagesService && this.pagesController) {
+            return;
+        }
+        this.pagesRepository = createPagesRepository(this);
+        this.pagesService = createPagesService(this, this.pagesRepository);
+        this.pagesController = createPagesController(this, this.pagesService);
+    }
+
     /**
      * Initialize and start the Express server
      */
@@ -1153,15 +1012,8 @@ class BuilderTask {
             this.app.use(express.json({ limit: this.bodyLimit }));
             this.app.use(express.static(path.resolve(this.builderPath)));
 
-            // API: Get all available partials
-            this.app.get("/api/partials", async (req, res) => {
-                try {
-                    const partials = await this.scanPartials();
-                    res.json({ success: true, data: partials });
-                } catch (err) {
-                    this.sendError(res, err, "PARTIALS_SCAN_FAILED");
-                }
-            });
+            this.initPartialsSlice();
+            registerPartialsRoutes(this.app, this.partialsController);
 
             // API: Get all layouts
             this.app.get("/api/layouts", async (req, res) => {
@@ -1170,20 +1022,6 @@ class BuilderTask {
                     res.json({ success: true, data: layouts });
                 } catch (err) {
                     this.sendError(res, err, "LAYOUTS_SCAN_FAILED");
-                }
-            });
-
-            // API: Get partial content
-            this.app.get("/api/partial", async (req, res) => {
-                try {
-                    const { path: filePath } = req.query;
-                    if (!filePath) {
-                        return res.status(400).json({ success: false, error: "Missing path parameter" });
-                    }
-                    const content = await this.getPartialContent(filePath);
-                    res.json({ success: true, data: content });
-                } catch (err) {
-                    this.sendError(res, err, "PARTIAL_READ_FAILED");
                 }
             });
 
@@ -1201,34 +1039,8 @@ class BuilderTask {
                 }
             });
 
-            // API: Save layout
-            this.app.post("/api/save-layout", async (req, res) => {
-                try {
-                    const { layoutData, fileName, pageName, overwrite, saveAs, layoutFileName } = req.body;
-                    if (!layoutData) {
-                        return res.status(400).json({ success: false, error: "Missing layoutData" });
-                    }
-                    const saveResult = await this.saveLayout(layoutData, {
-                        pageName: pageName || fileName,
-                        overwrite: Boolean(overwrite),
-                        saveAs: Boolean(saveAs),
-                        layoutFileName
-                    });
-                    // Keep `path` for backward compatibility with existing clients.
-                    res.json({
-                        success: true,
-                        data: {
-                            path: saveResult.layoutPath,
-                            layoutPath: saveResult.layoutPath,
-                            pagePath: saveResult.pagePath,
-                            pageName: saveResult.pageName,
-                            layoutFileName: saveResult.layoutFileName
-                        }
-                    });
-                } catch (err) {
-                    this.sendError(res, err, "LAYOUT_SAVE_FAILED");
-                }
-            });
+            this.initLayoutsSlice();
+            registerLayoutsRoutes(this.app, this.layoutsController);
 
             // API: Start th3 watch (builder preview dependency)
             this.app.post("/api/watch/start", async (req, res) => {
@@ -1278,129 +1090,8 @@ class BuilderTask {
                 }
             });
 
-            // API: Create page
-            this.app.post("/api/pages", async (req, res) => {
-                try {
-                    const { projectName, pageName, pageTitle } = req.body || {};
-                    if (!projectName || !pageName) {
-                        return res.status(400).json({ success: false, error: "Missing projectName or pageName" });
-                    }
-                    const page = await this.createPage({ projectName, pageName, pageTitle });
-                    res.json({ success: true, data: page });
-                } catch (err) {
-                    this.sendError(res, err, "PAGE_CREATE_FAILED");
-                }
-            });
-
-            // API: List pages for a project
-            this.app.get("/api/pages", async (req, res) => {
-                try {
-                    const { projectName } = req.query;
-                    if (!projectName) {
-                        return res.status(400).json({ success: false, error: "Missing projectName parameter" });
-                    }
-                    const pages = await this.listPages(projectName);
-                    res.json({ success: true, data: pages });
-                } catch (err) {
-                    this.sendError(res, err, "PAGES_LIST_FAILED");
-                }
-            });
-
-            // API: Get detected partials used by a page html file
-            this.app.get("/api/pages/partials", async (req, res) => {
-                try {
-                    const projectName = req.query?.projectName || "theme_3";
-                    const pageName = req.query?.pageName;
-                    if (!pageName) {
-                        return res.status(400).json({ success: false, error: "Missing pageName parameter" });
-                    }
-                    await this.upsertProjectRecord(projectName);
-                    const partials = await this.getPagePartials(pageName);
-                    res.json({ success: true, data: { projectName, pageName, partials } });
-                } catch (err) {
-                    this.sendError(res, err, "PAGE_PARTIALS_READ_FAILED");
-                }
-            });
-
-            // API: Mark page partial-sync state
-            this.app.post("/api/pages/partials/sync-state", async (req, res) => {
-                try {
-                    const projectName = req.body?.projectName || req.query?.projectName || "theme_3";
-                    const pageName = req.body?.pageName || req.query?.pageName;
-                    const partialsSynced = Boolean(req.body?.partialsSynced);
-                    if (!pageName) {
-                        return res.status(400).json({ success: false, error: "Missing pageName parameter" });
-                    }
-                    const data = await this.setPagePartialsSynced({ projectName, pageName, partialsSynced });
-                    res.json({ success: true, data });
-                } catch (err) {
-                    this.sendError(res, err, "PAGE_PARTIALS_SYNC_STATE_FAILED");
-                }
-            });
-
-            // API: Sync filesystem pages into DB and return enriched page list
-            this.app.post("/api/pages/sync", async (req, res) => {
-                try {
-                    const projectName = req.body?.projectName || req.query?.projectName || "theme_3";
-                    const data = await this.syncPagesFromFilesystem(projectName);
-                    res.json({ success: true, data });
-                } catch (err) {
-                    this.sendError(res, err, "PAGES_SYNC_FAILED");
-                }
-            });
-
-            // API: Delete page
-            this.app.delete("/api/pages", async (req, res) => {
-                try {
-                    const projectName = req.body?.projectName || req.query?.projectName;
-                    const pageName = req.body?.pageName || req.query?.pageName;
-                    if (!projectName || !pageName) {
-                        return res.status(400).json({ success: false, error: "Missing projectName or pageName parameter" });
-                    }
-                    const deleted = await this.deletePage({ projectName, pageName });
-                    res.json({ success: true, data: deleted });
-                } catch (err) {
-                    this.sendError(res, err, "PAGE_DELETE_FAILED");
-                }
-            });
-
-            // API: List saved layouts
-            this.app.get("/api/saved-layouts", async (req, res) => {
-                try {
-                    const items = await this.listSavedLayouts();
-                    res.json({ success: true, data: items });
-                } catch (err) {
-                    this.sendError(res, err, "SAVED_LAYOUTS_LIST_FAILED");
-                }
-            });
-
-            // API: Read one saved layout
-            this.app.get("/api/saved-layout", async (req, res) => {
-                try {
-                    const { fileName } = req.query;
-                    if (!fileName) {
-                        return res.status(400).json({ success: false, error: "Missing fileName parameter" });
-                    }
-                    const item = await this.getSavedLayout(fileName);
-                    res.json({ success: true, data: item });
-                } catch (err) {
-                    this.sendError(res, err, "SAVED_LAYOUT_READ_FAILED");
-                }
-            });
-
-            // API: Delete saved layout
-            this.app.delete("/api/saved-layout", async (req, res) => {
-                try {
-                    const fileName = req.body?.fileName || req.query?.fileName;
-                    if (!fileName) {
-                        return res.status(400).json({ success: false, error: "Missing fileName parameter" });
-                    }
-                    const deleted = await this.deleteSavedLayout(fileName);
-                    res.json({ success: true, data: deleted });
-                } catch (err) {
-                    this.sendError(res, err, "SAVED_LAYOUT_DELETE_FAILED");
-                }
-            });
+            this.initPagesSlice();
+            registerPagesRoutes(this.app, this.pagesController);
 
             // API: Build final HTML from layout
             this.app.post("/api/build", async (req, res) => {

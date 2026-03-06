@@ -10,8 +10,6 @@ class VisualBuilder {
         this.currentLayoutFileName = null;
         this.historyUndo = [];
         this.historyRedo = [];
-        this.historyUndo = [];
-        this.historyRedo = [];
         this.partials = [];
         this.pageComponents = [];
         this.pageCreated = false;
@@ -20,6 +18,12 @@ class VisualBuilder {
         this.selectedItem = null;
         this.apiBase = '';
         this.pendingDeleteTarget = null;
+        this.apiClient = new window.BuilderApiClient(this.apiBase);
+        this.stateStore = window.BuilderStateStore;
+        this.notifications = window.BuilderNotifications;
+        this.modals = window.BuilderModals;
+        this.pagesDashboard = window.BuilderPagesDashboard;
+        this.editorCanvas = window.BuilderEditorCanvas;
         
         this.init();
     }
@@ -220,48 +224,7 @@ class VisualBuilder {
     }
 
     initSortable() {
-        // Sidebar partials - clone on drag
-        this.partialsSortable = new Sortable(this.partialsList, {
-            group: {
-                name: 'builder',
-                pull: 'clone',
-                put: false
-            },
-            draggable: '.component-item',
-            filter: '.component-view-code',
-            preventOnFilter: false,
-            sort: false,
-            animation: 150,
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-            onStart: (evt) => {
-                const partialPath = evt?.item?.dataset?.path || '';
-                this.currentDragPartialPath = partialPath;
-                const cachedHeight = this.partialHeightCache[partialPath];
-                const previewHeight = Number.isFinite(cachedHeight) ? cachedHeight : 240;
-                this.canvasDropZone.style.setProperty('--drag-preview-height', `${Math.max(140, Math.round(previewHeight))}px`);
-                this.canvasDropZone.classList.add('is-dragging-partial');
-            },
-            onEnd: () => {
-                this.clearDragPreviewIndicator();
-            }
-        });
-
-        // Canvas drop zone
-        this.canvasSortable = new Sortable(this.canvasDropZone, {
-            group: {
-                name: 'builder',
-                pull: false,
-                put: ['builder']
-            },
-            animation: 150,
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-            handle: '.canvas-item-header',
-            onAdd: (evt) => this.handleDrop(evt),
-            onRemove: (evt) => this.handleRemove(evt),
-            onUpdate: (evt) => this.handleReorder(evt)
-        });
+        this.editorCanvas.initSortable(this);
     }
 
     setProjectLockState(isLocked) {
@@ -281,36 +244,20 @@ class VisualBuilder {
     }
 
     getSnapshot() {
-        return JSON.parse(JSON.stringify(this.pageComponents));
+        return this.stateStore.getSnapshot(this);
     }
 
     pushHistory() {
-        this.historyUndo.push(this.getSnapshot());
-        if (this.historyUndo.length > 100) {
-            this.historyUndo.shift();
-        }
-        this.historyRedo = [];
+        this.stateStore.pushHistory(this);
     }
 
     undo() {
-        if (this.historyUndo.length === 0) {
-            this.showToast('Nothing to undo', 'warning');
-            return;
-        }
-        this.historyRedo.push(this.getSnapshot());
-        this.pageComponents = this.historyUndo.pop();
-        this.renderCanvasFromState();
+        this.stateStore.undo(this);
         this.refreshLivePreview();
     }
 
     redo() {
-        if (this.historyRedo.length === 0) {
-            this.showToast('Nothing to redo', 'warning');
-            return;
-        }
-        this.historyUndo.push(this.getSnapshot());
-        this.pageComponents = this.historyRedo.pop();
-        this.renderCanvasFromState();
+        this.stateStore.redo(this);
         this.refreshLivePreview();
     }
 
@@ -436,17 +383,7 @@ class VisualBuilder {
         }
 
         try {
-            const response = await fetch('/api/projects', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ projectName })
-            });
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to create project');
-            }
+            const result = await this.apiClient.createProject(projectName);
 
             this.project = {
                 name: result?.data?.projectName || projectName,
@@ -496,21 +433,7 @@ class VisualBuilder {
         }
 
         try {
-            const response = await fetch('/api/pages', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    projectName: this.siteProjectName,
-                    pageName: normalizedPageName,
-                    pageTitle: normalizedPageName
-                })
-            });
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to create page');
-            }
+            await this.apiClient.createPage(this.siteProjectName, normalizedPageName, normalizedPageName);
         } catch (error) {
             console.error('Failed to create page:', error);
             this.showToast(`Failed to create page: ${error.message}`, 'error');
@@ -532,112 +455,11 @@ class VisualBuilder {
     }
 
     async loadLandingProjects() {
-        this.landingContentTitle.textContent = 'Pages';
-        this.closeProjectDashboard.style.display = 'none';
-        this.landingProjectsList.innerHTML = '<div class="text-sm text-slate-400">Loading pages...</div>';
-        try {
-            const response = await fetch(`/api/pages?projectName=${encodeURIComponent(this.siteProjectName)}`);
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to load pages');
-            }
-
-            let items = Array.isArray(result.data) ? result.data : [];
-
-            if (items.length === 0) {
-                this.landingProjectsList.innerHTML = '<div class="text-sm text-slate-400">No pages found. Click Create Page on the left.</div>';
-                return;
-            }
-
-            let html = '';
-            items.forEach((item) => {
-                const itemName = item.pageName;
-                const iconClass = 'fab fa-html5';
-                const deleteTitle = 'Delete page';
-                const partials = Array.isArray(item.partials) ? item.partials : [];
-                const partialPreview = partials.slice(0, 4);
-                const remainingCount = partials.length - partialPreview.length;
-                const isPartialsSynced = Boolean(item.partialsSynced);
-                const partialsHtml = partials.length > 0
-                    ? `<div class="mt-3 flex flex-wrap gap-1.5">${partialPreview.map((p) => `<span class="inline-flex max-w-full truncate rounded-lg border border-slate-600/65 bg-slate-950/70 px-2.5 py-1 text-[10px] font-medium text-slate-300" title="${p}">${p}</span>`).join("")}${remainingCount > 0 ? `<span class="inline-flex rounded-lg border border-slate-600/65 bg-slate-950/70 px-2.5 py-1 text-[10px] font-medium text-slate-400">+${remainingCount}</span>` : ""}</div>`
-                    : '<div class="mt-3 text-[10px] font-medium text-slate-500">No detected partials</div>';
-                html += `
-                    <div class="group relative rounded-2xl border border-slate-700/65 bg-gradient-to-b from-slate-800/70 to-slate-900/80 p-4 shadow-[0_10px_35px_rgba(2,6,23,0.4)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-400/40 hover:shadow-[0_14px_45px_rgba(2,6,23,0.55)]" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}">
-                        <button class="landing-project-delete absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-rose-500 text-white shadow-md opacity-95 transition hover:scale-110 hover:bg-rose-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="${deleteTitle}">
-                            <i class="fas fa-trash-alt text-[10px]"></i>
-                        </button>
-                        <div class="flex items-start gap-4 min-w-0">
-                            <div class="relative shrink-0">
-                                <button class="landing-project-open" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
-                                    <span class="inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-600/80 bg-slate-950/85 shadow-inner shadow-black/30 transition group-hover:border-orange-400/70">
-                                        <i class="${iconClass} text-3xl text-orange-500 drop-shadow-[0_2px_6px_rgba(251,146,60,0.4)]"></i>
-                                    </span>
-                                </button>
-                            </div>
-                            <div class="min-w-0 flex-1">
-                                <button class="landing-project-open block w-full truncate text-left text-base font-semibold tracking-tight text-slate-100 transition hover:text-white" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
-                                    ${itemName}
-                                </button>
-                                <div class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-slate-400">${item.updatedAt}</div>
-                                ${partialsHtml}
-                                ${isPartialsSynced ? '<div class="mt-2 flex justify-end"><span class="inline-flex rounded-md border border-emerald-400/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-300">Synced</span></div>' : ''}
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-            this.landingProjectsList.innerHTML = html;
-
-            this.landingProjectsList.querySelectorAll('.landing-project-open').forEach((card) => {
-                card.addEventListener('click', async (e) => {
-                    const pageName = e.currentTarget.dataset.pageName;
-                    const layoutFileName = e.currentTarget.dataset.layoutFileName;
-
-                    await this.openPageFromDashboard(pageName, layoutFileName);
-                });
-            });
-            this.landingProjectsList.querySelectorAll('.landing-project-delete').forEach((button) => {
-                button.addEventListener('click', (e) => {
-                    const projectName = e.currentTarget.dataset.projectName;
-                    const pageName = e.currentTarget.dataset.pageName;
-                    const layoutFileName = e.currentTarget.dataset.layoutFileName;
-                    this.openDeleteProjectModal({
-                        type: 'page',
-                        projectName,
-                        pageName,
-                        layoutFileName
-                    });
-                });
-            });
-        } catch (error) {
-            console.error('Failed to load landing projects:', error);
-            this.landingProjectsList.innerHTML = '<div class="text-sm text-rose-300">Failed to load pages</div>';
-        }
+        return this.pagesDashboard.loadLandingProjects(this);
     }
 
     async syncPagesFromFilesystem() {
-        this.syncLandingPages.disabled = true;
-        try {
-            const response = await fetch('/api/pages/sync', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ projectName: this.siteProjectName })
-            });
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to sync pages');
-            }
-            const syncedCount = Number(result?.data?.syncedCount || 0);
-            this.showToast(`Sync complete: ${syncedCount} page(s) loaded`, 'success');
-            await this.loadLandingProjects();
-        } catch (error) {
-            console.error('Failed to sync pages:', error);
-            this.showToast(`Sync failed: ${error.message}`, 'error');
-        } finally {
-            this.syncLandingPages.disabled = false;
-        }
+        return this.pagesDashboard.syncPagesFromFilesystem(this);
     }
 
     async openLoadLayoutModal() {
@@ -648,11 +470,7 @@ class VisualBuilder {
     async loadSavedLayoutsList() {
         this.savedLayoutsList.innerHTML = '<div class="loading">Loading saved layouts...</div>';
         try {
-            const response = await fetch('/api/saved-layouts');
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to load saved layouts');
-            }
+            const result = await this.apiClient.listSavedLayouts();
 
             if (!Array.isArray(result.data) || result.data.length === 0) {
                 this.savedLayoutsList.innerHTML = '<div class="loading">No saved layouts found</div>';
@@ -720,70 +538,7 @@ class VisualBuilder {
     }
 
     async syncCurrentPagePartials() {
-        if (!this.currentPageName) {
-            this.showToast('Open a page first', 'warning');
-            return;
-        }
-
-        this.syncPagePartials.disabled = true;
-        try {
-            const response = await fetch(
-                `/api/pages/partials?projectName=${encodeURIComponent(this.siteProjectName)}&pageName=${encodeURIComponent(this.currentPageName)}`
-            );
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to detect page partials');
-            }
-
-            const partialPaths = Array.isArray(result?.data?.partials) ? result.data.partials : [];
-            if (partialPaths.length === 0) {
-                this.showToast('No partial markers found in this page html', 'warning');
-                return;
-            }
-
-            const components = [];
-            for (const componentPath of partialPaths) {
-                const partialResponse = await fetch(`/api/partial?path=${encodeURIComponent(componentPath)}`);
-                const partialResult = await partialResponse.json();
-                if (!partialResult.success) {
-                    throw new Error(partialResult.error || `Failed to load partial: ${componentPath}`);
-                }
-                components.push({
-                    instanceId: 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-                    type: 'partial',
-                    componentPath,
-                    name: componentPath.split('/').pop().replace('.html', ''),
-                    props: {},
-                    content: partialResult.data
-                });
-            }
-
-            this.pageComponents = components;
-            this.historyUndo = [];
-            this.historyRedo = [];
-            this.renderCanvasFromState();
-
-            try {
-                await fetch('/api/pages/partials/sync-state', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        projectName: this.siteProjectName,
-                        pageName: this.currentPageName,
-                        partialsSynced: true
-                    })
-                });
-            } catch (stateError) {
-                console.warn('Failed to persist partial sync state:', stateError);
-            }
-
-            this.showToast(`Synced ${components.length} partial(s) from ${this.currentPageName}.html`, 'success');
-        } catch (error) {
-            console.error('Failed to sync current page partials:', error);
-            this.showToast(`Sync failed: ${error.message}`, 'error');
-        } finally {
-            this.syncPagePartials.disabled = false;
-        }
+        return this.pagesDashboard.syncCurrentPagePartials(this);
     }
 
     openDeleteProjectModal(target) {
@@ -945,22 +700,17 @@ class VisualBuilder {
         try {
             this.partialsList.innerHTML = '<div class="loading">Loading components...</div>';
             
-            const response = await fetch('/api/partials');
-            const result = await response.json();
+            const result = await this.apiClient.listPartials();
             
-            if (result.success) {
-                const items = Array.isArray(result.data) ? result.data : [];
-                this.partials = items.filter((item) => {
-                    const partialPath = String(item?.path || '');
-                    return partialPath.endsWith('.html')
-                        && !partialPath.includes('..')
-                        && !partialPath.startsWith('/')
-                        && !partialPath.startsWith('\\');
-                });
-                this.renderPartials(this.partials);
-            } else {
-                throw new Error(result.error);
-            }
+            const items = Array.isArray(result.data) ? result.data : [];
+            this.partials = items.filter((item) => {
+                const partialPath = String(item?.path || '');
+                return partialPath.endsWith('.html')
+                    && !partialPath.includes('..')
+                    && !partialPath.startsWith('/')
+                    && !partialPath.startsWith('\\');
+            });
+            this.renderPartials(this.partials);
         } catch (error) {
             console.error('Error loading partials:', error);
             this.partialsList.innerHTML = '<div class="loading">Error loading components</div>';
@@ -1014,11 +764,7 @@ class VisualBuilder {
         this.partialCodeModal.classList.add('active');
 
         try {
-            const response = await fetch(`/api/partial?path=${encodeURIComponent(partialPath)}`);
-            const result = await response.json();
-            if (!result.success) {
-                throw new Error(result.error || 'Failed to load partial code');
-            }
+            const result = await this.apiClient.getPartial(partialPath);
             this.partialCodeOutput.textContent = result.data || '';
         } catch (error) {
             console.error('Failed to load partial code:', error);
@@ -1044,20 +790,6 @@ class VisualBuilder {
         `;
     }
 
-    groupByCategory(items) {
-        const grouped = {};
-        
-        items.forEach(item => {
-            const category = item.category || 'General';
-            if (!grouped[category]) {
-                grouped[category] = [];
-            }
-            grouped[category].push(item);
-        });
-        
-        return grouped;
-    }
-
     filterComponents() {
         const query = (this.searchInput.value || '').trim().toLowerCase();
 
@@ -1072,133 +804,8 @@ class VisualBuilder {
         this.renderPartials(filtered);
     }
 
-    handleDrop(evt) {
-        if (!this.project) {
-            evt.item.remove();
-            this.openProjectModal();
-            this.showToast('Create or open a page first', 'warning');
-            return;
-        }
-
-        if (!this.pageCreated) {
-            evt.item.remove();
-            this.showCreatePageModal();
-            this.showToast('Create a page first', 'warning');
-            return;
-        }
-
-        const item = evt.item;
-        const type = item.dataset.type;
-        const path = item.dataset.path;
-        
-        // Remove the dragged clone and create a canvas item
-        item.remove();
-        
-        // Fetch the content and create canvas item
-        this.createCanvasItem(type, path);
-    }
-
-    async createCanvasItem(type, path) {
-        try {
-            if (type !== 'partial') {
-                throw new Error('Only partial components are supported');
-            }
-
-            const endpoint = '/api/partial';
-            const response = await fetch(`${endpoint}?path=${encodeURIComponent(path)}`);
-            const result = await response.json();
-            
-            if (!result.success) {
-                throw new Error(result.error);
-            }
-            
-            const content = result.data;
-            const instanceId = 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-            this.pushHistory();
-
-            const pageComponent = {
-                instanceId,
-                type: type,
-                componentPath: path,
-                name: path.split('/').pop().replace('.html', ''),
-                props: {},
-                content
-            };
-            
-            this.pageComponents.push(pageComponent);
-            this.renderCanvasFromState();
-            this.refreshLivePreview();
-            
-        } catch (error) {
-            console.error('Error creating canvas item:', error);
-            this.showToast('Failed to load component content', 'error');
-        }
-    }
-
     renderCanvasFromState() {
-        this.canvasDropZone.innerHTML = '';
-        this.pageComponents.forEach((item) => this.renderCanvasItem(item));
-        this.updateCanvasState();
-    }
-
-    renderCanvasItem(item) {
-        const div = document.createElement('div');
-        div.className = 'canvas-item';
-        div.dataset.instanceId = item.instanceId;
-        div.dataset.type = item.type;
-        div.dataset.path = item.componentPath;
-        
-        div.innerHTML = `
-            <div class="canvas-item-header">
-                <div class="canvas-item-info">
-                    <i class="fas fa-${item.type === 'partial' ? 'puzzle-piece' : 'layer-group'}"></i>
-                    <span class="item-name">${item.name}</span>
-                    <span class="item-path">${item.componentPath}</span>
-                </div>
-                <div class="canvas-item-actions">
-                    <button class="btn-duplicate" title="Duplicate">
-                        <i class="fas fa-copy"></i>
-                    </button>
-                    <button class="btn-edit" title="Edit">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn-delete" title="Delete">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="canvas-item-content">
-                <div class="content-preview">${this.getRenderedComponentContent(item)}</div>
-            </div>
-        `;
-        
-        // Bind events
-        div.querySelector('.btn-delete').addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.removeCanvasItem(item.instanceId);
-        });
-
-        div.querySelector('.btn-duplicate').addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.duplicateCanvasItem(item.instanceId);
-        });
-        
-        div.querySelector('.btn-edit').addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.selectCanvasItem(item.instanceId);
-        });
-        
-        div.addEventListener('click', () => this.selectCanvasItem(item.instanceId));
-        
-        this.canvasDropZone.appendChild(div);
-
-        // Cache rendered height to make future drag placeholders match this partial's block size.
-        if (item.componentPath) {
-            const measuredHeight = Math.ceil(div.getBoundingClientRect().height || 0);
-            if (measuredHeight > 0) {
-                this.partialHeightCache[item.componentPath] = measuredHeight;
-            }
-        }
+        this.editorCanvas.renderCanvasFromState(this);
     }
 
     removeCanvasItem(instanceId) {
@@ -1245,55 +852,8 @@ class VisualBuilder {
         }
     }
 
-    handleRemove(evt) {
-        this.pushHistory();
-        const instanceId = evt.item.dataset.instanceId;
-        const index = this.pageComponents.findIndex(item => item.instanceId === instanceId);
-        if (index > -1) {
-            this.pageComponents.splice(index, 1);
-        }
-        this.updateCanvasState();
-        this.refreshLivePreview();
-    }
-
-    handleReorder(evt) {
-        this.pushHistory();
-        this.updateCanvasItemsOrder();
-        this.refreshLivePreview();
-    }
-
-    updateCanvasItemsOrder() {
-        const newOrder = [];
-        const elements = this.canvasDropZone.querySelectorAll('.canvas-item');
-        
-        elements.forEach(el => {
-            const instanceId = el.dataset.instanceId;
-            const item = this.pageComponents.find(i => i.instanceId === instanceId);
-            if (item) {
-                newOrder.push(item);
-            }
-        });
-        
-        this.pageComponents = newOrder;
-    }
-
     updateCanvasState() {
-        const count = this.pageComponents.length;
-        this.componentCount.textContent = `${count} component${count !== 1 ? 's' : ''}`;
-        
-        if (count > 0) {
-            this.canvasEmpty.classList.add('hidden');
-            this.canvasDropZone.classList.remove('is-empty');
-        } else {
-            this.canvasEmpty.classList.remove('hidden');
-            this.canvasDropZone.classList.add('is-empty');
-        }
-    }
-
-    clearDragPreviewIndicator() {
-        this.currentDragPartialPath = null;
-        this.canvasDropZone.classList.remove('is-dragging-partial');
-        this.canvasDropZone.style.removeProperty('--drag-preview-height');
+        this.editorCanvas.updateCanvasState(this);
     }
 
     clearCanvas() {
@@ -1653,31 +1213,11 @@ class VisualBuilder {
     }
 
     hideModal(modal) {
-        modal.classList.remove('active');
+        this.modals.hide(modal);
     }
 
     showToast(message, type = 'success') {
-        const container = document.getElementById('toastContainer');
-        
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
-        
-        const icon = type === 'success' ? 'check-circle' : 
-                     type === 'error' ? 'exclamation-circle' : 
-                     'exclamation-triangle';
-        
-        toast.innerHTML = `
-            <i class="fas fa-${icon}"></i>
-            <span class="toast-message">${message}</span>
-        `;
-        
-        container.appendChild(toast);
-        
-        // Auto remove after 3 seconds
-        setTimeout(() => {
-            toast.style.animation = 'slideIn 0.3s ease reverse';
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        this.notifications.showToast(message, type);
     }
 }
 
