@@ -190,11 +190,23 @@ class BuilderTask {
                 page_name TEXT NOT NULL,
                 page_title TEXT,
                 layout_file_name TEXT,
+                partials_synced INTEGER NOT NULL DEFAULT 0,
+                partials_synced_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(project_name, page_name)
             )
         `);
+
+        const pageColumns = await this.dbAll("PRAGMA table_info(builder_pages)");
+        const hasPartialsSynced = pageColumns.some((col) => col.name === "partials_synced");
+        const hasPartialsSyncedAt = pageColumns.some((col) => col.name === "partials_synced_at");
+        if (!hasPartialsSynced) {
+            await this.dbRun("ALTER TABLE builder_pages ADD COLUMN partials_synced INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!hasPartialsSyncedAt) {
+            await this.dbRun("ALTER TABLE builder_pages ADD COLUMN partials_synced_at TEXT");
+        }
 
         await this.migrateLegacyLayoutFilesToDb();
         await this.migrateProjectsAndPagesFromLayouts();
@@ -288,7 +300,7 @@ class BuilderTask {
         return safeProjectName;
     }
 
-    async upsertPageRecord({ projectName, pageName, pageTitle = "", layoutFileName = null }) {
+    async upsertPageRecord({ projectName, pageName, pageTitle = "", layoutFileName = null, partialsSynced = null }) {
         const safeProjectName = await this.upsertProjectRecord(projectName);
         const safePageName = this.sanitizePageName(pageName);
         if (!safePageName) {
@@ -299,8 +311,8 @@ class BuilderTask {
         await this.dbRun(
             `
                 INSERT INTO builder_pages (
-                    project_name, page_name, page_title, layout_file_name, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    project_name, page_name, page_title, layout_file_name, partials_synced, partials_synced_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_name, page_name) DO UPDATE SET
                     page_title = excluded.page_title,
                     layout_file_name = CASE
@@ -310,14 +322,74 @@ class BuilderTask {
                     END,
                     updated_at = excluded.updated_at
             `,
-            [safeProjectName, safePageName, String(pageTitle || ""), layoutFileName, now, now]
+            [
+                safeProjectName,
+                safePageName,
+                String(pageTitle || ""),
+                layoutFileName,
+                partialsSynced ? 1 : 0,
+                partialsSynced ? now : null,
+                now,
+                now
+            ]
         );
+
+        if (partialsSynced !== null) {
+            await this.dbRun(
+                `
+                    UPDATE builder_pages
+                    SET partials_synced = ?, partials_synced_at = ?, updated_at = ?
+                    WHERE project_name = ? AND page_name = ?
+                `,
+                [partialsSynced ? 1 : 0, partialsSynced ? now : null, now, safeProjectName, safePageName]
+            );
+        }
 
         return {
             projectName: safeProjectName,
             pageName: safePageName,
             pageTitle: String(pageTitle || ""),
-            layoutFileName: layoutFileName || null
+            layoutFileName: layoutFileName || null,
+            partialsSynced: Boolean(partialsSynced)
+        };
+    }
+
+    async setPagePartialsSynced({ projectName, pageName, partialsSynced }) {
+        const safeProjectName = this.sanitizeName(projectName);
+        const safePageName = this.sanitizePageName(pageName);
+        if (!safeProjectName || !safePageName) {
+            throw this.createActionableError(
+                "Invalid project/page name",
+                400,
+                "INVALID_PROJECT_OR_PAGE_NAME",
+                { projectName, pageName }
+            );
+        }
+
+        const now = new Date().toISOString();
+        const result = await this.dbRun(
+            `
+                UPDATE builder_pages
+                SET partials_synced = ?, partials_synced_at = ?, updated_at = ?
+                WHERE project_name = ? AND page_name = ?
+            `,
+            [partialsSynced ? 1 : 0, partialsSynced ? now : null, now, safeProjectName, safePageName]
+        );
+
+        if (!result || result.changes === 0) {
+            throw this.createActionableError(
+                "Page not found",
+                404,
+                "PAGE_NOT_FOUND",
+                { projectName: safeProjectName, pageName: safePageName }
+            );
+        }
+
+        return {
+            projectName: safeProjectName,
+            pageName: safePageName,
+            partialsSynced: Boolean(partialsSynced),
+            partialsSyncedAt: partialsSynced ? now : null
         };
     }
 
@@ -489,6 +561,8 @@ class BuilderTask {
                     page_name AS pageName,
                     page_title AS pageTitle,
                     layout_file_name AS layoutFileName,
+                    partials_synced AS partialsSynced,
+                    partials_synced_at AS partialsSyncedAt,
                     created_at AS createdAt,
                     updated_at AS updatedAt
                 FROM builder_pages
@@ -502,6 +576,7 @@ class BuilderTask {
             const partials = await this.getPagePartials(row.pageName, partialLookup);
             return {
                 ...row,
+                partialsSynced: Boolean(row.partialsSynced),
                 partials
             };
         }));
@@ -1244,6 +1319,22 @@ class BuilderTask {
                     res.json({ success: true, data: { projectName, pageName, partials } });
                 } catch (err) {
                     this.sendError(res, err, "PAGE_PARTIALS_READ_FAILED");
+                }
+            });
+
+            // API: Mark page partial-sync state
+            this.app.post("/api/pages/partials/sync-state", async (req, res) => {
+                try {
+                    const projectName = req.body?.projectName || req.query?.projectName || "theme_3";
+                    const pageName = req.body?.pageName || req.query?.pageName;
+                    const partialsSynced = Boolean(req.body?.partialsSynced);
+                    if (!pageName) {
+                        return res.status(400).json({ success: false, error: "Missing pageName parameter" });
+                    }
+                    const data = await this.setPagePartialsSynced({ projectName, pageName, partialsSynced });
+                    res.json({ success: true, data });
+                } catch (err) {
+                    this.sendError(res, err, "PAGE_PARTIALS_SYNC_STATE_FAILED");
                 }
             });
 

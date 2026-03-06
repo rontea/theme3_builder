@@ -45,3 +45,6 @@
 - [x] Add regression tests for malicious/invalid input payloads.
 - [x] Add README builder workflow section (create project -> drag components -> save page).
 - [x] Add troubleshooting section for global `th3` linking/version conflicts.
+
+## Backlog - Refactor
+- [ ] Review and plan MVC-style refactor for builder codebase (routes/controllers/services/UI modules), then schedule incremental migration.
