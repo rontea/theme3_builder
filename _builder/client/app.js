@@ -76,6 +76,7 @@ class VisualBuilder {
         this.exportModal = document.getElementById('exportModal');
         this.loadLayoutModal = document.getElementById('loadLayoutModal');
         this.deleteProjectModal = document.getElementById('deleteProjectModal');
+        this.closePageConfirmModal = document.getElementById('closePageConfirmModal');
         this.createProjectModal = document.getElementById('createProjectModal');
         this.createPageModal = document.getElementById('createPageModal');
         this.partialCodeModal = document.getElementById('partialCodeModal');
@@ -96,6 +97,10 @@ class VisualBuilder {
         this.cancelDeleteProject = document.getElementById('cancelDeleteProject');
         this.confirmDeleteProject = document.getElementById('confirmDeleteProject');
         this.deleteProjectName = document.getElementById('deleteProjectName');
+        this.closeClosePageConfirmModal = document.getElementById('closeClosePageConfirmModal');
+        this.cancelClosePageConfirm = document.getElementById('cancelClosePageConfirm');
+        this.confirmClosePageConfirm = document.getElementById('confirmClosePageConfirm');
+        this.closePageName = document.getElementById('closePageName');
         this.savedLayoutsList = document.getElementById('savedLayoutsList');
         this.landingScreen = document.getElementById('landingScreen');
         this.landingProjectsList = document.getElementById('landingProjectsList');
@@ -146,17 +151,22 @@ class VisualBuilder {
         this.closeDeleteProject.addEventListener('click', () => this.closeDeleteProjectModal());
         this.cancelDeleteProject.addEventListener('click', () => this.closeDeleteProjectModal());
         this.confirmDeleteProject.addEventListener('click', () => this.confirmDeleteProjectAction());
+        this.closeClosePageConfirmModal.addEventListener('click', () => this.closeClosePageConfirmDialog());
+        this.cancelClosePageConfirm.addEventListener('click', () => this.closeClosePageConfirmDialog());
+        this.confirmClosePageConfirm.addEventListener('click', () => this.confirmClosePageAction());
         
         // Export buttons
         document.getElementById('copyExport').addEventListener('click', () => this.copyToClipboard());
         document.getElementById('downloadExport').addEventListener('click', () => this.downloadExport());
         
         // Close modals on background click
-        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.createProjectModal, this.createPageModal, this.partialCodeModal].forEach(modal => {
+        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal].forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     if (modal === this.deleteProjectModal) {
                         this.closeDeleteProjectModal();
+                    } else if (modal === this.closePageConfirmModal) {
+                        this.closeClosePageConfirmDialog();
                     } else if (modal === this.createProjectModal) {
                         this.closeCreateProjectModal();
                     } else if (modal === this.createPageModal) {
@@ -192,6 +202,7 @@ class VisualBuilder {
                 this.closeCreateProjectModal();
                 this.closeCreatePageModal();
                 this.closeDeleteProjectModal();
+                this.closeClosePageConfirmDialog();
             }
             if (e.ctrlKey && e.key === 's') {
                 e.preventDefault();
@@ -380,12 +391,30 @@ class VisualBuilder {
         }
 
         if (this.pageComponents.length > 0) {
-            const confirmed = confirm('Close this page and discard unsaved changes?');
-            if (!confirmed) {
-                return;
-            }
+            this.openClosePageConfirmDialog();
+            return;
         }
 
+        this.performCloseCurrentPageToDashboard();
+    }
+
+    openClosePageConfirmDialog() {
+        const pageName = this.currentPageName || this.pageTitleInput.value || 'Current page';
+        this.closePageName.textContent = pageName;
+        this.closePageConfirmModal.classList.add('active');
+    }
+
+    closeClosePageConfirmDialog() {
+        this.closePageName.textContent = '';
+        this.closePageConfirmModal.classList.remove('active');
+    }
+
+    confirmClosePageAction() {
+        this.closeClosePageConfirmDialog();
+        this.performCloseCurrentPageToDashboard();
+    }
+
+    performCloseCurrentPageToDashboard() {
         this.pageCreated = false;
         this.currentLayoutFileName = null;
         this.historyUndo = [];
@@ -523,33 +552,35 @@ class VisualBuilder {
             let html = '';
             items.forEach((item) => {
                 const itemName = item.pageName;
-                const iconClass = 'fa-html5';
+                const iconClass = 'fab fa-html5';
                 const deleteTitle = 'Delete page';
                 const partials = Array.isArray(item.partials) ? item.partials : [];
                 const partialPreview = partials.slice(0, 4);
                 const remainingCount = partials.length - partialPreview.length;
+                const isPartialsSynced = Boolean(item.partialsSynced);
                 const partialsHtml = partials.length > 0
-                    ? `<div class="mt-2 flex flex-wrap gap-1">${partialPreview.map((p) => `<span class="inline-flex max-w-full truncate rounded-md border border-slate-600/70 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-300" title="${p}">${p}</span>`).join("")}${remainingCount > 0 ? `<span class="inline-flex rounded-md border border-slate-600/70 bg-slate-900/70 px-2 py-0.5 text-[10px] text-slate-400">+${remainingCount}</span>` : ""}</div>`
-                    : '<div class="mt-2 text-[10px] text-slate-500">No detected partials</div>';
+                    ? `<div class="mt-3 flex flex-wrap gap-1.5">${partialPreview.map((p) => `<span class="inline-flex max-w-full truncate rounded-lg border border-slate-600/65 bg-slate-950/70 px-2.5 py-1 text-[10px] font-medium text-slate-300" title="${p}">${p}</span>`).join("")}${remainingCount > 0 ? `<span class="inline-flex rounded-lg border border-slate-600/65 bg-slate-950/70 px-2.5 py-1 text-[10px] font-medium text-slate-400">+${remainingCount}</span>` : ""}</div>`
+                    : '<div class="mt-3 text-[10px] font-medium text-slate-500">No detected partials</div>';
                 html += `
-                    <div class="group rounded-2xl border border-slate-700/60 bg-slate-800/50 p-4 shadow-md transition hover:-translate-y-0.5 hover:border-slate-500/70 hover:shadow-xl" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}">
-                        <div class="flex items-center gap-4 min-w-0">
+                    <div class="group relative rounded-2xl border border-slate-700/65 bg-gradient-to-b from-slate-800/70 to-slate-900/80 p-4 shadow-[0_10px_35px_rgba(2,6,23,0.4)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-400/40 hover:shadow-[0_14px_45px_rgba(2,6,23,0.55)]" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}">
+                        <button class="landing-project-delete absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-rose-500 text-white shadow-md opacity-95 transition hover:scale-110 hover:bg-rose-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="${deleteTitle}">
+                            <i class="fas fa-trash-alt text-[10px]"></i>
+                        </button>
+                        <div class="flex items-start gap-4 min-w-0">
                             <div class="relative shrink-0">
                                 <button class="landing-project-open" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
-                                    <span class="inline-flex h-14 w-14 items-center justify-center rounded-xl border border-slate-600/80 bg-slate-900/80">
-                                        <i class="fas ${iconClass} text-2xl text-orange-500"></i>
+                                    <span class="inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-600/80 bg-slate-950/85 shadow-inner shadow-black/30 transition group-hover:border-orange-400/70">
+                                        <i class="${iconClass} text-3xl text-orange-500 drop-shadow-[0_2px_6px_rgba(251,146,60,0.4)]"></i>
                                     </span>
-                                </button>
-                                <button class="landing-project-delete absolute bottom-0 right-0 translate-x-1/4 translate-y-1/4 inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-rose-500 text-white shadow-md transition hover:scale-110 hover:bg-rose-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="${deleteTitle}">
-                                    <i class="fas fa-trash-alt text-[10px]"></i>
                                 </button>
                             </div>
                             <div class="min-w-0 flex-1">
-                                <button class="landing-project-open block w-full truncate text-left text-sm font-semibold text-slate-100 transition hover:text-white" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
+                                <button class="landing-project-open block w-full truncate text-left text-base font-semibold tracking-tight text-slate-100 transition hover:text-white" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ''}" data-layout-file-name="${item.layoutFileName || ''}" title="Open page">
                                     ${itemName}
                                 </button>
-                                <div class="mt-1 truncate text-xs text-slate-400">${item.updatedAt}</div>
+                                <div class="mt-1 truncate text-[11px] uppercase tracking-[0.08em] text-slate-400">${item.updatedAt}</div>
                                 ${partialsHtml}
+                                ${isPartialsSynced ? '<div class="mt-2 flex justify-end"><span class="inline-flex rounded-md border border-emerald-400/35 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-300">Synced</span></div>' : ''}
                             </div>
                         </div>
                     </div>
@@ -731,6 +762,21 @@ class VisualBuilder {
             this.historyUndo = [];
             this.historyRedo = [];
             this.renderCanvasFromState();
+
+            try {
+                await fetch('/api/pages/partials/sync-state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectName: this.siteProjectName,
+                        pageName: this.currentPageName,
+                        partialsSynced: true
+                    })
+                });
+            } catch (stateError) {
+                console.warn('Failed to persist partial sync state:', stateError);
+            }
+
             this.showToast(`Synced ${components.length} partial(s) from ${this.currentPageName}.html`, 'success');
         } catch (error) {
             console.error('Failed to sync current page partials:', error);
