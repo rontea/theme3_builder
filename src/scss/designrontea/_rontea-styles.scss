@@ -1,0 +1,162 @@
+// ==========================================================================
+// RonTea Portfolio: Core Design System & Layout Bridge
+// ==========================================================================
+
+// Design Tokens
+$p-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+$p-font-heading: 'Space Grotesk', system-ui, sans-serif;
+
+$p-bg-light: #fafafa;
+$p-bg-dark: #0a0a0a;
+$p-text-light: #1a1a1a;
+$p-text-dark: #f0f0f0;
+
+$p-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+$p-radius-3xl: 1.5rem;
+$p-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+
+/* --- Layout & Utility Bridge --- */
+
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.justify-between { justify-content: space-between; }
+.items-center { align-items: center; }
+.items-end { align-items: flex-end; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+
+// Responsive Flex & Grid
+.hidden { display: none; }
+.grid { display: grid; }
+
+@media (min-width: 768px) {
+  .md\:flex { display: flex; }
+  .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+// Spacing Utilities (Tailwind Bridge)
+.mx-auto { margin-left: auto; margin-right: auto; }
+
+// Padding & Gaps
+@for $i from 1 through 12 {
+  .gap-#{$i} { gap: #{$i * 0.25}rem; }
+  .px-#{$i} { padding-left: #{$i * 0.25}rem; padding-right: #{$i * 0.25}rem; }
+  .py-#{$i} { padding-top: #{$i * 0.25}rem; padding-bottom: #{$i * 0.25}rem; }
+}
+
+// Stack Spacing (space-y-X)
+.space-y-4 > * + * { margin-top: 1rem; }
+.space-y-6 > * + * { margin-top: 1.5rem; }
+.space-y-8 > * + * { margin-top: 2rem; }
+.space-y-12 > * + * { margin-top: 3rem; }
+.space-y-24 > * + * { margin-top: 6rem; }
+.space-y-32 > * + * { margin-top: 8rem; }
+
+// Constraints
+.max-w-md  { max-width: 28rem; }
+.max-w-3xl { max-width: 48rem; }
+.max-w-5xl { max-width: 64rem; }
+.max-w-7xl { max-width: 80rem; }
+
+/* --- Typography --- */
+
+.tracking-tighter { letter-spacing: -0.05em; }
+.tracking-tight   { letter-spacing: -0.025em; }
+.tracking-widest  { letter-spacing: 0.1em; }
+.lh-095 { line-height: 0.95 !important; }
+.lh-1   { line-height: 1 !important; }
+
+.backdrop-blur-md {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.shadow-2xl { box-shadow: $p-shadow-2xl; }
+.opacity-40 { opacity: 0.4; }
+.opacity-50 { opacity: 0.5; }
+.opacity-90 { opacity: 0.9; }
+
+.bg-white-80 { background-color: rgba(255, 255, 255, 0.8); }
+.bg-black-80 { background-color: rgba(10, 10, 10, 0.8); }
+
+/* --- Components --- */
+
+body {
+  font-family: $p-font-sans;
+  background-color: var(--primary-bg);
+  color: var(--primary-text);
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1, h2, h3, h4, .font-heading { 
+  font-family: $p-font-heading; 
+}
+
+// Project Card
+.project-card {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+
+  .ratio {
+    border-radius: $p-radius-3xl;
+    overflow: hidden;
+    transition: all 0.3s $p-ease-smooth;
+    img { transition: transform 0.6s $p-ease-smooth; object-fit: cover; }
+  }
+
+  .project-arrow-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s $p-ease-smooth;
+    background: transparent;
+  }
+
+  &:hover {
+    .ratio img { transform: scale(1.05); }
+    .project-arrow-btn {
+      transform: rotate(45deg);
+      background-color: var(--primary-text);
+      color: var(--primary-bg);
+    }
+    h3 { text-decoration: underline; text-underline-offset: 8px; }
+  }
+}
+
+// Blog Card
+.blog-card {
+  transition: all 0.3s $p-ease-smooth;
+  background-color: var(--primary-bg);
+  .ratio { border-radius: 1rem; overflow: hidden; img { transition: transform 0.6s $p-ease-smooth; } }
+  &:hover { transform: translateY(-8px); .ratio img { transform: scale(1.1); } }
+}
+
+// Reveal Animation
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.8s $p-ease-smooth, transform 0.8s $p-ease-smooth;
+  &.active { opacity: 1; transform: translateY(0); }
+}
+
+// Dark Mode Support
+html.dark {
+  --primary-bg: #{$p-bg-dark};
+  --primary-text: #{$p-text-dark};
+
+  .navbar.sticky-top {
+    background-color: rgba(10, 10, 10, 0.8) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+  .project-card .project-arrow-btn { border-color: rgba(255, 255, 255, 0.1); }
+  .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); }
+  .bg-light { background-color: #111 !important; }
+  .text-muted { color: #888 !important; }
+}

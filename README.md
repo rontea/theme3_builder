@@ -81,10 +81,60 @@ th3 <cmd> [args]
 | `th3 icons-fontawesome`| Compile icons fontawesome                      |
 | `th3 icons-bootstrap`  | Compile icons bootstrap                        |
 | `th3 move-res`         | Move resources folder or file to build based on dest |  
+| `th3 builder`          | Launch visual drag-and-drop builder            |
 
 ##### Samples
 ```
 ```
+
+### Visual Builder
+
+Run:
+```node
+th3 builder
+```
+
+Optional:
+```node
+th3 builder --port 8080
+th3 builder --open false
+```
+
+Builder endpoints:
+- `GET /api/partials`
+- `GET /api/layouts`
+- `GET /api/partial?path=<relative-path>`
+- `GET /api/layout?path=<relative-path>`
+- `POST /api/save-layout`
+- `GET /api/saved-layouts`
+- `GET /api/saved-layout?fileName=<name.json>`
+
+Saved layout files:
+- All saved layout JSON files are written to `_builder/layouts`.
+- `layoutData` is validated on save and request size is limited.
+
+Builder workflow:
+1. Run `th3 builder` (or use `--port`/`--open`).
+2. Create a project in the Builder modal.
+3. Drag partial components from the left sidebar to the canvas.
+4. Reorder, duplicate, delete, and edit component properties.
+5. Click `Save` to persist:
+   - Editable layout JSON in `_builder/layouts`
+   - Generated page HTML in `html/pages`
+6. Use `Load` to reopen saved layouts and continue editing.
+
+Builder troubleshooting:
+- `th3` shows old/missing commands:
+  - Run `npm link --force` in your local repo.
+  - Run `th3 list` to verify command set.
+- `th3 builder` fails with open/browser errors:
+  - Run `th3 builder --open false` and open URL manually.
+  - Ensure `open` dependency is installed from `package-lock.json`.
+- Saved page conflict (already exists):
+  - Choose overwrite in prompt, or use Save As with a new page name.
+- Builder does not find your components:
+  - Ensure component files are under `html/partials/**/*.html`.
+  - Confirm paths do not traverse outside the partials folder.
 
 
 ### Check DIR's Environment

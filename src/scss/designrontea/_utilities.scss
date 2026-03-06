@@ -1,0 +1,47 @@
+@use 'variables' as *;
+
+/* ==========================================================================
+   RonTea Portfolio: Specific Design Utilities
+   ========================================================================== */
+
+// Typography
+.tracking-tighter { letter-spacing: -0.06em !important; }
+.tracking-tight { letter-spacing: -0.025em !important; }
+.tracking-widest { letter-spacing: 0.25em !important; }
+
+.lh-095 { line-height: 0.9 !important; }
+.lh-1 { line-height: 1 !important; }
+
+// Layout Constraints
+.max-w-md { max-width: 32rem !important; }
+.max-w-3xl { max-width: 48rem !important; }
+.max-w-5xl { max-width: 64rem !important; }
+.max-w-7xl { max-width: 80rem !important; }
+
+// Spacing Stacks (Standardized Margin Bottom)
+.space-y-4 > * + * { margin-top: 1rem !important; }
+.space-y-6 > * + * { margin-top: 1.5rem !important; }
+.space-y-8 > * + * { margin-top: 2.5rem !important; }
+
+// Visual Effects
+.shadow-2xl {
+  box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.15) !important;
+}
+
+html.dark .shadow-2xl {
+  box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.6) !important;
+}
+
+.opacity-90 { opacity: 0.9 !important; }
+.object-fit-cover { object-fit: cover !important; }
+
+// Reveal Logic Integration
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 1s $p-ease-smooth, transform 1s $p-ease-smooth;
+  &.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

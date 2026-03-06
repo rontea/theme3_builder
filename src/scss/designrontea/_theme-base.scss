@@ -1,0 +1,45 @@
+@use 'variables' as *;
+
+/* ==========================================================================
+   RonTea Portfolio: Theme Foundations
+   ========================================================================== */
+
+:root {
+  --primary-bg: #{$p-bg-light};
+  --primary-text: #{$p-text-light};
+  --font-sans: #{$p-font-sans};
+  --font-heading: #{$p-font-heading};
+}
+
+html.dark {
+  --primary-bg: #{$p-bg-dark};
+  --primary-text: #{$p-text-dark};
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background-color: var(--primary-bg);
+  color: var(--primary-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.5s $p-ease-smooth, color 0.5s $p-ease-smooth;
+}
+
+h1, h2, h3, h4, h5, .font-heading {
+  font-family: var(--font-heading);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+// Global text selection aesthetic
+::selection {
+  background-color: var(--primary-text);
+  color: var(--primary-bg);
+}
+
+// Transition for smooth dark mode toggle on borders
+.border-bottom, .border-top, .border {
+  transition: border-color 0.5s ease;
+}

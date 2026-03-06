@@ -1,0 +1,30 @@
+// --- RonTea Design Tokens ---
+
+// Fonts
+$p-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+$p-font-heading: 'Space Grotesk', system-ui, sans-serif;
+
+// Colors
+$p-white: #ffffff;
+$p-black: #000000;
+$p-bg-light: #fafafa;
+$p-bg-dark: #0a0a0a;
+$p-text-light: #1a1a1a;
+$p-text-dark: #f0f0f0;
+
+// Utility Constants
+$p-tracking-tighter: -0.05em;
+$p-tracking-tight: -0.025em;
+$p-tracking-widest: 0.1em;
+
+$p-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+$p-shadow-2xl-dark: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+
+$p-radius-3xl: 1.5rem;
+$p-radius-feature: 2rem;
+
+// Motion
+$p-ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+$p-transition-smooth: all 0.3s $p-ease-smooth;
+$p-transition-all: all 0.3s $p-ease-smooth;
+$p-img-transition: transform 0.6s $p-ease-smooth;
