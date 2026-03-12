@@ -84,10 +84,13 @@ class VisualBuilder {
         this.createProjectModal = document.getElementById('createProjectModal');
         this.createPageModal = document.getElementById('createPageModal');
         this.partialCodeModal = document.getElementById('partialCodeModal');
+        this.partialPreviewModal = document.getElementById('partialPreviewModal');
         this.previewFrame = document.getElementById('previewFrame');
         this.exportOutput = document.getElementById('exportOutput');
         this.partialCodeTitle = document.getElementById('partialCodeTitle');
         this.partialCodeOutput = document.getElementById('partialCodeOutput');
+        this.partialPreviewTitle = document.getElementById('partialPreviewTitle');
+        this.partialPreviewFrame = document.getElementById('partialPreviewFrame');
         this.projectNameInput = document.getElementById('projectNameInput');
         this.openCreateProjectButton = document.getElementById('openCreateProjectModal');
         this.confirmCreateProject = document.getElementById('confirmCreateProject');
@@ -148,6 +151,7 @@ class VisualBuilder {
         document.getElementById('closeExport').addEventListener('click', () => this.hideModal(this.exportModal));
         document.getElementById('closeLoadLayout').addEventListener('click', () => this.hideModal(this.loadLayoutModal));
         document.getElementById('closePartialCodeModal').addEventListener('click', () => this.hideModal(this.partialCodeModal));
+        document.getElementById('closePartialPreviewModal').addEventListener('click', () => this.hideModal(this.partialPreviewModal));
         this.closeCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
         this.cancelCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
         this.closeCreatePageButton.addEventListener('click', () => this.closeCreatePageModal());
@@ -164,7 +168,7 @@ class VisualBuilder {
         document.getElementById('downloadExport').addEventListener('click', () => this.downloadExport());
         
         // Close modals on background click
-        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal].forEach(modal => {
+        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal].forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     if (modal === this.deleteProjectModal) {
@@ -175,6 +179,8 @@ class VisualBuilder {
                         this.closeCreateProjectModal();
                     } else if (modal === this.createPageModal) {
                         this.closeCreatePageModal();
+                    } else if (modal === this.partialPreviewModal) {
+                        this.hideModal(this.partialPreviewModal);
                     } else {
                         this.hideModal(modal);
                     }
@@ -203,6 +209,7 @@ class VisualBuilder {
                 this.hideModal(this.previewModal);
                 this.hideModal(this.exportModal);
                 this.hideModal(this.partialCodeModal);
+                this.hideModal(this.partialPreviewModal);
                 this.closeCreateProjectModal();
                 this.closeCreatePageModal();
                 this.closeDeleteProjectModal();
@@ -737,6 +744,7 @@ class VisualBuilder {
         
         this.partialsList.innerHTML = html;
         this.bindPartialCodeButtons();
+        this.bindPartialPreviewButtons();
         
         // Reinitialize sortable for new items
         this.partialsSortable.option('disabled', false);
@@ -750,6 +758,18 @@ class VisualBuilder {
                 e.stopPropagation();
                 const partialPath = e.currentTarget.dataset.path;
                 await this.openPartialCodeModal(partialPath);
+            });
+        });
+    }
+
+    bindPartialPreviewButtons() {
+        this.partialsList.querySelectorAll('.component-view-preview').forEach((button) => {
+            button.addEventListener('mousedown', (e) => e.stopPropagation());
+            button.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const partialPath = e.currentTarget.dataset.path;
+                await this.openPartialPreviewModal(partialPath);
             });
         });
     }
@@ -772,6 +792,45 @@ class VisualBuilder {
         }
     }
 
+    async openPartialPreviewModal(partialPath) {
+        if (!partialPath) {
+            return;
+        }
+
+        this.partialPreviewTitle.textContent = `Partial Preview: ${partialPath}`;
+        this.partialPreviewFrame.srcdoc = '<div style="font-family: Inter, sans-serif; padding: 16px;">Loading preview...</div>';
+        this.partialPreviewModal.classList.add('active');
+
+        try {
+            const [partialResult, stylesResult] = await Promise.all([
+                this.apiClient.getPartial(partialPath),
+                this.apiClient.getPreviewStyles()
+            ]);
+            const css = stylesResult?.data?.css || '';
+            const html = partialResult.data || '';
+            this.partialPreviewFrame.srcdoc = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <script src="https://cdn.tailwindcss.com"></script>
+                    <style>${css}</style>
+                    <style>
+                        /* Ensure reveal/animation placeholders are visible in preview. */
+                        .reveal { opacity: 1 !important; transform: none !important; }
+                        [data-reveal], .js-reveal { opacity: 1 !important; transform: none !important; }
+                    </style>
+                </head>
+                <body>${html}</body>
+                </html>
+            `;
+        } catch (error) {
+            console.error('Failed to load partial preview:', error);
+            this.partialPreviewFrame.srcdoc = `<div style="font-family: Inter, sans-serif; padding: 16px;">Error: ${error.message}</div>`;
+        }
+    }
+
     createComponentItem(partial) {
         const preview = partial.preview && partial.preview.trim().length > 0
             ? partial.preview
@@ -785,6 +844,9 @@ class VisualBuilder {
                 </div>
                 <button type="button" class="component-folder component-view-code" data-path="${partial.path}" title="View Partial Code">
                     <i class="fab fa-html5" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="component-folder component-view-preview" data-path="${partial.path}" title="Preview Partial">
+                    <i class="fas fa-eye" aria-hidden="true"></i>
                 </button>
             </div>
         `;

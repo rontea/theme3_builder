@@ -23,6 +23,18 @@ function createPartialsController(builderTask, partialsService) {
             } catch (err) {
                 builderTask.sendError(res, err, "PARTIAL_READ_FAILED");
             }
+        },
+        getPreviewStyles: async (req, res) => {
+            builderTask.logBoundary("route", "GET /api/preview-styles");
+            try {
+                const result = await partialsService.getPreviewStyles();
+                if (!result) {
+                    return res.status(404).json({ success: false, error: "Preview styles not found" });
+                }
+                res.json({ success: true, data: result });
+            } catch (err) {
+                builderTask.sendError(res, err, "PREVIEW_STYLES_READ_FAILED");
+            }
         }
     };
 }

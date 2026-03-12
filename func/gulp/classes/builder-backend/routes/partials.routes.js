@@ -3,6 +3,7 @@
 function registerPartialsRoutes(app, partialsController) {
     app.get("/api/partials", partialsController.listPartials);
     app.get("/api/partial", partialsController.getPartialContent);
+    app.get("/api/preview-styles", partialsController.getPreviewStyles);
 }
 
 module.exports = {

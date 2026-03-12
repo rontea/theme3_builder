@@ -76,6 +76,15 @@
         getPartial(pathName) {
             return this.requestJson(`/api/partial?path=${encodeURIComponent(pathName)}`);
         }
+
+        async getPreviewStyles() {
+            try {
+                const result = await this.requestJson("/api/preview-styles");
+                return result;
+            } catch (err) {
+                return { success: false, data: { css: "" }, error: err.message };
+            }
+        }
     }
 
     global.BuilderApiClient = BuilderApiClient;

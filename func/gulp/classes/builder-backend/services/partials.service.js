@@ -64,6 +64,27 @@ function createPartialsService(builderTask, partialsRepository) {
                 throw err;
             }
         },
+        async getPreviewStyles() {
+            const candidates = [
+                path.resolve(builderTask.projectRoot, "build", "css", "styles.css"),
+                path.resolve(builderTask.projectRoot, "html", "css", "styles.css"),
+                path.resolve(builderTask.projectRoot, "_builder", "client", "styles.css")
+            ];
+
+            for (const filePath of candidates) {
+                try {
+                    const exists = await partialsRepository.exists(filePath);
+                    if (exists) {
+                        const css = await partialsRepository.readFile(filePath, "utf8");
+                        return { css, sourcePath: filePath };
+                    }
+                } catch (err) {
+                    // Ignore and continue to next candidate.
+                }
+            }
+
+            return null;
+        },
         async buildPartialLookup() {
             const items = await this.scanPartials();
             const lookup = new Map();
