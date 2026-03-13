@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Theme_3 Visual Builder</title>
+    <title>Theme_3 Micro Builder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body data-builder-mode="page">
-    <div id="landingScreen" class="landing-screen active bg-[radial-gradient(70rem_35rem_at_85%_-10%,rgba(14,165,233,0.18),transparent_55%),radial-gradient(55rem_30rem_at_-10%_90%,rgba(34,197,94,0.15),transparent_55%),#020617]">
+<body data-builder-mode="partial" data-hide-landing="true">
+    <div id="landingScreen" class="landing-screen bg-[radial-gradient(70rem_35rem_at_85%_-10%,rgba(14,165,233,0.18),transparent_55%),radial-gradient(55rem_30rem_at_-10%_90%,rgba(34,197,94,0.15),transparent_55%),#020617]">
         <div class="mx-auto h-full max-w-[1500px] grid grid-cols-1 lg:grid-cols-[360px,1fr] gap-7">
             <aside class="rounded-3xl border border-slate-700/50 bg-slate-900/70 p-7 shadow-[0_20px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl">
                 <div class="flex items-center gap-3 text-slate-100 font-semibold text-base">
@@ -139,27 +139,27 @@
                     </select>
                 </div>
                 <div class="sidebar-tabs">
-                    <button id="partialsTab" class="tab-btn active" type="button">
+                    <button id="partialsTab" class="tab-btn" type="button">
                         <i class="fas fa-puzzle-piece"></i>
                         <span>Partials</span>
                     </button>
-                    <button id="microTab" class="tab-btn" type="button">
+                    <button id="microTab" class="tab-btn active" type="button">
                         <i class="fas fa-cube"></i>
                         <span>Micro</span>
                     </button>
                 </div>
             </div>
 
-            <div class="sidebar-content">
-                <!-- Partials List -->
-                <div id="partialsList" class="component-list active">
-                    <div class="loading">Create a page to load partials...</div>
+                <div class="sidebar-content">
+                    <!-- Partials List (hidden in micro builder) -->
+                    <div id="partialsList" class="component-list">
+                        <div class="loading">Partials are available in the page builder.</div>
+                    </div>
+                    <!-- Micro Components List -->
+                    <div id="microList" class="component-list active">
+                        <div class="loading">Loading micro components...</div>
+                    </div>
                 </div>
-                <!-- Micro Components List -->
-                <div id="microList" class="component-list">
-                    <div class="loading">Switch to Micro to load components...</div>
-                </div>
-            </div>
 
                 <div class="sidebar-footer">
                     <div class="info-box">

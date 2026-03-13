@@ -35,6 +35,19 @@ function createPartialsController(builderTask, partialsService) {
             } catch (err) {
                 builderTask.sendError(res, err, "PREVIEW_STYLES_READ_FAILED");
             }
+        },
+        savePartialContent: async (req, res) => {
+            builderTask.logBoundary("route", "POST /api/partial");
+            try {
+                const { path: filePath, content, overwrite } = req.body || {};
+                if (!filePath) {
+                    return res.status(400).json({ success: false, error: "Missing path parameter" });
+                }
+                const result = await partialsService.savePartialContent(filePath, content || "", { overwrite: Boolean(overwrite) });
+                res.json({ success: true, data: result });
+            } catch (err) {
+                builderTask.sendError(res, err, "PARTIAL_SAVE_FAILED");
+            }
         }
     };
 }

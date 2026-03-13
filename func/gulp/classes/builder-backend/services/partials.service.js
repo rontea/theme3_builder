@@ -64,6 +64,45 @@ function createPartialsService(builderTask, partialsRepository) {
                 throw err;
             }
         },
+        async savePartialContent(filePath, content = "", options = {}) {
+            try {
+                const normalized = String(filePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+                if (!normalized) {
+                    throw builderTask.createActionableError(
+                        "Partial path is required",
+                        400,
+                        "PARTIAL_PATH_REQUIRED",
+                        { filePath }
+                    );
+                }
+
+                const safePath = normalized.endsWith(".html") ? normalized : `${normalized}.html`;
+                const fullPath = resolveSafePath(builderTask.partialsPath, safePath);
+                const exists = await partialsRepository.exists(fullPath);
+
+                if (exists && !options.overwrite) {
+                    throw builderTask.createActionableError(
+                        `Partial already exists: ${safePath}`,
+                        409,
+                        "PARTIAL_EXISTS",
+                        { filePath: safePath }
+                    );
+                }
+
+                await partialsRepository.ensureDir(path.dirname(fullPath));
+                await partialsRepository.writeFile(fullPath, String(content), "utf8");
+
+                return {
+                    path: safePath
+                };
+            } catch (err) {
+                logErr.writeLog(err, {
+                    customKey: "BUILDER_SAVE_PARTIAL_ERROR",
+                    context: { filePath }
+                });
+                throw err;
+            }
+        },
         async getPreviewStyles() {
             const candidates = [
                 path.resolve(builderTask.projectRoot, "build", "css", "styles.css"),

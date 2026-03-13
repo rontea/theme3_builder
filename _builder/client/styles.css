@@ -515,6 +515,7 @@ input:disabled {
 .sidebar-tabs {
     display: flex;
     border-bottom: 1px solid var(--border-color);
+    margin-top: var(--spacing-sm);
 }
 
 .tab-btn {
@@ -557,6 +558,22 @@ input:disabled {
 
 .component-list.active {
     display: block;
+}
+
+.component-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.component-group-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 6px var(--spacing-sm);
+    background-color: rgba(69, 71, 90, 0.35);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
 }
 
 .loading {
@@ -651,6 +668,10 @@ input:disabled {
     margin-bottom: var(--spacing-xs);
 }
 
+.component-group-title:not(:first-child) {
+    margin-top: var(--spacing-md);
+}
+
 /* Sidebar Footer */
 .sidebar-footer {
     padding: var(--spacing-md);
@@ -682,6 +703,10 @@ input:disabled {
     overflow: hidden;
 }
 
+.canvas-container.stitch-mode {
+    background-color: white;
+}
+
 .canvas-header {
     display: flex;
     align-items: center;
@@ -689,6 +714,10 @@ input:disabled {
     padding: var(--spacing-sm) var(--spacing-md);
     background-color: white;
     border-bottom: 1px solid var(--canvas-border);
+}
+
+.canvas-container.stitch-mode .canvas-header {
+    display: none;
 }
 
 .canvas-header h3 {
@@ -771,23 +800,6 @@ input:disabled {
 
 .canvas-drop-zone.is-empty {
     min-height: 240px;
-}
-
-.canvas-drop-zone.is-dragging-partial::before {
-    content: "";
-    display: block;
-    height: var(--drag-preview-height, 240px);
-    border: 2px dashed #94a3b8;
-    border-radius: var(--radius-md);
-    background: repeating-linear-gradient(
-        -45deg,
-        rgba(148, 163, 184, 0.08),
-        rgba(148, 163, 184, 0.08) 12px,
-        rgba(148, 163, 184, 0.03) 12px,
-        rgba(148, 163, 184, 0.03) 24px
-    );
-    margin-bottom: var(--spacing-sm);
-    pointer-events: none;
 }
 
 .canvas-drop-zone.sortable-ghost {
@@ -888,6 +900,7 @@ input:disabled {
     padding: var(--spacing-md);
     max-height: none;
     overflow: visible;
+    transition: max-height var(--transition-fast), opacity var(--transition-fast), padding var(--transition-fast);
 }
 
 .canvas-item-content iframe {
@@ -895,6 +908,13 @@ input:disabled {
     height: 200px;
     border: none;
     background-color: white;
+}
+
+.canvas-item.collapsed .canvas-item-content {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 /* Stitch mode: hide builder chrome so sections flow like a real page */
@@ -920,6 +940,12 @@ input:disabled {
 
 .canvas.stitch-mode .canvas-item-content {
     padding: 0;
+    overflow: visible;
+}
+
+.canvas.stitch-mode .canvas-item.collapsed .canvas-item-content {
+    max-height: none;
+    opacity: 1;
 }
 
 /* Properties Panel */
@@ -933,6 +959,19 @@ input:disabled {
 }
 
 .properties-panel.active {
+    display: flex;
+}
+
+.inspector-panel {
+    width: 320px;
+    background-color: var(--bg-dark);
+    border-left: 1px solid var(--border-color);
+    display: none;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.inspector-panel.active {
     display: flex;
 }
 
@@ -953,6 +992,46 @@ input:disabled {
     flex: 1;
     padding: var(--spacing-md);
     overflow-y: auto;
+}
+
+.inspector-section {
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.inspector-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.inspector-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-sm);
+}
+
+.inspector-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
+    padding: 4px 0;
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.inspector-label {
+    color: var(--text-secondary);
+    flex: 0 0 120px;
+}
+
+.inspector-value {
+    text-align: right;
+    word-break: break-word;
+    color: var(--text-primary);
 }
 
 .no-selection {

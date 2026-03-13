@@ -13,6 +13,12 @@ function createPartialsRepository() {
         },
         exists(filePath) {
             return fs.pathExists(filePath);
+        },
+        ensureDir(dirPath) {
+            return fs.ensureDir(dirPath);
+        },
+        writeFile(filePath, content, encoding = "utf8") {
+            return fs.writeFile(filePath, content, encoding);
         }
     };
 }
