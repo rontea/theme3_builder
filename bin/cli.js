@@ -1,22 +1,7 @@
 #!/usr/bin/env node
 'use strict';
-const yargs = require('yargs');
-const {projectFolders , setConfig} = require('./tasks/createProject');
-const { compileCss , buildCss, buildScss
-    , buildFontawesomeCss, buildBootstrapIconsCss
-    , watchCss } = require('./tasks/cssTasks');
-const {  compileJs , buildJs, buildJsFontawesome
-    , watchJs } = require('./tasks/jsTasks');
-const utils = require('../func/gulp/classes/Utils');
-const {  buildHtml , watchHtml } = require('./tasks/htmlTasks');
-const {  buildImages, watchImages } = require('./tasks/imageTasks');
-const { moveBootstrapIcons, moveFontawesomeIcons
-    , compileIcons} = require('./tasks/iconTasks');
-const { moveResources } = require('./tasks/resourcesTasks');
-const BuilderTask = require('../func/gulp/classes/BuilderTask');
-//const { createGulpSymlink , unlinkGulpSymlink } = require('./tasks/symlinkGulpFile');
-const {fileLister , checkEnv ,  checkConfigSync
-    , checkDirCurrentSync, compareDir} = require('./tasks/projectHelper');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
 const logErr = require('../func/utils/TimeLogger');
 const { exec } = require('child_process');
 const path = require('path');
@@ -50,7 +35,7 @@ const commands = [
 ];
 
 function showHelp() {
-    console.log('\n🎨 Theme_3 CLI - Available Commands:\n');
+    console.log('\nTheme_3 CLI - Available Commands:\n');
     console.log('Usage: th3 <command> [options]\n');
     console.log('Commands:');
     commands.forEach(cmd => {
@@ -67,9 +52,41 @@ function showHelp() {
 try {
 /**npx git-cz */
 
-yargs
+const rawArgs = process.argv.slice(2);
+const wantsHelp =
+    rawArgs.length === 0 ||
+    rawArgs.includes('-h') ||
+    rawArgs.includes('--help') ||
+    rawArgs[0] === 'help' ||
+    rawArgs[0] === 'list';
+
+if (wantsHelp) {
+    showHelp();
+    process.exit(0);
+}
+
+const {projectFolders , setConfig} = require('./tasks/createProject');
+const { compileCss , buildCss, buildScss
+    , buildFontawesomeCss, buildBootstrapIconsCss
+    , watchCss } = require('./tasks/cssTasks');
+const {  compileJs , buildJs, buildJsFontawesome
+    , watchJs } = require('./tasks/jsTasks');
+const utils = require('../func/gulp/classes/Utils');
+const {  buildHtml , watchHtml } = require('./tasks/htmlTasks');
+const {  buildImages, watchImages } = require('./tasks/imageTasks');
+const { moveBootstrapIcons, moveFontawesomeIcons
+    , compileIcons} = require('./tasks/iconTasks');
+const { moveResources } = require('./tasks/resourcesTasks');
+const BuilderTask = require('../func/gulp/classes/BuilderTask');
+//const { createGulpSymlink , unlinkGulpSymlink } = require('./tasks/symlinkGulpFile');
+const {fileLister , checkEnv ,  checkConfigSync
+    , checkDirCurrentSync, compareDir} = require('./tasks/projectHelper');
+
+yargs(hideBin(process.argv))
 .scriptName("th3")
 .usage('$0 <cmd> [args]')
+.help(false)
+.version(false)
 .demandCommand(1 , "You need to specify at least one command")
 .command('list', 'List all available commands', () => {}, (argv) => {
     showHelp();
@@ -265,12 +282,11 @@ yargs
         process.exit(1);
     }
 })
-.help().alias('help', 'h')
 .fail((msg, err, yargs) => {
 
     if (err) throw err; 
     console.error('Error:', msg);
-    console.log(yargs.help());
+    showHelp();
     process.exit(1);
 })
 .argv;
