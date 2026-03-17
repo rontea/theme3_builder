@@ -76,6 +76,10 @@
                 <input type="text" id="pageTitle" placeholder="Enter page title..." class="page-title-input">
             </div>
             <div class="toolbar-right">
+                <div class="preset-control">
+                    <label for="designPresetSelect">Preset</label>
+                    <select id="designPresetSelect" class="preset-select" aria-label="Design preset"></select>
+                </div>
                 <button id="btnUndo" class="btn btn-secondary" title="Undo (Ctrl+Z)">
                     <i class="fas fa-rotate-left"></i>
                     <span>Undo</span>
@@ -137,6 +141,10 @@
                     <select id="filterPartials" aria-label="Filter partials by category">
                         <option value="all">All categories</option>
                     </select>
+                </div>
+                <div id="microQuickFilters" class="micro-quick-filters">
+                    <button type="button" class="filter-pill" data-filter="Layout">Layout</button>
+                    <button type="button" class="filter-pill" data-filter="all">All</button>
                 </div>
                 <div class="sidebar-tabs">
                     <button id="partialsTab" class="tab-btn active" type="button">
@@ -222,18 +230,25 @@
 
     <!-- Preview Modal -->
     <div id="previewModal" class="modal">
-        <div class="modal-content modal-large">
-            <div class="modal-header">
-                <h3>Preview</h3>
-                <button class="btn-close" id="closePreview">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <iframe id="previewFrame" class="preview-frame"></iframe>
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h3>Preview</h3>
+                    <div id="previewControls" class="preview-controls">
+                        <button type="button" class="preview-btn active" data-preview="desktop">Desktop</button>
+                        <button type="button" class="preview-btn" data-preview="tablet">Tablet</button>
+                        <button type="button" class="preview-btn" data-preview="mobile">Mobile</button>
+                    </div>
+                    <button class="btn-close" id="closePreview">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="previewFrameWrap" class="preview-frame-wrap" data-size="desktop">
+                        <iframe id="previewFrame" class="preview-frame"></iframe>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
 
     <!-- Export Modal -->
     <div id="exportModal" class="modal">
@@ -263,6 +278,56 @@
                 <button id="downloadExport" class="btn btn-success">
                     <i class="fas fa-download"></i> Download
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Replace Modal -->
+    <div id="imageModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Replace Image</h3>
+                <button class="btn-close" id="closeImageModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="imageUrlInput">Image URL</label>
+                    <input type="text" id="imageUrlInput" placeholder="https://example.com/image.jpg">
+                    <button id="applyImageUrl" class="btn btn-primary image-modal-action" type="button">
+                        <i class="fas fa-link"></i>
+                        <span>Apply URL</span>
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label for="imageAltInput">Alt text</label>
+                    <input type="text" id="imageAltInput" placeholder="Describe the image">
+                </div>
+                <div class="form-group">
+                    <label for="imageUploadInput">Upload image</label>
+                    <input type="file" id="imageUploadInput" accept="image/*">
+                    <button id="uploadImageButton" class="btn btn-secondary image-modal-action" type="button">
+                        <i class="fas fa-upload"></i>
+                        <span>Upload to src/images</span>
+                    </button>
+                    <p id="imageUploadStatus" class="project-note image-upload-status"></p>
+                </div>
+                <div class="form-group">
+                    <div class="image-library-header">
+                        <label>Media library</label>
+                        <button id="refreshImageLibrary" class="btn btn-secondary" type="button">
+                            <i class="fas fa-sync-alt"></i>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                    <div id="imageLibraryList" class="image-library-grid">
+                        <div class="loading">Loading images...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelImageModal" class="btn btn-secondary">Cancel</button>
             </div>
         </div>
     </div>

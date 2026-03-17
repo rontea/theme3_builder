@@ -44,8 +44,9 @@
                 animation: 150,
                 ghostClass: "sortable-ghost",
                 chosenClass: "sortable-chosen",
-                ignore: "input, textarea, select, option",
+                ignore: "input, textarea, select, option, [contenteditable='true']",
                 handle: ".canvas-item-header",
+                draggable: ".canvas-item:not(.is-nested)",
                 onAdd: (evt) => this.handleDrop(ctx, evt),
                 onUpdate: (evt) => this.handleReorder(ctx, evt),
                 onRemove: (evt) => this.handleRemove(ctx, evt)
@@ -84,33 +85,9 @@
                     throw new Error("Unsupported component type");
                 }
 
-                const instanceId = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
                 ctx.pushHistory();
-
-                if (type === "partial") {
-                    const result = await ctx.apiClient.getPartial(componentPath);
-                    ctx.getActiveComponents().push({
-                        instanceId,
-                        type,
-                        componentPath,
-                        name: componentPath.split("/").pop().replace(".html", ""),
-                        props: {},
-                        content: result.data
-                    });
-                } else {
-                    const definition = ctx.getMicroComponentDefinition(componentPath);
-                    if (!definition) {
-                        throw new Error("Unknown micro component");
-                    }
-                    ctx.getActiveComponents().push({
-                        instanceId,
-                        type,
-                        componentPath: definition.id,
-                        name: definition.name,
-                        props: { ...(definition.defaultProps || {}) },
-                        content: definition.template
-                    });
-                }
+                const instance = await ctx.createComponentInstance(type, componentPath);
+                ctx.getActiveComponents().push(instance);
 
                 this.renderCanvasFromState(ctx);
                 ctx.refreshLivePreview();
@@ -122,13 +99,15 @@
 
         renderCanvasFromState(ctx) {
             ctx.canvasDropZone.innerHTML = "";
-            ctx.getActiveComponents().forEach((item) => this.renderCanvasItem(ctx, item));
+            ctx.getActiveComponents().forEach((item) => this.renderCanvasItem(ctx, item, { container: ctx.canvasDropZone }));
             this.updateCanvasState(ctx);
         },
 
-        renderCanvasItem(ctx, item) {
+        renderCanvasItem(ctx, item, options = {}) {
+            const container = options.container || ctx.canvasDropZone;
+            const isNested = Boolean(options.isNested);
             const div = document.createElement("div");
-            div.className = "canvas-item";
+            div.className = `canvas-item${isNested ? " is-nested" : ""}`;
             div.dataset.instanceId = item.instanceId;
             div.dataset.type = item.type;
             div.dataset.path = item.componentPath;
@@ -149,7 +128,7 @@
                     </div>
                 </div>
                 <div class="canvas-item-content">
-                    <div class="content-preview">${ctx.getRenderedComponentContent(item)}</div>
+                    <div class="content-preview"></div>
                 </div>
             `;
 
@@ -172,10 +151,14 @@
                     this.toggleCanvasItemView(ctx, div);
                 });
             }
-            div.addEventListener("click", () => ctx.selectCanvasItem(item.instanceId));
-            ctx.canvasDropZone.appendChild(div);
+            div.addEventListener("click", (e) => {
+                e.stopPropagation();
+                ctx.selectCanvasItem(item.instanceId);
+            });
+            container.appendChild(div);
+            this.hydrateCanvasItem(ctx, item, div);
 
-            if (item.componentPath) {
+            if (!isNested && item.componentPath) {
                 const measuredHeight = Math.ceil(div.getBoundingClientRect().height || 0);
                 if (measuredHeight > 0) {
                     ctx.partialHeightCache[item.componentPath] = measuredHeight;
@@ -203,7 +186,7 @@
 
         updateCanvasItemsOrder(ctx) {
             const newOrder = [];
-            const elements = ctx.canvasDropZone.querySelectorAll(".canvas-item");
+            const elements = ctx.canvasDropZone.querySelectorAll(".canvas-item:not(.is-nested)");
             elements.forEach((el) => {
                 const instanceId = el.dataset.instanceId;
                 const item = ctx.getActiveComponents().find((entry) => entry.instanceId === instanceId);
@@ -215,7 +198,9 @@
         },
 
         updateCanvasState(ctx) {
-            const count = ctx.getActiveComponents().length;
+            const count = typeof ctx.countComponents === "function"
+                ? ctx.countComponents(ctx.getActiveComponents())
+                : ctx.getActiveComponents().length;
             ctx.componentCount.textContent = `${count} component${count !== 1 ? "s" : ""}`;
             if (count > 0) {
                 ctx.canvasEmpty.classList.add("hidden");
@@ -224,6 +209,201 @@
                 ctx.canvasEmpty.classList.remove("hidden");
                 ctx.canvasDropZone.classList.add("is-empty");
             }
+        },
+
+        hydrateCanvasItem(ctx, item, element) {
+            if (!element) {
+                return;
+            }
+            const preview = element.querySelector(".content-preview");
+            if (preview) {
+                preview.innerHTML = ctx.getRenderedComponentContent(item, { forCanvas: true });
+            }
+            this.initSlotsForItem(ctx, item, element);
+            this.enableInlineEditing(ctx, item, element);
+        },
+
+        initSlotsForItem(ctx, item, element) {
+            if (!element) {
+                return;
+            }
+            const slots = element.querySelectorAll(".micro-slot[data-slot]");
+            if (!slots.length) {
+                return;
+            }
+            if (!item.children || typeof item.children !== "object") {
+                item.children = {};
+            }
+
+            slots.forEach((slot) => {
+                const slotName = slot.dataset.slot || "default";
+                slot.dataset.parentId = item.instanceId;
+                slot.dataset.slot = slotName;
+
+                slot.innerHTML = "";
+
+                const children = Array.isArray(item.children[slotName]) ? item.children[slotName] : [];
+                children.forEach((child) => {
+                    this.renderCanvasItem(ctx, child, { container: slot, isNested: true });
+                });
+
+                if (children.length === 0) {
+                    slot.classList.add("is-empty");
+                } else {
+                    slot.classList.remove("is-empty");
+                }
+
+                if (!slot.__microSortable) {
+                    slot.__microSortable = new Sortable(slot, {
+                        group: { name: "micro-slot", pull: false, put: ["builder"] },
+                        draggable: ".canvas-item",
+                        sort: true,
+                        animation: 150,
+                        ghostClass: "sortable-ghost",
+                        chosenClass: "sortable-chosen",
+                        onAdd: (evt) => this.handleSlotDrop(ctx, evt, slot),
+                        onUpdate: () => this.updateSlotOrder(ctx, slot)
+                    });
+                }
+            });
+        },
+
+        async handleSlotDrop(ctx, evt, slot) {
+            try {
+                const parentId = slot?.dataset?.parentId;
+                const slotName = slot?.dataset?.slot || "default";
+                const type = evt?.item?.dataset?.type || evt?.clone?.dataset?.type;
+                const componentPath = evt?.item?.dataset?.path || evt?.clone?.dataset?.path;
+                if (!parentId || !type || !componentPath) {
+                    evt.item?.remove();
+                    return;
+                }
+                evt.item?.remove();
+                ctx.pushHistory();
+                await ctx.addComponentToSlot(parentId, slotName, type, componentPath);
+            } catch (error) {
+                console.error("Failed to add component to slot:", error);
+                ctx.showToast("Failed to add component to slot", "error");
+            }
+        },
+
+        updateSlotOrder(ctx, slot) {
+            const parentId = slot?.dataset?.parentId;
+            const slotName = slot?.dataset?.slot || "default";
+            if (!parentId) {
+                return;
+            }
+            const orderedIds = Array.from(slot.children)
+                .filter((el) => el.classList && el.classList.contains("canvas-item"))
+                .map((el) => el.dataset.instanceId)
+                .filter(Boolean);
+            ctx.reorderSlotChildren(parentId, slotName, orderedIds);
+            ctx.refreshLivePreview();
+        },
+
+        enableInlineEditing(ctx, item, element) {
+            const preview = element?.querySelector(".content-preview");
+            if (!preview) {
+                return;
+            }
+
+            const editableTargets = ctx.getInlineEditableElements
+                ? ctx.getInlineEditableElements(preview, { container: element })
+                : [];
+
+            editableTargets.forEach((el) => {
+                if (!el || el.dataset.inlineInit === "true") {
+                    return;
+                }
+                const tag = el.tagName.toLowerCase();
+                let prop = null;
+                if (/^h[1-6]$/.test(tag)) {
+                    prop = "title";
+                } else if (tag === "p") {
+                    prop = "text";
+                } else if (tag === "a" || tag === "button") {
+                    prop = "linkText";
+                }
+
+                const inlineKey = ctx.getInlineKeyForElement
+                    ? ctx.getInlineKeyForElement(el, preview)
+                    : "";
+
+                el.dataset.inlineInit = "true";
+                if (prop) {
+                    el.dataset.inlineProp = prop;
+                } else if (inlineKey) {
+                    el.dataset.inlineKey = inlineKey;
+                }
+                el.setAttribute("contenteditable", "true");
+                el.setAttribute("spellcheck", "false");
+
+                if (el.tagName === "A") {
+                    el.addEventListener("click", (evt) => evt.preventDefault());
+                }
+
+                el.addEventListener("keydown", (evt) => {
+                    if (evt.key === "Enter" && prop !== "text") {
+                        evt.preventDefault();
+                    }
+                });
+
+                el.addEventListener("blur", () => {
+                    const value = (el.textContent || "").trim();
+                    if (!item?.instanceId) {
+                        return;
+                    }
+                    if (prop) {
+                        const current = item?.props?.[prop];
+                        if (typeof current === "string" && current.trim() === value) {
+                            return;
+                        }
+                        ctx.updateComponentProps(item.instanceId, { props: { [prop]: value } });
+                        return;
+                    }
+                    const key = el.dataset.inlineKey || inlineKey;
+                    if (!key) {
+                        return;
+                    }
+                    const existing = item?.props?.inlineText || {};
+                    if (existing[key] === value) {
+                        return;
+                    }
+                    const next = { ...existing, [key]: value };
+                    ctx.updateComponentProps(item.instanceId, { props: { inlineText: next } });
+                });
+            });
+
+            const images = Array.from(preview.querySelectorAll("img"));
+            images.forEach((img) => {
+                if (!img || img.dataset.inlineImageInit === "true") {
+                    return;
+                }
+                const owner = img.closest(".canvas-item");
+                if (owner && owner !== element) {
+                    return;
+                }
+                img.dataset.inlineImageInit = "true";
+                img.style.cursor = "pointer";
+                img.addEventListener("click", (evt) => {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                    if (!item?.instanceId || typeof ctx.openImageModal !== "function") {
+                        return;
+                    }
+                    const key = ctx.getInlineKeyForElement
+                        ? ctx.getInlineKeyForElement(img, preview)
+                        : "";
+                    const current = img.getAttribute("src") || "";
+                    ctx.openImageModal({
+                        instanceId: item.instanceId,
+                        inlineKey: key,
+                        singleImageProp: Boolean(item?.props?.imageSrc && images.length === 1),
+                        currentSrc: current,
+                        alt: img.getAttribute("alt") || ""
+                    });
+                });
+            });
         },
 
         toggleCanvasItemView(ctx, itemEl) {

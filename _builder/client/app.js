@@ -23,6 +23,62 @@ class VisualBuilder {
         this.apiBase = '';
         this.pendingDeleteTarget = null;
         this.currentPartialFileName = null;
+        this.pendingImageEdit = null;
+        this.designPresets = [
+            {
+                id: 'default',
+                name: 'Default',
+                vars: {
+                    accent: '#2563eb',
+                    text: '#0f172a',
+                    muted: '#64748b',
+                    surface: '#f8fafc',
+                    radius: '12px',
+                    fontBody: '"Inter", system-ui, sans-serif',
+                    fontHeading: '"Inter", system-ui, sans-serif'
+                }
+            },
+            {
+                id: 'studio',
+                name: 'Studio',
+                vars: {
+                    accent: '#0f766e',
+                    text: '#0f172a',
+                    muted: '#475569',
+                    surface: '#ecfeff',
+                    radius: '18px',
+                    fontBody: '"Inter", system-ui, sans-serif',
+                    fontHeading: '"Inter", system-ui, sans-serif'
+                }
+            },
+            {
+                id: 'editorial',
+                name: 'Editorial',
+                vars: {
+                    accent: '#b91c1c',
+                    text: '#111827',
+                    muted: '#6b7280',
+                    surface: '#fff7ed',
+                    radius: '6px',
+                    fontBody: 'Georgia, "Times New Roman", serif',
+                    fontHeading: 'Georgia, "Times New Roman", serif'
+                }
+            },
+            {
+                id: 'mono',
+                name: 'Mono',
+                vars: {
+                    accent: '#0ea5e9',
+                    text: '#0f172a',
+                    muted: '#64748b',
+                    surface: '#f1f5f9',
+                    radius: '2px',
+                    fontBody: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+                    fontHeading: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace'
+                }
+            }
+        ];
+        this.activePresetId = 'default';
         this.apiClient = new window.BuilderApiClient(this.apiBase);
         this.stateStore = window.BuilderStateStore;
         this.notifications = window.BuilderNotifications;
@@ -51,7 +107,8 @@ class VisualBuilder {
         this.bindElements();
         this.bindEvents();
         this.initSortable();
-        this.initMicroComponents();
+        await this.initMicroComponents();
+        this.initDesignPresets();
         const initialMode = this.getInitialBuilderMode();
         this.setBuilderMode(initialMode);
         this.updateEditorBreadcrumb();
@@ -90,6 +147,8 @@ class VisualBuilder {
         this.partialsTab = document.getElementById('partialsTab');
         this.microTab = document.getElementById('microTab');
         this.sidebarTitle = document.getElementById('sidebarTitle');
+        this.microQuickFilters = document.getElementById('microQuickFilters');
+        this.presetSelect = document.getElementById('designPresetSelect');
         
         // Canvas elements
         this.canvas = document.getElementById('canvas');
@@ -123,7 +182,10 @@ class VisualBuilder {
         this.createPageModal = document.getElementById('createPageModal');
         this.partialCodeModal = document.getElementById('partialCodeModal');
         this.partialPreviewModal = document.getElementById('partialPreviewModal');
+        this.imageModal = document.getElementById('imageModal');
         this.previewFrame = document.getElementById('previewFrame');
+        this.previewFrameWrap = document.getElementById('previewFrameWrap');
+        this.previewControls = document.getElementById('previewControls');
         this.exportOutput = document.getElementById('exportOutput');
         this.exportFormat = document.getElementById('exportFormat');
         this.partialCodeTitle = document.getElementById('partialCodeTitle');
@@ -147,6 +209,16 @@ class VisualBuilder {
         this.cancelClosePageConfirm = document.getElementById('cancelClosePageConfirm');
         this.confirmClosePageConfirm = document.getElementById('confirmClosePageConfirm');
         this.closePageName = document.getElementById('closePageName');
+        this.imageUrlInput = document.getElementById('imageUrlInput');
+        this.imageAltInput = document.getElementById('imageAltInput');
+        this.applyImageUrlButton = document.getElementById('applyImageUrl');
+        this.imageUploadInput = document.getElementById('imageUploadInput');
+        this.uploadImageButton = document.getElementById('uploadImageButton');
+        this.imageUploadStatus = document.getElementById('imageUploadStatus');
+        this.closeImageModalButton = document.getElementById('closeImageModal');
+        this.cancelImageModalButton = document.getElementById('cancelImageModal');
+        this.imageLibraryList = document.getElementById('imageLibraryList');
+        this.refreshImageLibraryButton = document.getElementById('refreshImageLibrary');
         this.savedLayoutsList = document.getElementById('savedLayoutsList');
         this.landingScreen = document.getElementById('landingScreen');
         this.landingProjectsList = document.getElementById('landingProjectsList');
@@ -172,6 +244,15 @@ class VisualBuilder {
         this.searchInput.addEventListener('input', () => this.filterComponents());
         if (this.partialsFilter) {
             this.partialsFilter.addEventListener('change', () => this.filterComponents());
+        }
+        if (this.previewControls) {
+            this.previewControls.addEventListener('click', (e) => this.handlePreviewControlClick(e));
+        }
+        if (this.microQuickFilters) {
+            this.microQuickFilters.addEventListener('click', (e) => this.handleMicroQuickFilter(e));
+        }
+        if (this.presetSelect) {
+            this.presetSelect.addEventListener('change', (e) => this.applyDesignPreset(e.target.value));
         }
         if (this.partialsTab) {
             this.partialsTab.addEventListener('click', () => this.setBuilderMode('page'));
@@ -204,6 +285,9 @@ class VisualBuilder {
         document.getElementById('closeLoadLayout').addEventListener('click', () => this.hideModal(this.loadLayoutModal));
         document.getElementById('closePartialCodeModal').addEventListener('click', () => this.hideModal(this.partialCodeModal));
         document.getElementById('closePartialPreviewModal').addEventListener('click', () => this.hideModal(this.partialPreviewModal));
+        if (this.closeImageModalButton) {
+            this.closeImageModalButton.addEventListener('click', () => this.closeImageModal());
+        }
         this.closeCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
         this.cancelCreateProjectButton.addEventListener('click', () => this.closeCreateProjectModal());
         this.closeCreatePageButton.addEventListener('click', () => this.closeCreatePageModal());
@@ -214,6 +298,29 @@ class VisualBuilder {
         this.closeClosePageConfirmModal.addEventListener('click', () => this.closeClosePageConfirmDialog());
         this.cancelClosePageConfirm.addEventListener('click', () => this.closeClosePageConfirmDialog());
         this.confirmClosePageConfirm.addEventListener('click', () => this.confirmClosePageAction());
+        if (this.cancelImageModalButton) {
+            this.cancelImageModalButton.addEventListener('click', () => this.closeImageModal());
+        }
+        if (this.applyImageUrlButton) {
+            this.applyImageUrlButton.addEventListener('click', () => this.applyImageUrl());
+        }
+        if (this.imageUrlInput) {
+            this.imageUrlInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.applyImageUrl();
+                }
+            });
+        }
+        if (this.uploadImageButton) {
+            this.uploadImageButton.addEventListener('click', () => this.handleImageUpload());
+        }
+        if (this.refreshImageLibraryButton) {
+            this.refreshImageLibraryButton.addEventListener('click', () => this.loadImageLibrary());
+        }
+        if (this.imageLibraryList) {
+            this.imageLibraryList.addEventListener('click', (event) => this.handleImageLibraryClick(event));
+        }
         
         // Export buttons
         document.getElementById('copyExport').addEventListener('click', () => this.copyToClipboard());
@@ -223,7 +330,7 @@ class VisualBuilder {
         }
         
         // Close modals on background click
-        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal].forEach(modal => {
+        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal, this.imageModal].forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     if (modal === this.deleteProjectModal) {
@@ -236,6 +343,8 @@ class VisualBuilder {
                         this.closeCreatePageModal();
                     } else if (modal === this.partialPreviewModal) {
                         this.hideModal(this.partialPreviewModal);
+                    } else if (modal === this.imageModal) {
+                        this.closeImageModal();
                     } else {
                         this.hideModal(modal);
                     }
@@ -268,6 +377,7 @@ class VisualBuilder {
                 this.hideModal(this.exportModal);
                 this.hideModal(this.partialCodeModal);
                 this.hideModal(this.partialPreviewModal);
+                this.closeImageModal();
                 this.closeCreateProjectModal();
                 this.closeCreatePageModal();
                 this.closeDeleteProjectModal();
@@ -333,11 +443,33 @@ class VisualBuilder {
         this.refreshLivePreview();
     }
 
-    refreshLivePreview() {
-        if (this.previewModal.classList.contains('active')) {
-            this.previewFrame.srcdoc = this.generatePreviewHTML();
-        }
-    }
+      refreshLivePreview() {
+          if (this.previewModal.classList.contains('active')) {
+              this.previewFrame.srcdoc = this.generatePreviewHTML();
+          }
+      }
+
+      handlePreviewControlClick(event) {
+          const button = event.target.closest('[data-preview]');
+          if (!button) {
+              return;
+          }
+          const mode = button.dataset.preview || 'desktop';
+          this.setPreviewMode(mode);
+      }
+
+      setPreviewMode(mode = 'desktop') {
+          const size = ['desktop', 'tablet', 'mobile'].includes(mode) ? mode : 'desktop';
+          if (this.previewFrameWrap) {
+              this.previewFrameWrap.dataset.size = size;
+          }
+          if (this.previewControls) {
+              this.previewControls.querySelectorAll('[data-preview]').forEach((button) => {
+                  const target = button.dataset.preview || 'desktop';
+                  button.classList.toggle('active', target === size);
+              });
+          }
+      }
 
     toggleStitchMode() {
         const isActive = this.canvas.classList.toggle('stitch-mode');
@@ -783,14 +915,14 @@ class VisualBuilder {
         return components;
     }
 
-    initMicroComponents() {
-        this.microComponents = [
+    async initMicroComponents() {
+        const fallback = [
             {
                 id: 'heading',
                 name: 'Heading',
                 category: 'Text',
                 preview: 'Single headline',
-                template: '<h2 class="builder-heading">Section heading</h2>',
+                template: '<h2 class="micro-heading">Section heading</h2>',
                 defaultProps: { title: 'Section heading' }
             },
             {
@@ -798,7 +930,7 @@ class VisualBuilder {
                 name: 'Text Block',
                 category: 'Text',
                 preview: 'Heading + paragraph',
-                template: '<section class="builder-text-block"><h3>Text block title</h3><p>Add your copy here.</p></section>',
+                template: '<section class="micro-text-block"><h3>Text block title</h3><p>Add your copy here.</p></section>',
                 defaultProps: { title: 'Text block title', text: 'Add your copy here.' }
             },
             {
@@ -806,23 +938,71 @@ class VisualBuilder {
                 name: 'Paragraph',
                 category: 'Text',
                 preview: 'Body copy',
-                template: '<p class="builder-paragraph">Write your paragraph here.</p>',
+                template: '<p class="micro-paragraph">Write your paragraph here.</p>',
                 defaultProps: { text: 'Write your paragraph here.' }
+            },
+            {
+                id: 'link',
+                name: 'Link',
+                category: 'Actions',
+                preview: 'Inline link',
+                template: '<a class="micro-link" href="#">Learn more</a>',
+                defaultProps: { linkText: 'Learn more', linkHref: '#' }
             },
             {
                 id: 'button',
                 name: 'Button',
                 category: 'Actions',
                 preview: 'Call to action',
-                template: '<a class="builder-button" href="#">Call to action</a>',
+                template: '<a class="micro-button" href="#">Call to action</a>',
                 defaultProps: { linkText: 'Call to action', linkHref: '#' }
+            },
+            {
+                id: 'textbox',
+                name: 'Text Box',
+                category: 'Forms',
+                preview: 'Single-line input',
+                template: '<label class="micro-field"><span class="micro-label">Text box</span><input class="micro-input" type="text" placeholder="Type here"></label>',
+                defaultProps: {}
+            },
+            {
+                id: 'textarea',
+                name: 'Textarea',
+                category: 'Forms',
+                preview: 'Multi-line input',
+                template: '<label class="micro-field"><span class="micro-label">Message</span><textarea class="micro-textarea" rows="4" placeholder="Write something..."></textarea></label>',
+                defaultProps: {}
+            },
+            {
+                id: 'select',
+                name: 'Select',
+                category: 'Forms',
+                preview: 'Dropdown choices',
+                template: '<label class="micro-field"><span class="micro-label">Select option</span><select class="micro-select"><option>Option 1</option><option>Option 2</option><option>Option 3</option></select></label>',
+                defaultProps: {}
+            },
+            {
+                id: 'checkbox',
+                name: 'Checkbox',
+                category: 'Forms',
+                preview: 'Single checkbox',
+                template: '<label class="micro-check"><input class="micro-checkbox" type="checkbox"><span>Accept terms</span></label>',
+                defaultProps: {}
+            },
+            {
+                id: 'radio',
+                name: 'Radio',
+                category: 'Forms',
+                preview: 'Single radio',
+                template: '<label class="micro-radio"><input class="micro-radio-input" type="radio" name="micro-radio"><span>Radio option</span></label>',
+                defaultProps: {}
             },
             {
                 id: 'image',
                 name: 'Image',
                 category: 'Media',
                 preview: 'Responsive image',
-                template: '<img class="builder-image" src="https://via.placeholder.com/800x450" alt="Placeholder image">',
+                template: '<img class="micro-image" src="https://via.placeholder.com/800x450" alt="Placeholder image">',
                 defaultProps: { imageSrc: 'https://via.placeholder.com/800x450', imageAlt: 'Placeholder image' }
             },
             {
@@ -830,7 +1010,7 @@ class VisualBuilder {
                 name: 'Spacer',
                 category: 'Layout',
                 preview: 'Vertical spacing',
-                template: '<div class="builder-spacer" style="height: 32px;"></div>',
+                template: '<div class="micro-spacer" style="height: 32px;"></div>',
                 defaultProps: {}
             },
             {
@@ -838,7 +1018,63 @@ class VisualBuilder {
                 name: 'Divider',
                 category: 'Layout',
                 preview: 'Horizontal rule',
-                template: '<hr class="builder-divider" />',
+                template: '<hr class="micro-divider" />',
+                defaultProps: {}
+            },
+            {
+                id: 'grid-2col',
+                name: 'Grid 2-Column',
+                category: 'Layout',
+                preview: 'Two column grid',
+                template: '<section class="micro-grid-2col" style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start;"><div class="micro-grid-col"><div class="micro-slot" data-slot="left"></div></div><div class="micro-grid-col"><div class="micro-slot" data-slot="right"></div></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'grid-3col',
+                name: 'Grid 3-Column',
+                category: 'Layout',
+                preview: 'Three column grid',
+                template: '<section class="micro-grid-3col" style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start;"><div class="micro-grid-col"><div class="micro-slot" data-slot="left"></div></div><div class="micro-grid-col"><div class="micro-slot" data-slot="center"></div></div><div class="micro-grid-col"><div class="micro-slot" data-slot="right"></div></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'flex-split',
+                name: 'Flex Split',
+                category: 'Layout',
+                preview: 'Left / right split',
+                template: '<section class="micro-flex-split" style="display:flex; gap: 24px; align-items: center; justify-content: space-between; flex-wrap: wrap;"><div class="micro-flex-col" style="flex: 1 1 320px;"><div class="micro-slot" data-slot="left"></div></div><div class="micro-flex-col" style="flex: 1 1 320px;"><div class="micro-slot" data-slot="right"></div></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'stack',
+                name: 'Stack',
+                category: 'Layout',
+                preview: 'Vertical stack',
+                template: '<section class="micro-stack" style="display:flex; flex-direction: column; gap: 24px;"><div class="micro-slot" data-slot="stack"></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'media-text',
+                name: 'Media + Text',
+                category: 'Layout',
+                preview: 'Media and copy',
+                template: '<section class="micro-media-text" style="display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: center;"><div class="micro-media"><div class="micro-slot" data-slot="media"></div></div><div class="micro-content"><div class="micro-slot" data-slot="content"></div></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'hero-split',
+                name: 'Hero Split',
+                category: 'Layout',
+                preview: 'Hero with media',
+                template: '<section class="micro-hero-split" style="display:flex; gap: 32px; align-items: center; justify-content: space-between; flex-wrap: wrap;"><div class="micro-hero-content" style="flex: 1 1 360px;"><div class="micro-slot" data-slot="content"></div></div><div class="micro-hero-media" style="flex: 1 1 360px;"><div class="micro-slot" data-slot="media"></div></div></section>',
+                defaultProps: {}
+            },
+            {
+                id: 'free-layout',
+                name: 'Free Layout',
+                category: 'Layout',
+                preview: 'Top / left / right / bottom',
+                template: '<section class="micro-free-layout" style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; grid-template-areas: \"top top\" \"left right\" \"bottom bottom\";"><div style="grid-area: top;"><div class="micro-slot" data-slot="top"></div></div><div style="grid-area: left;"><div class="micro-slot" data-slot="left"></div></div><div style="grid-area: right;"><div class="micro-slot" data-slot="right"></div></div><div style="grid-area: bottom;"><div class="micro-slot" data-slot="bottom"></div></div></section>',
                 defaultProps: {}
             }
         ].map((item) => ({
@@ -846,6 +1082,32 @@ class VisualBuilder {
             type: 'micro',
             group: item.category || 'Ungrouped'
         }));
+
+        try {
+            const result = await this.apiClient.listMicroComponents();
+            const items = Array.isArray(result.data) ? result.data : [];
+            if (items.length > 0) {
+                this.microComponents = items.map((item) => {
+                    const name = item.name || item.id || 'Micro Component';
+                    const category = item.category || 'Ungrouped';
+                    return {
+                        ...item,
+                        name,
+                        category,
+                        preview: item.preview || 'No preview available',
+                        template: item.template || '',
+                        defaultProps: item.defaultProps || {},
+                        type: 'micro',
+                        group: item.group || category || 'Ungrouped'
+                    };
+                });
+                return;
+            }
+        } catch (error) {
+            console.error('Failed to load micro components:', error);
+        }
+
+        this.microComponents = fallback;
     }
 
     async loadPartials() {
@@ -1126,6 +1388,9 @@ class VisualBuilder {
         if (this.microList) {
             this.microList.classList.toggle('active', !isPageMode);
         }
+        if (this.microQuickFilters) {
+            this.microQuickFilters.style.display = isPageMode ? 'none' : '';
+        }
         if (this.sidebarTitle) {
             this.sidebarTitle.textContent = isPageMode ? 'Partials (html/partials)' : 'Micro Components';
         }
@@ -1184,27 +1449,173 @@ class VisualBuilder {
         this.refreshLivePreview();
     }
 
-    getActiveComponents() {
-        return this.builderMode === 'partial' ? this.partialComponents : this.pageComponents;
-    }
+      getActiveComponents() {
+          return this.builderMode === 'partial' ? this.partialComponents : this.pageComponents;
+      }
 
-    updateCanvasDragHandle() {
-        if (!this.canvasSortable) {
-            return;
-        }
+      countComponents(components = []) {
+          let count = 0;
+          components.forEach((item) => {
+              count += 1;
+              if (item?.children && typeof item.children === 'object') {
+                  Object.values(item.children).forEach((list) => {
+                      if (Array.isArray(list)) {
+                          count += this.countComponents(list);
+                      }
+                  });
+              }
+          });
+          return count;
+      }
 
-        const isPageMode = this.builderMode === 'page';
-        const isStitchMode = this.canvas?.classList.contains('stitch-mode');
-        let handle = '.canvas-item-header';
+      generateInstanceId() {
+          return `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      }
 
-        if (!isPageMode) {
-            handle = '.canvas-item-header, .canvas-item-content';
-        } else if (isStitchMode) {
-            handle = '.canvas-item-content';
-        }
+      async createComponentInstance(type, componentPath) {
+          if (type === 'partial') {
+              const result = await this.apiClient.getPartial(componentPath);
+              return {
+                  instanceId: this.generateInstanceId(),
+                  type,
+                  componentPath,
+                  name: componentPath.split('/').pop().replace('.html', ''),
+                  props: {},
+                  content: result.data,
+                  children: {}
+              };
+          }
 
-        this.canvasSortable.option('handle', handle);
-    }
+          if (type === 'micro') {
+              const definition = this.getMicroComponentDefinition(componentPath);
+              if (!definition) {
+                  throw new Error('Unknown micro component');
+              }
+              return {
+                  instanceId: this.generateInstanceId(),
+                  type,
+                  componentPath: definition.id,
+                  name: definition.name,
+                  props: { ...(definition.defaultProps || {}) },
+                  content: definition.template,
+                  children: {}
+              };
+          }
+
+          throw new Error('Unsupported component type');
+      }
+
+      findComponentById(instanceId, components = this.getActiveComponents()) {
+          if (!instanceId) return null;
+          for (const item of components) {
+              if (item.instanceId === instanceId) {
+                  return item;
+              }
+              if (item.children && typeof item.children === 'object') {
+                  for (const list of Object.values(item.children)) {
+                      if (!Array.isArray(list)) continue;
+                      const found = this.findComponentById(instanceId, list);
+                      if (found) return found;
+                  }
+              }
+          }
+          return null;
+      }
+
+      findComponentLocation(instanceId, components = this.getActiveComponents()) {
+          for (const item of components) {
+              if (item.instanceId === instanceId) {
+                  return { list: components, item, index: components.indexOf(item) };
+              }
+              if (item.children && typeof item.children === 'object') {
+                  for (const list of Object.values(item.children)) {
+                      if (!Array.isArray(list)) continue;
+                      const location = this.findComponentLocation(instanceId, list);
+                      if (location) {
+                          return location;
+                      }
+                  }
+              }
+          }
+          return null;
+      }
+
+      removeComponentById(instanceId, components = this.getActiveComponents()) {
+          const index = components.findIndex((item) => item.instanceId === instanceId);
+          if (index > -1) {
+              components.splice(index, 1);
+              return true;
+          }
+          for (const item of components) {
+              if (item.children && typeof item.children === 'object') {
+                  for (const list of Object.values(item.children)) {
+                      if (!Array.isArray(list)) continue;
+                      if (this.removeComponentById(instanceId, list)) {
+                          return true;
+                      }
+                  }
+              }
+          }
+          return false;
+      }
+
+      cloneComponent(item) {
+          const clone = JSON.parse(JSON.stringify(item));
+          const updateIds = (node) => {
+              node.instanceId = this.generateInstanceId();
+              if (node.children && typeof node.children === 'object') {
+                  Object.values(node.children).forEach((list) => {
+                      if (!Array.isArray(list)) return;
+                      list.forEach(updateIds);
+                  });
+              }
+          };
+          updateIds(clone);
+          return clone;
+      }
+
+      reorderSlotChildren(parentId, slotName, orderedIds = []) {
+          const parent = this.findComponentById(parentId);
+          if (!parent) return;
+          if (!parent.children || typeof parent.children !== 'object') {
+              parent.children = {};
+          }
+          const children = Array.isArray(parent.children[slotName]) ? parent.children[slotName] : [];
+          const lookup = new Map(children.map((child) => [child.instanceId, child]));
+          parent.children[slotName] = orderedIds.map((id) => lookup.get(id)).filter(Boolean);
+      }
+
+      async addComponentToSlot(parentId, slotName, type, componentPath) {
+          const parent = this.findComponentById(parentId);
+          if (!parent) {
+              throw new Error('Parent component not found');
+          }
+          if (!parent.children || typeof parent.children !== 'object') {
+              parent.children = {};
+          }
+          if (!Array.isArray(parent.children[slotName])) {
+              parent.children[slotName] = [];
+          }
+          const instance = await this.createComponentInstance(type, componentPath);
+          parent.children[slotName].push(instance);
+          this.renderCanvasFromState();
+          this.refreshLivePreview();
+      }
+
+      updateCanvasDragHandle() {
+          if (!this.canvasSortable) {
+              return;
+          }
+
+          const isPageMode = this.builderMode === 'page';
+          const isStitchMode = this.canvas?.classList.contains('stitch-mode');
+          let handle = '.canvas-item-header, .canvas-item-content';
+          if (isPageMode && isStitchMode) {
+              handle = '.canvas-item-content';
+          }
+
+          this.canvasSortable.option('handle', handle);
+      }
 
     setActiveComponents(components) {
         if (this.builderMode === 'partial') {
@@ -1238,6 +1649,9 @@ class VisualBuilder {
         if (!listEl) {
             return;
         }
+        if (!isPageMode) {
+            this.updateMicroQuickFilters(selectedGroup);
+        }
 
         const filtered = items.filter(p => {
             const queryMatch = !query ||
@@ -1259,6 +1673,155 @@ class VisualBuilder {
         });
     }
 
+    handleMicroQuickFilter(event) {
+        const button = event.target.closest('[data-filter]');
+        if (!button) {
+            return;
+        }
+        const filterValue = button.dataset.filter || 'all';
+        if (this.partialsFilter) {
+            this.partialsFilter.value = filterValue;
+        }
+        this.filterComponents();
+    }
+
+    updateMicroQuickFilters(activeValue) {
+        if (!this.microQuickFilters) {
+            return;
+        }
+        const current = String(activeValue || 'all');
+        this.microQuickFilters.querySelectorAll('[data-filter]').forEach((button) => {
+            const target = String(button.dataset.filter || 'all');
+            button.classList.toggle('active', target === current);
+        });
+    }
+
+    initDesignPresets() {
+        if (!this.presetSelect || !Array.isArray(this.designPresets)) {
+            return;
+        }
+        this.presetSelect.innerHTML = this.designPresets
+            .map((preset) => `<option value="${preset.id}">${preset.name}</option>`)
+            .join('');
+        const saved = localStorage.getItem('builderDesignPreset');
+        const initial = this.designPresets.find((preset) => preset.id === saved) || this.designPresets[0];
+        this.applyDesignPreset(initial.id, { persist: false });
+    }
+
+    getActivePreset() {
+        return this.designPresets.find((preset) => preset.id === this.activePresetId) || this.designPresets[0];
+    }
+
+    applyDesignPreset(id, options = {}) {
+        const preset = this.designPresets.find((entry) => entry.id === id) || this.designPresets[0];
+        if (!preset) {
+            return;
+        }
+        this.activePresetId = preset.id;
+        if (this.presetSelect) {
+            this.presetSelect.value = preset.id;
+        }
+        if (options.persist !== false) {
+            localStorage.setItem('builderDesignPreset', preset.id);
+        }
+        this.applyPresetVariablesToCanvas();
+        this.refreshLivePreview();
+    }
+
+    applyPresetVariablesToCanvas() {
+        const preset = this.getActivePreset();
+        const vars = preset?.vars || {};
+        const target = this.canvas || document.documentElement;
+        const setVar = (name, value) => {
+            if (!value) return;
+            target.style.setProperty(name, value);
+        };
+        setVar('--preset-accent', vars.accent);
+        setVar('--preset-text', vars.text);
+        setVar('--preset-muted', vars.muted);
+        setVar('--preset-surface', vars.surface);
+        setVar('--preset-radius', vars.radius);
+        setVar('--preset-font-body', vars.fontBody);
+        setVar('--preset-font-heading', vars.fontHeading);
+    }
+
+    getPresetCssVariables() {
+        const preset = this.getActivePreset();
+        const vars = preset?.vars || {};
+        return `
+            :root {
+                --preset-accent: ${vars.accent || '#2563eb'};
+                --preset-text: ${vars.text || '#0f172a'};
+                --preset-muted: ${vars.muted || '#64748b'};
+                --preset-surface: ${vars.surface || '#f8fafc'};
+                --preset-radius: ${vars.radius || '12px'};
+                --preset-font-body: ${vars.fontBody || '"Inter", system-ui, sans-serif'};
+                --preset-font-heading: ${vars.fontHeading || '"Inter", system-ui, sans-serif'};
+            }
+        `;
+    }
+
+    getMicroBaseStyles() {
+        return `
+            .micro-heading {
+                font-family: var(--preset-font-heading);
+                font-size: clamp(24px, 3vw, 40px);
+                font-weight: 700;
+                margin: 0 0 12px;
+            }
+            .micro-text-block,
+            .micro-paragraph,
+            .micro-field {
+                font-family: var(--preset-font-body);
+                color: var(--preset-text);
+            }
+            .micro-text-block h3 {
+                font-family: var(--preset-font-heading);
+                margin: 0 0 12px;
+                line-height: 1.1;
+            }
+            .micro-paragraph {
+                color: var(--preset-muted);
+                line-height: 1.6;
+            }
+            .micro-button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                padding: 12px 20px;
+                border-radius: var(--preset-radius);
+                background-color: var(--preset-accent);
+                color: #fff;
+                font-weight: 600;
+                text-decoration: none;
+            }
+            .micro-link {
+                color: var(--preset-accent);
+                font-weight: 600;
+            }
+            .micro-field {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                font-size: 12px;
+            }
+            .micro-input,
+            .micro-textarea,
+            .micro-select {
+                padding: 10px 12px;
+                border-radius: var(--preset-radius);
+                border: 1px solid #cbd5f5;
+                background-color: #fff;
+                font-family: var(--preset-font-body);
+            }
+            .micro-divider {
+                border: none;
+                border-top: 1px solid #e2e8f0;
+            }
+        `;
+    }
+
     renderCanvasFromState() {
         this.editorCanvas.renderCanvasFromState(this);
     }
@@ -1266,9 +1829,9 @@ class VisualBuilder {
     removeCanvasItem(instanceId) {
         this.pushHistory();
         const components = this.getActiveComponents();
-        const index = components.findIndex(item => item.instanceId === instanceId);
-        if (index > -1) {
-            components.splice(index, 1);
+        const removed = this.removeComponentById(instanceId, components);
+        if (!removed) {
+            return;
         }
         this.setActiveComponents(components);
         this.renderCanvasFromState();
@@ -1277,20 +1840,15 @@ class VisualBuilder {
     }
 
     duplicateCanvasItem(instanceId) {
-        const components = this.getActiveComponents();
-        const index = components.findIndex(item => item.instanceId === instanceId);
-        if (index === -1) {
+        const location = this.findComponentLocation(instanceId);
+        if (!location) {
             return;
         }
         this.pushHistory();
 
-        const original = components[index];
-        const duplicate = {
-            ...original,
-            instanceId: 'instance-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
-        };
-        components.splice(index + 1, 0, duplicate);
-        this.setActiveComponents(components);
+        const duplicate = this.cloneComponent(location.item);
+        location.list.splice(location.index + 1, 0, duplicate);
+        this.setActiveComponents(this.getActiveComponents());
         this.renderCanvasFromState();
         this.refreshLivePreview();
         this.showToast('Component duplicated', 'success');
@@ -1333,17 +1891,18 @@ class VisualBuilder {
         }
     }
 
-    showPropertiesPanel(instanceId) {
-        const item = this.getActiveComponents().find(i => i.instanceId === instanceId);
-        if (!item) return;
-        const defaults = this.extractDefaultsFromContent(item.content);
-        const props = { ...defaults, ...(item.props || {}) };
-        
-        this.propertiesPanel.classList.add('active');
-        
-        this.propertiesContent.innerHTML = `
-            <div class="form-group">
-                <label>Component Type</label>
+      showPropertiesPanel(instanceId) {
+          const item = this.findComponentById(instanceId);
+          if (!item) return;
+          const defaults = this.extractDefaultsFromContent(item.content);
+          const props = { ...defaults, ...(item.props || {}) };
+          const layoutMeta = this.getLayoutMeta(item.content);
+          
+          this.propertiesPanel.classList.add('active');
+          
+          this.propertiesContent.innerHTML = `
+              <div class="form-group">
+                  <label>Component Type</label>
                 <input type="text" value="${item.type}" disabled>
             </div>
             <div class="form-group">
@@ -1374,11 +1933,65 @@ class VisualBuilder {
                 <label>Image Src</label>
                 <input type="text" value="${props.imageSrc || ''}" id="propImageSrc">
             </div>
-            <div class="form-group">
-                <label>Image Alt</label>
-                <input type="text" value="${props.imageAlt || ''}" id="propImageAlt">
-            </div>
-        `;
+              <div class="form-group">
+                  <label>Image Alt</label>
+                  <input type="text" value="${props.imageAlt || ''}" id="propImageAlt">
+              </div>
+              ${layoutMeta.isLayout ? `
+              <div class="form-group">
+                  <label>Layout Gap (px)</label>
+                  <input type="number" min="0" value="${props.layoutGap || ''}" id="propLayoutGap" placeholder="24">
+              </div>
+              <div class="form-group">
+                  <label>Layout Padding (px)</label>
+                  <input type="number" min="0" value="${props.layoutPadding || ''}" id="propLayoutPadding" placeholder="0">
+              </div>
+              <div class="form-group">
+                  <label>Align Items</label>
+                  <select id="propLayoutAlign">
+                      <option value="">Default</option>
+                      <option value="flex-start">Start</option>
+                      <option value="center">Center</option>
+                      <option value="flex-end">End</option>
+                      <option value="stretch">Stretch</option>
+                  </select>
+              </div>
+              <div class="form-group">
+                  <label>Justify Content</label>
+                  <select id="propLayoutJustify">
+                      <option value="">Default</option>
+                      <option value="flex-start">Start</option>
+                      <option value="center">Center</option>
+                      <option value="flex-end">End</option>
+                      <option value="space-between">Space Between</option>
+                      <option value="space-around">Space Around</option>
+                  </select>
+              </div>
+              <div class="form-group">
+                  <label>Background Color</label>
+                  <input type="text" value="${props.layoutBg || ''}" id="propLayoutBg" placeholder="#ffffff">
+              </div>
+              ${layoutMeta.isGrid ? `
+              <div class="form-group">
+                  <label>Grid Columns</label>
+                  <select id="propLayoutColumns">
+                      <option value="">Default</option>
+                      <option value="2">2 Columns</option>
+                      <option value="3">3 Columns</option>
+                      <option value="4">4 Columns</option>
+                  </select>
+              </div>
+              ` : ''}
+              ${layoutMeta.isFlex ? `
+              <div class="form-group">
+                  <label class="checkbox-row">
+                      <input type="checkbox" id="propLayoutReverse">
+                      <span>Reverse Order</span>
+                  </label>
+              </div>
+              ` : ''}
+              ` : ''}
+          `;
 
         const bindProp = (id, fn) => {
             const el = document.getElementById(id);
@@ -1390,10 +2003,48 @@ class VisualBuilder {
         bindProp('propTitle', (value) => this.updateComponentProps(instanceId, { props: { title: value } }));
         bindProp('propText', (value) => this.updateComponentProps(instanceId, { props: { text: value } }));
         bindProp('propLinkText', (value) => this.updateComponentProps(instanceId, { props: { linkText: value } }));
-        bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
-        bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
-        bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
-    }
+          bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
+          bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
+          bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
+
+          if (layoutMeta.isLayout) {
+              const alignSelect = document.getElementById('propLayoutAlign');
+              if (alignSelect) {
+                  alignSelect.value = props.layoutAlign || '';
+                  alignSelect.addEventListener('change', (e) => {
+                      this.updateComponentProps(instanceId, { props: { layoutAlign: e.target.value } });
+                  });
+              }
+              const justifySelect = document.getElementById('propLayoutJustify');
+              if (justifySelect) {
+                  justifySelect.value = props.layoutJustify || '';
+                  justifySelect.addEventListener('change', (e) => {
+                      this.updateComponentProps(instanceId, { props: { layoutJustify: e.target.value } });
+                  });
+              }
+              if (layoutMeta.isGrid) {
+                  const columnsSelect = document.getElementById('propLayoutColumns');
+                  if (columnsSelect) {
+                      columnsSelect.value = props.layoutColumns || layoutMeta.columns || '';
+                      columnsSelect.addEventListener('change', (e) => {
+                          this.updateComponentProps(instanceId, { props: { layoutColumns: e.target.value } });
+                      });
+                  }
+              }
+              if (layoutMeta.isFlex) {
+                  const reverseToggle = document.getElementById('propLayoutReverse');
+                  if (reverseToggle) {
+                      reverseToggle.checked = Boolean(props.layoutReverse);
+                      reverseToggle.addEventListener('change', (e) => {
+                          this.updateComponentProps(instanceId, { props: { layoutReverse: e.target.checked } });
+                      });
+                  }
+              }
+              bindProp('propLayoutGap', (value) => this.updateComponentProps(instanceId, { props: { layoutGap: value } }));
+              bindProp('propLayoutPadding', (value) => this.updateComponentProps(instanceId, { props: { layoutPadding: value } }));
+              bindProp('propLayoutBg', (value) => this.updateComponentProps(instanceId, { props: { layoutBg: value } }));
+          }
+      }
 
     toggleInspectorPanel() {
         if (!this.inspectorPanel) return;
@@ -1423,11 +2074,11 @@ class VisualBuilder {
             return;
         }
 
-        const item = this.getActiveComponents().find(i => i.instanceId === instanceId);
-        if (!item) {
-            this.inspectorContent.innerHTML = '<p class="no-selection">Select a component to inspect its layout</p>';
-            return;
-        }
+          const item = this.findComponentById(instanceId);
+          if (!item) {
+              this.inspectorContent.innerHTML = '<p class="no-selection">Select a component to inspect its layout</p>';
+              return;
+          }
 
         const canvasItem = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
         if (!canvasItem) {
@@ -1512,26 +2163,51 @@ class VisualBuilder {
         ].join('');
     }
 
-    extractDefaultsFromContent(html) {
-        const wrapper = document.createElement('div');
-        wrapper.innerHTML = html;
-        const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
+      extractDefaultsFromContent(html) {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = html;
+          const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
         const paragraph = wrapper.querySelector('p');
         const link = wrapper.querySelector('a');
         const image = wrapper.querySelector('img');
-        return {
-            title: heading ? heading.textContent : '',
-            text: paragraph ? paragraph.textContent : '',
-            linkText: link ? link.textContent : '',
-            linkHref: link ? (link.getAttribute('href') || '') : '',
-            imageSrc: image ? (image.getAttribute('src') || '') : '',
-            imageAlt: image ? (image.getAttribute('alt') || '') : ''
-        };
-    }
+          return {
+              title: heading ? heading.textContent : '',
+              text: paragraph ? paragraph.textContent : '',
+              linkText: link ? link.textContent : '',
+              linkHref: link ? (link.getAttribute('href') || '') : '',
+              imageSrc: image ? (image.getAttribute('src') || '') : '',
+              imageAlt: image ? (image.getAttribute('alt') || '') : ''
+          };
+      }
 
-    getRenderedComponentContent(item) {
+      getLayoutMeta(html) {
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = html || '';
+          const root = wrapper.firstElementChild;
+          const hasSlots = Boolean(wrapper.querySelector('.micro-slot'));
+          const display = root ? root.style.display : '';
+          const isGrid = display === 'grid';
+          const isFlex = display === 'flex';
+          let columns = '';
+          if (isGrid && root) {
+              const template = root.style.gridTemplateColumns || '';
+              const match = template.match(/repeat\((\d+)/i);
+              if (match) {
+                  columns = match[1];
+              }
+          }
+          return {
+              isLayout: hasSlots,
+              isGrid,
+              isFlex,
+              columns
+          };
+      }
+
+    getRenderedComponentContent(item, options = {}) {
+        const forCanvas = Boolean(options.forCanvas);
         const wrapper = document.createElement('div');
-        wrapper.innerHTML = item.content;
+        wrapper.innerHTML = item.content || '';
         const props = item.props || {};
         const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
         const paragraph = wrapper.querySelector('p');
@@ -1545,11 +2221,142 @@ class VisualBuilder {
         if (image && typeof props.imageSrc === 'string') image.setAttribute('src', props.imageSrc);
         if (image && typeof props.imageAlt === 'string') image.setAttribute('alt', props.imageAlt);
 
+        this.applyInlineTextOverrides(wrapper, props);
+        this.applyInlineImageOverrides(wrapper, props);
+
+        const root = wrapper.firstElementChild;
+        if (root) {
+            const withUnit = (value) => {
+                if (value === null || value === undefined || value === '') return '';
+                const raw = String(value).trim();
+                if (!raw) return '';
+                if (/[a-z%]+$/i.test(raw)) return raw;
+                const num = Number(raw);
+                if (Number.isNaN(num)) return raw;
+                return `${num}px`;
+            };
+
+            const gapValue = withUnit(props.layoutGap);
+            if (gapValue) root.style.gap = gapValue;
+
+            const paddingValue = withUnit(props.layoutPadding);
+            if (paddingValue) root.style.padding = paddingValue;
+
+            if (props.layoutAlign) root.style.alignItems = props.layoutAlign;
+            if (props.layoutJustify) root.style.justifyContent = props.layoutJustify;
+            if (props.layoutBg) root.style.backgroundColor = props.layoutBg;
+
+            if (props.layoutColumns) {
+                const colNum = Number(props.layoutColumns);
+                if (!Number.isNaN(colNum) && colNum > 0) {
+                    root.style.gridTemplateColumns = `repeat(${colNum}, minmax(0, 1fr))`;
+                }
+            }
+
+            if (typeof props.layoutReverse === 'boolean') {
+                root.style.flexDirection = props.layoutReverse ? 'row-reverse' : '';
+            }
+        }
+
+        if (!forCanvas) {
+            const slots = wrapper.querySelectorAll('.micro-slot[data-slot]');
+            slots.forEach((slot) => {
+                const slotName = slot.dataset.slot || 'default';
+                const children = Array.isArray(item?.children?.[slotName]) ? item.children[slotName] : [];
+                if (children.length === 0) {
+                    return;
+                }
+                slot.innerHTML = children
+                    .map((child) => this.getRenderedComponentContent(child, { forCanvas: false }))
+                    .join('');
+            });
+        }
+
         return wrapper.innerHTML;
     }
 
+    getInlineEditableElements(rootEl, options = {}) {
+        if (!rootEl) return [];
+        const containerEl = options.container || null;
+        const selectors = 'h1,h2,h3,h4,h5,h6,p,a,span,button,br,wbr,hr,pre,blockquote,ol,ul,li,dl,dt,dd,figure,figcaption,div,strong,b,em,i,u,s,mark,small,sub,sup,code,kbd,samp,var,q,cite,abbr,data,time,bdi,bdo,ruby,rt,rp';
+        const nodes = Array.from(rootEl.querySelectorAll(selectors));
+        return nodes.filter((el) => this.isInlineEditableElement(el, rootEl, containerEl));
+    }
+
+    isInlineEditableElement(el, rootEl, containerEl) {
+        if (!el || !rootEl) return false;
+        const tag = el.tagName.toLowerCase();
+        if (tag === 'hr' || tag === 'br' || tag === 'wbr') return false;
+        if (containerEl) {
+            const owner = el.closest('.canvas-item');
+            if (owner && owner !== containerEl) return false;
+        }
+        if (el.classList.contains('micro-slot')) return false;
+        if (!containerEl && el.closest('.micro-slot')) return false;
+        if (containerEl) {
+            const owner = el.closest('.canvas-item');
+            if (owner && owner !== containerEl) return false;
+        }
+        const disallowIfChildren = new Set(['div', 'ol', 'ul', 'dl', 'figure', 'blockquote', 'pre', 'li', 'dt', 'dd', 'figcaption']);
+        if (disallowIfChildren.has(tag) && el.children.length > 0) {
+            return false;
+        }
+        return true;
+    }
+
+    getInlineKeyForElement(el, rootEl) {
+        if (!el || !rootEl) return '';
+        const segments = [];
+        let node = el;
+        while (node && node !== rootEl) {
+            const parent = node.parentElement;
+            if (!parent) break;
+            const index = Array.from(parent.children).indexOf(node);
+            segments.push(`${node.tagName.toLowerCase()}:${index}`);
+            node = parent;
+        }
+        segments.push(rootEl.tagName.toLowerCase());
+        return segments.reverse().join('/');
+    }
+
+    applyInlineTextOverrides(wrapper, props) {
+        const inlineText = props?.inlineText;
+        if (!inlineText || typeof inlineText !== 'object') {
+            return;
+        }
+        const elements = this.getInlineEditableElements(wrapper);
+        elements.forEach((el) => {
+            const key = this.getInlineKeyForElement(el, wrapper);
+            if (!key) return;
+            if (Object.prototype.hasOwnProperty.call(inlineText, key)) {
+                el.textContent = inlineText[key];
+            }
+        });
+    }
+
+    applyInlineImageOverrides(wrapper, props) {
+        const inlineImages = props?.inlineImages;
+        if (!inlineImages || typeof inlineImages !== 'object') {
+            return;
+        }
+        const images = Array.from(wrapper.querySelectorAll('img'));
+        images.forEach((img) => {
+            const key = this.getInlineKeyForElement(img, wrapper);
+            if (!key || !Object.prototype.hasOwnProperty.call(inlineImages, key)) {
+                return;
+            }
+            const override = inlineImages[key] || {};
+            if (override.src) {
+                img.setAttribute('src', override.src);
+            }
+            if (override.alt !== undefined) {
+                img.setAttribute('alt', override.alt);
+            }
+        });
+    }
+
     updateComponentProps(instanceId, patch) {
-        const item = this.getActiveComponents().find(i => i.instanceId === instanceId);
+        const item = this.findComponentById(instanceId);
         if (!item) return;
 
         if (typeof patch.name === 'string') {
@@ -1565,9 +2372,13 @@ class VisualBuilder {
             if (nameEl) {
                 nameEl.textContent = item.name;
             }
-            const contentEl = element.querySelector('.content-preview');
-            if (contentEl) {
-                contentEl.innerHTML = this.getRenderedComponentContent(item);
+            if (this.editorCanvas && typeof this.editorCanvas.hydrateCanvasItem === 'function') {
+                this.editorCanvas.hydrateCanvasItem(this, item, element);
+            } else {
+                const contentEl = element.querySelector('.content-preview');
+                if (contentEl) {
+                    contentEl.innerHTML = this.getRenderedComponentContent(item, { forCanvas: true });
+                }
             }
         }
 
@@ -1587,18 +2398,19 @@ class VisualBuilder {
         });
     }
 
-    async showPreview() {
-        const components = this.getActiveComponents();
-        if (components.length === 0) {
-            this.showToast('Add components to preview', 'warning');
-            return;
-        }
+      async showPreview() {
+          const components = this.getActiveComponents();
+          if (components.length === 0) {
+              this.showToast('Add components to preview', 'warning');
+              return;
+          }
 
-        if (this.builderMode === 'partial') {
-            this.previewFrame.srcdoc = this.generatePreviewHTML();
-            this.previewModal.classList.add('active');
-            return;
-        }
+          if (this.builderMode === 'partial') {
+              this.setPreviewMode(this.previewFrameWrap?.dataset?.size || 'desktop');
+              this.previewFrame.srcdoc = this.generatePreviewHTML();
+              this.previewModal.classList.add('active');
+              return;
+          }
         
         try {
             const response = await fetch('/api/watch/start', { method: 'POST' });
@@ -1622,27 +2434,31 @@ class VisualBuilder {
         this.showToast(`Opening hosted preview: ${pageName}.html`, 'success');
     }
 
-    generatePreviewHTML() {
-        const components = this.getActiveComponents();
-        const pageName = this.pageTitleInput.value || (this.builderMode === 'partial' ? 'Partial Preview' : 'Preview');
-        const wrapperOpen = this.builderMode === 'partial' ? '<div class="partial-preview">' : '';
-        const wrapperClose = this.builderMode === 'partial' ? '</div>' : '';
-        let html = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${pageName}</title>
-    <link rel="stylesheet" href="../../../build/css/styles.css">
-    <style>
-        body { margin: 0; padding: 20px; }
-        * { box-sizing: border-box; }
-        .partial-preview { max-width: 1100px; margin: 0 auto; }
-    </style>
-</head>
-<body>
-`;
+      generatePreviewHTML() {
+          const components = this.getActiveComponents();
+          const pageName = this.pageTitleInput.value || (this.builderMode === 'partial' ? 'Partial Preview' : 'Preview');
+          const wrapperOpen = this.builderMode === 'partial' ? '<div class="partial-preview">' : '';
+          const wrapperClose = this.builderMode === 'partial' ? '</div>' : '';
+          const presetVars = this.getPresetCssVariables();
+          const microStyles = this.getMicroBaseStyles();
+          let html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${pageName}</title>
+      <link rel="stylesheet" href="../../../build/css/styles.css">
+      <style>
+          ${presetVars}
+          body { margin: 0; padding: 20px; background: var(--preset-surface); color: var(--preset-text); font-family: var(--preset-font-body); }
+          * { box-sizing: border-box; }
+          .partial-preview { max-width: 1100px; margin: 0 auto; }
+          ${microStyles}
+      </style>
+  </head>
+  <body>
+  `;
 
         html += wrapperOpen;
         components.forEach(item => {
@@ -1703,40 +2519,42 @@ class VisualBuilder {
                 version: 1,
                 updatedAt: new Date().toISOString()
             },
-            layout: this.pageComponents.map((item, index) => ({
-                id: item.instanceId,
-                order: index + 1,
-                type: item.type,
-                partial: item.componentPath,
-                componentPath: item.componentPath,
-                name: item.name,
-                props: item.props || {},
-                renderedContent: this.getRenderedComponentContent(item)
-            }))
-        };
-    }
+              layout: this.pageComponents.map((item, index) => ({
+                  id: item.instanceId,
+                  order: index + 1,
+                  type: item.type,
+                  partial: item.componentPath,
+                  componentPath: item.componentPath,
+                  name: item.name,
+                  props: item.props || {},
+                  children: item.children || {},
+                  renderedContent: this.getRenderedComponentContent(item)
+              }))
+          };
+      }
 
     getPartialData() {
         const name = (this.pageTitleInput.value || 'untitled-partial').trim();
-        return {
-            meta: {
-                version: 1,
-                type: 'partial',
-                updatedAt: new Date().toISOString()
-            },
-            name,
-            createdAt: new Date().toISOString(),
-            components: this.partialComponents.map((item, index) => ({
-                id: item.instanceId,
-                order: index + 1,
-                type: item.type,
-                componentId: item.componentPath,
-                name: item.name,
-                props: item.props || {},
-                renderedContent: this.getRenderedComponentContent(item)
-            }))
-        };
-    }
+          return {
+              meta: {
+                  version: 1,
+                  type: 'partial',
+                  updatedAt: new Date().toISOString()
+              },
+              name,
+              createdAt: new Date().toISOString(),
+              components: this.partialComponents.map((item, index) => ({
+                  id: item.instanceId,
+                  order: index + 1,
+                  type: item.type,
+                  componentId: item.componentPath,
+                  name: item.name,
+                  props: item.props || {},
+                  children: item.children || {},
+                  renderedContent: this.getRenderedComponentContent(item)
+              }))
+          };
+      }
 
     getPartialHTML() {
         const components = this.partialComponents;
@@ -1931,6 +2749,182 @@ class VisualBuilder {
             console.error('Failed to save partial:', error);
             this.showToast(`Failed to save partial: ${error.message}`, 'error');
         }
+    }
+
+    openImageModal(payload) {
+        if (!this.imageModal) {
+            return;
+        }
+        this.pendingImageEdit = { ...(payload || {}) };
+        if (this.imageUrlInput) {
+            this.imageUrlInput.value = this.pendingImageEdit.currentSrc || '';
+        }
+        if (this.imageAltInput) {
+            this.imageAltInput.value = this.pendingImageEdit.alt || '';
+        }
+        if (this.imageUploadInput) {
+            this.imageUploadInput.value = '';
+        }
+        if (this.imageUploadStatus) {
+            this.imageUploadStatus.textContent = '';
+        }
+        this.loadImageLibrary();
+        this.modals.show(this.imageModal);
+    }
+
+    closeImageModal() {
+        if (this.imageModal) {
+            this.hideModal(this.imageModal);
+        }
+        this.pendingImageEdit = null;
+        if (this.imageUploadInput) {
+            this.imageUploadInput.value = '';
+        }
+        if (this.imageAltInput) {
+            this.imageAltInput.value = '';
+        }
+        if (this.imageUploadStatus) {
+            this.imageUploadStatus.textContent = '';
+        }
+        if (this.imageLibraryList) {
+            this.imageLibraryList.innerHTML = '';
+        }
+    }
+
+    applyImageUrl() {
+        const src = (this.imageUrlInput?.value || '').trim();
+        if (!src) {
+            this.showToast('Enter an image URL', 'warning');
+            return;
+        }
+        const alt = this.imageAltInput ? this.imageAltInput.value.trim() : '';
+        this.applyImageSrcToComponent(src, alt);
+        this.closeImageModal();
+    }
+
+    async handleImageUpload() {
+        const file = this.imageUploadInput?.files?.[0];
+        if (!file) {
+            this.showToast('Choose an image to upload', 'warning');
+            return;
+        }
+        if (this.uploadImageButton) {
+            this.uploadImageButton.disabled = true;
+        }
+        if (this.imageUploadStatus) {
+            this.imageUploadStatus.textContent = 'Uploading...';
+        }
+        try {
+            const result = await this.apiClient.uploadImage(file);
+            const src = result?.data?.path;
+            if (!src) {
+                throw new Error('Upload did not return an image path');
+            }
+            const alt = this.imageAltInput ? this.imageAltInput.value.trim() : '';
+            this.applyImageSrcToComponent(src, alt);
+            this.closeImageModal();
+            this.showToast('Image uploaded', 'success');
+        } catch (error) {
+            console.error('Image upload failed:', error);
+            this.showToast(`Image upload failed: ${error.message}`, 'error');
+            if (this.imageUploadStatus) {
+                this.imageUploadStatus.textContent = 'Upload failed';
+            }
+        } finally {
+            if (this.uploadImageButton) {
+                this.uploadImageButton.disabled = false;
+            }
+        }
+    }
+
+    applyImageSrcToComponent(src, altText) {
+        const edit = this.pendingImageEdit;
+        if (!edit || !edit.instanceId) {
+            return;
+        }
+        const item = this.findComponentById(edit.instanceId);
+        if (!item) {
+            return;
+        }
+        const hasAlt = typeof altText === 'string';
+        if (edit.singleImageProp && item.props && typeof item.props.imageSrc === 'string') {
+            const nextProps = { imageSrc: src };
+            if (hasAlt) {
+                nextProps.imageAlt = altText;
+            }
+            this.updateComponentProps(edit.instanceId, { props: nextProps });
+            return;
+        }
+        if (!edit.inlineKey) {
+            this.showToast('Unable to update this image', 'warning');
+            return;
+        }
+        const existing = item?.props?.inlineImages || {};
+        const previous = existing[edit.inlineKey] || {};
+        const next = {
+            ...existing,
+            [edit.inlineKey]: {
+                src,
+                alt: hasAlt ? altText : (previous.alt !== undefined ? previous.alt : (edit.alt || ''))
+            }
+        };
+        this.updateComponentProps(edit.instanceId, { props: { inlineImages: next } });
+    }
+
+    async loadImageLibrary() {
+        if (!this.imageLibraryList) {
+            return;
+        }
+        this.imageLibraryList.innerHTML = '<div class="loading">Loading images...</div>';
+        try {
+            const result = await this.apiClient.listImages();
+            const files = Array.isArray(result?.data) ? result.data : [];
+            if (!files.length) {
+                this.imageLibraryList.innerHTML = '<p class="no-selection">No images in src/images yet.</p>';
+                return;
+            }
+            const html = files.map((file) => {
+                const safeName = file?.name || 'image';
+                const safePath = file?.path || '';
+                return `
+                    <button class="image-library-item" type="button" data-src="${safePath}" data-name="${safeName}">
+                        <img src="${safePath}" alt="${safeName}">
+                        <span>${safeName}</span>
+                    </button>
+                `;
+            }).join('');
+            this.imageLibraryList.innerHTML = html;
+        } catch (error) {
+            console.error('Failed to load image library:', error);
+            this.imageLibraryList.innerHTML = '<p class="no-selection">Failed to load images.</p>';
+        }
+    }
+
+    handleImageLibraryClick(event) {
+        const button = event.target.closest('.image-library-item');
+        if (!button || !this.imageLibraryList) {
+            return;
+        }
+        this.imageLibraryList.querySelectorAll('.image-library-item.selected').forEach((item) => {
+            item.classList.remove('selected');
+        });
+        button.classList.add('selected');
+        const src = button.dataset.src || '';
+        const name = button.dataset.name || '';
+        if (this.imageUrlInput) {
+            this.imageUrlInput.value = src;
+        }
+        if (this.imageAltInput && !this.imageAltInput.value) {
+            this.imageAltInput.value = this.formatAltFromName(name);
+        }
+        if (this.imageUploadStatus) {
+            this.imageUploadStatus.textContent = name ? `Selected ${name}` : '';
+        }
+    }
+
+    formatAltFromName(fileName) {
+        const base = String(fileName || '').replace(/\.[^/.]+$/, '');
+        return base.replace(/[-_]+/g, ' ').trim();
     }
 
     hideModal(modal) {

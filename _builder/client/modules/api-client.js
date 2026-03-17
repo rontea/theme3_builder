@@ -73,8 +73,36 @@
             return this.requestJson("/api/partials");
         }
 
+        listMicroComponents() {
+            return this.requestJson("/api/micro");
+        }
+
         getPartial(pathName) {
             return this.requestJson(`/api/partial?path=${encodeURIComponent(pathName)}`);
+        }
+
+        async uploadImage(file) {
+            if (!file) {
+                throw new Error("Missing file to upload");
+            }
+            const response = await fetch(this.buildUrl("/api/uploads/image"), {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/octet-stream",
+                    "X-Filename": file.name || "image",
+                    "X-Filetype": file.type || ""
+                },
+                body: await file.arrayBuffer()
+            });
+            const result = await response.json();
+            if (!result || !result.success) {
+                throw new Error((result && result.error) || "Image upload failed");
+            }
+            return result;
+        }
+
+        listImages() {
+            return this.requestJson("/api/uploads/images");
         }
 
         async getPreviewStyles() {

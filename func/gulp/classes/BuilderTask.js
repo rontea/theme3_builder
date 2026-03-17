@@ -41,6 +41,7 @@ class BuilderTask {
         this.layoutsOutputPath = path.resolve(this.projectRoot, options.layoutsOutputPath || "./_builder/layouts");
         this.databasePath = path.resolve(this.projectRoot, options.databasePath || "./_builder/layouts/builder.sqlite");
         this.pagesOutputPath = path.resolve(this.projectRoot, options.pagesOutputPath || "./html/pages");
+        this.imagesPath = path.resolve(this.projectRoot, options.imagesPath || "./src/images");
         this.bodyLimit = options.bodyLimit || "512kb";
         this.maxLayoutItems = options.maxLayoutItems || 200;
         this.maxLayoutTextLength = options.maxLayoutTextLength || 200;
@@ -954,6 +955,41 @@ class BuilderTask {
         return "id-" + Math.random().toString(36).substr(2, 9);
     }
 
+    sanitizeFileName(value, fallback = "image") {
+        return String(value || "")
+            .trim()
+            .replace(/[^a-zA-Z0-9._-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^[-.]+/, "")
+            .slice(0, 120) || fallback;
+    }
+
+    getImageExtensionFromMime(mime) {
+        const normalized = String(mime || "").toLowerCase();
+        if (normalized === "image/jpeg") return ".jpg";
+        if (normalized === "image/png") return ".png";
+        if (normalized === "image/gif") return ".gif";
+        if (normalized === "image/webp") return ".webp";
+        if (normalized === "image/svg+xml") return ".svg";
+        return "";
+    }
+
+    getAllowedImageExtensions() {
+        return new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+    }
+
+    async ensureUniqueFileName(dirPath, fileName) {
+        const ext = path.extname(fileName);
+        const base = path.basename(fileName, ext);
+        let candidate = `${base}${ext}`;
+        let counter = 1;
+        while (await fs.pathExists(path.join(dirPath, candidate))) {
+            candidate = `${base}-${counter}${ext}`;
+            counter += 1;
+        }
+        return candidate;
+    }
+
     async startWatchProcess() {
         if (this.watchProcess && !this.watchProcess.killed && this.watchProcess.exitCode === null) {
             return { alreadyRunning: true, pid: this.watchProcess.pid };
@@ -1011,6 +1047,7 @@ class BuilderTask {
             this.app.use(cors());
             this.app.use(express.json({ limit: this.bodyLimit }));
             this.app.use(express.static(path.resolve(this.builderPath)));
+            this.app.use("/src/images", express.static(this.imagesPath));
 
             this.initPartialsSlice();
             registerPartialsRoutes(this.app, this.partialsController);
@@ -1092,6 +1129,78 @@ class BuilderTask {
 
             this.initPagesSlice();
             registerPagesRoutes(this.app, this.pagesController);
+
+            // API: Upload image to src/images
+            this.app.post("/api/uploads/image", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
+                try {
+                    const rawName = req.headers["x-filename"] || "image";
+                    const rawType = req.headers["x-filetype"] || "";
+                    const safeName = this.sanitizeFileName(rawName, "image");
+                    let ext = path.extname(safeName);
+                    let baseName = ext ? path.basename(safeName, ext) : safeName;
+
+                    if (!ext) {
+                        ext = this.getImageExtensionFromMime(rawType);
+                    }
+                    if (!ext) {
+                        ext = ".png";
+                    }
+
+                    const allowed = this.getAllowedImageExtensions();
+                    if (!allowed.has(ext.toLowerCase())) {
+                        const err = new Error("Unsupported image format");
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    if (!req.body || !req.body.length) {
+                        const err = new Error("Empty upload payload");
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    await fs.ensureDir(this.imagesPath);
+                    const fileName = await this.ensureUniqueFileName(this.imagesPath, `${baseName}${ext}`);
+                    const outputPath = path.join(this.imagesPath, fileName);
+                    await fs.writeFile(outputPath, req.body);
+
+                    res.json({
+                        success: true,
+                        data: {
+                            fileName,
+                            path: `/src/images/${fileName}`
+                        }
+                    });
+                } catch (err) {
+                    this.sendError(res, err, "IMAGE_UPLOAD_FAILED");
+                }
+            });
+
+            // API: List uploaded images
+            this.app.get("/api/uploads/images", async (req, res) => {
+                try {
+                    await fs.ensureDir(this.imagesPath);
+                    const entries = await fs.readdir(this.imagesPath, { withFileTypes: true });
+                    const allowed = this.getAllowedImageExtensions();
+                    const files = [];
+                    for (const entry of entries) {
+                        if (!entry.isFile()) continue;
+                        const ext = path.extname(entry.name).toLowerCase();
+                        if (!allowed.has(ext)) continue;
+                        const filePath = path.join(this.imagesPath, entry.name);
+                        const stat = await fs.stat(filePath);
+                        files.push({
+                            name: entry.name,
+                            path: `/src/images/${entry.name}`,
+                            size: stat.size,
+                            updatedAt: stat.mtime.toISOString()
+                        });
+                    }
+                    res.json({ success: true, data: files });
+                } catch (err) {
+                    this.sendError(res, err, "IMAGE_LIST_FAILED");
+                }
+            });
 
             // API: Build final HTML from layout
             this.app.post("/api/build", async (req, res) => {

@@ -11,6 +11,15 @@ function createPartialsController(builderTask, partialsService) {
                 builderTask.sendError(res, err, "PARTIALS_SCAN_FAILED");
             }
         },
+        listMicroComponents: async (req, res) => {
+            builderTask.logBoundary("route", "GET /api/micro");
+            try {
+                const components = await partialsService.scanMicroComponents();
+                res.json({ success: true, data: components });
+            } catch (err) {
+                builderTask.sendError(res, err, "MICRO_SCAN_FAILED");
+            }
+        },
         getPartialContent: async (req, res) => {
             builderTask.logBoundary("route", "GET /api/partial");
             try {

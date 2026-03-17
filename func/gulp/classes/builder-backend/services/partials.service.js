@@ -6,6 +6,28 @@ const { resolveSafePath } = require("../utils/pathSafety");
 const logErr = require("../../../../utils/TimeLogger");
 
 function createPartialsService(builderTask, partialsRepository) {
+    const normalizePath = (value) => String(value || "").replace(/\\/g, "/");
+
+    const resolveMicroCategory = (name, folder) => {
+        const key = String(name || "").toLowerCase();
+        if (["heading", "text-block", "paragraph"].includes(key)) return "Text";
+        if (["link", "button"].includes(key)) return "Actions";
+        if (["textbox", "textarea", "select", "checkbox", "radio"].includes(key)) return "Forms";
+        if (["image"].includes(key)) return "Media";
+        if ([
+            "spacer",
+            "divider",
+            "grid-2col",
+            "grid-3col",
+            "flex-split",
+            "stack",
+            "media-text",
+            "hero-split",
+            "free-layout"
+        ].includes(key)) return "Layout";
+        return formatCategory(folder);
+    };
+
     return {
         async scanPartials() {
             try {
@@ -14,6 +36,10 @@ function createPartialsService(builderTask, partialsRepository) {
 
                 const items = await Promise.all(files.map(async (file) => {
                     const relativePath = path.relative(builderTask.partialsPath, file);
+                    const normalizedPath = normalizePath(relativePath);
+                    if (normalizedPath.startsWith("micro/")) {
+                        return null;
+                    }
                     const folder = path.dirname(relativePath);
                     const name = path.basename(file, ".html");
                     const componentKey = relativePath.replace(/\\/g, "/").replace(/\.html$/i, "");
@@ -34,10 +60,61 @@ function createPartialsService(builderTask, partialsRepository) {
                     };
                 }));
 
-                return items;
+                return items.filter(Boolean);
             } catch (err) {
                 logErr.writeLog(err, {
                     customKey: "BUILDER_SCAN_PARTIALS_ERROR",
+                    context: { partialsPath: builderTask.partialsPath }
+                });
+                throw err;
+            }
+        },
+        async scanMicroComponents() {
+            try {
+                const microRoot = path.join(builderTask.partialsPath, "micro");
+                const pattern = path.join(microRoot, "**/*.html").replace(/\\/g, "/");
+                const files = await partialsRepository.findFiles(pattern);
+
+                const nameOverrides = new Map([
+                    ["grid-2col", "Grid 2-Column"],
+                    ["grid-3col", "Grid 3-Column"],
+                    ["flex-split", "Flex Split"],
+                    ["stack", "Stack"],
+                    ["media-text", "Media + Text"],
+                    ["hero-split", "Hero Split"],
+                    ["free-layout", "Free Layout"]
+                ]);
+
+                const items = await Promise.all(files.map(async (file) => {
+                    const relativePath = path.relative(microRoot, file);
+                    const normalized = normalizePath(relativePath);
+                    const folder = path.dirname(normalized);
+                    const baseName = path.basename(normalized, ".html");
+                    const componentKey = normalized.replace(/\.html$/i, "");
+                    const content = await partialsRepository.readFile(file, "utf8");
+                    const preview = buildPartialPreview(content);
+                    const category = resolveMicroCategory(baseName, folder);
+                    const displayName = nameOverrides.get(baseName) || formatCategory(baseName);
+                    const partialPath = normalizePath(path.join("micro", normalized));
+
+                    return {
+                        id: componentKey,
+                        componentKey,
+                        name: displayName,
+                        path: partialPath,
+                        fullPath: file,
+                        folder: folder === "." ? "root" : folder,
+                        category,
+                        type: "micro",
+                        preview,
+                        template: content
+                    };
+                }));
+
+                return items;
+            } catch (err) {
+                logErr.writeLog(err, {
+                    customKey: "BUILDER_SCAN_MICRO_ERROR",
                     context: { partialsPath: builderTask.partialsPath }
                 });
                 throw err;
