@@ -24,6 +24,7 @@ const { createPagesService } = require("./builder-backend/services/pages.service
 const { createLayoutsRepository } = require("./builder-backend/repositories/layouts.repository");
 const { createPartialsRepository } = require("./builder-backend/repositories/partials.repository");
 const { createPagesRepository } = require("./builder-backend/repositories/pages.repository");
+const GulpHTMLTasks = require("./GulpHTMLTasks");
 
 /**
  * BuilderTask - Handles the visual drag-and-drop interface builder
@@ -545,6 +546,142 @@ class BuilderTask {
         return this.upsertPageRecord({ projectName, pageName, pageTitle, layoutFileName: null });
     }
 
+    async clonePage({ projectName, sourcePageName, targetPageName, targetPageTitle = "" }) {
+        this.logBoundary("service", "clonePage:start", { projectName, sourcePageName, targetPageName });
+        const safeProjectName = this.sanitizeName(projectName);
+        const safeSourcePageName = this.sanitizePageName(sourcePageName);
+        const safeTargetPageName = this.sanitizePageName(targetPageName);
+
+        if (!safeProjectName || !safeSourcePageName || !safeTargetPageName) {
+            throw this.createActionableError(
+                "Invalid project or page name",
+                400,
+                "INVALID_PROJECT_OR_PAGE_NAME",
+                { projectName, sourcePageName, targetPageName }
+            );
+        }
+
+        if (safeSourcePageName === safeTargetPageName) {
+            throw this.createActionableError(
+                "Clone target must be different from source page",
+                400,
+                "CLONE_TARGET_SAME_AS_SOURCE",
+                { sourcePageName: safeSourcePageName, targetPageName: safeTargetPageName }
+            );
+        }
+
+        const existingTarget = await this.dbGet(
+            "SELECT page_name AS pageName FROM builder_pages WHERE project_name = ? AND page_name = ?",
+            [safeProjectName, safeTargetPageName]
+        );
+        if (existingTarget) {
+            throw this.createActionableError(
+                `Page already exists: ${safeTargetPageName}.html`,
+                409,
+                "PAGE_ALREADY_EXISTS",
+                { pageName: safeTargetPageName }
+            );
+        }
+
+        const targetPagePath = path.join(this.pagesOutputPath, `${safeTargetPageName}.html`);
+        if (await fs.pathExists(targetPagePath)) {
+            throw this.createActionableError(
+                `Page already exists: ${safeTargetPageName}.html`,
+                409,
+                "PAGE_ALREADY_EXISTS",
+                { pageName: safeTargetPageName, pagePath: targetPagePath }
+            );
+        }
+
+        const sourcePageRow = await this.dbGet(
+            `
+                SELECT
+                    project_name AS projectName,
+                    page_name AS pageName,
+                    page_title AS pageTitle,
+                    layout_file_name AS layoutFileName,
+                    partials_synced AS partialsSynced
+                FROM builder_pages
+                WHERE project_name = ? AND page_name = ?
+            `,
+            [safeProjectName, safeSourcePageName]
+        );
+
+        const nextPageTitle = String(targetPageTitle || sourcePageRow?.pageTitle || safeTargetPageName);
+
+        if (sourcePageRow?.layoutFileName) {
+            const layoutData = await this.getSavedLayout(sourcePageRow.layoutFileName);
+            layoutData.pageName = safeTargetPageName;
+            layoutData.pageTitle = nextPageTitle;
+            layoutData.project = {
+                ...(layoutData.project || {}),
+                name: safeProjectName
+            };
+            layoutData.meta = {
+                ...(layoutData.meta || {})
+            };
+
+            const result = await this.saveLayout(layoutData, {
+                pageName: safeTargetPageName,
+                overwrite: false,
+                saveAs: true,
+                layoutFileName: null
+            });
+
+            await this.upsertPageRecord({
+                projectName: safeProjectName,
+                pageName: safeTargetPageName,
+                pageTitle: nextPageTitle,
+                layoutFileName: result.layoutFileName,
+                partialsSynced: sourcePageRow.partialsSynced
+            });
+
+            return {
+                projectName: safeProjectName,
+                sourcePageName: safeSourcePageName,
+                pageName: safeTargetPageName,
+                pageTitle: nextPageTitle,
+                layoutFileName: result.layoutFileName,
+                pagePath: result.pagePath
+            };
+        }
+
+        const sourcePagePath = path.join(this.pagesOutputPath, `${safeSourcePageName}.html`);
+        if (!await fs.pathExists(sourcePagePath)) {
+            throw this.createActionableError(
+                "Source page not found",
+                404,
+                "PAGE_NOT_FOUND",
+                { projectName: safeProjectName, pageName: safeSourcePageName }
+            );
+        }
+
+        await fs.ensureDir(this.pagesOutputPath);
+        await fs.copy(sourcePagePath, targetPagePath, { overwrite: false, errorOnExist: true });
+        await this.upsertPageRecord({
+            projectName: safeProjectName,
+            pageName: safeTargetPageName,
+            pageTitle: nextPageTitle,
+            layoutFileName: null,
+            partialsSynced: sourcePageRow?.partialsSynced ?? null
+        });
+
+        this.logBoundary("service", "clonePage:done", {
+            projectName: safeProjectName,
+            sourcePageName: safeSourcePageName,
+            targetPageName: safeTargetPageName
+        });
+
+        return {
+            projectName: safeProjectName,
+            sourcePageName: safeSourcePageName,
+            pageName: safeTargetPageName,
+            pageTitle: nextPageTitle,
+            layoutFileName: null,
+            pagePath: targetPagePath
+        };
+    }
+
     async buildPartialLookup() {
         this.initPartialsSlice();
         return this.partialsService.buildPartialLookup();
@@ -1046,6 +1183,43 @@ class BuilderTask {
         });
 
         return { alreadyRunning: false, pid: this.watchProcess.pid };
+    }
+
+    async rebuildPreviewHtml() {
+        const htmlTasks = new GulpHTMLTasks({
+            src: "./html/",
+            dest: "./build",
+            watch: false
+        });
+
+        return new Promise((resolve, reject) => {
+            Promise.resolve(htmlTasks.compileHtmlSync())
+                .then((stream) => {
+                    if (!stream || typeof stream.on !== "function") {
+                        resolve({ built: false });
+                        return;
+                    }
+
+                    let settled = false;
+                    const finish = (result) => {
+                        if (!settled) {
+                            settled = true;
+                            resolve(result);
+                        }
+                    };
+                    const fail = (err) => {
+                        if (!settled) {
+                            settled = true;
+                            reject(err);
+                        }
+                    };
+
+                    stream.on("end", () => finish({ built: true }));
+                    stream.on("finish", () => finish({ built: true }));
+                    stream.on("error", fail);
+                })
+                .catch(reject);
+        });
     }
 
     initLayoutsSlice() {

@@ -169,8 +169,24 @@ function createPartialsService(builderTask, partialsRepository) {
                 await partialsRepository.ensureDir(path.dirname(fullPath));
                 await partialsRepository.writeFile(fullPath, String(content), "utf8");
 
+                let preview = { rebuilt: false };
+                try {
+                    await builderTask.rebuildPreviewHtml();
+                    preview = { rebuilt: true };
+                } catch (previewErr) {
+                    logErr.writeLog(previewErr, {
+                        customKey: "BUILDER_PARTIAL_PREVIEW_REBUILD_ERROR",
+                        context: { filePath: safePath }
+                    });
+                    preview = {
+                        rebuilt: false,
+                        error: previewErr.message
+                    };
+                }
+
                 return {
-                    path: safePath
+                    path: safePath,
+                    preview
                 };
             } catch (err) {
                 logErr.writeLog(err, {

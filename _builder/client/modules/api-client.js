@@ -35,6 +35,14 @@
             });
         }
 
+        clonePage(projectName, sourcePageName, targetPageName, targetPageTitle) {
+            return this.requestJson("/api/pages/clone", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectName, sourcePageName, targetPageName, targetPageTitle })
+            });
+        }
+
         listPages(projectName) {
             return this.requestJson(`/api/pages?projectName=${encodeURIComponent(projectName)}`);
         }

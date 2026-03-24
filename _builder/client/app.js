@@ -2005,6 +2005,14 @@ class VisualBuilder {
             return;
         }
 
+        try {
+            await this.syncPageComponentPartials(components);
+        } catch (error) {
+            console.error('Failed to sync page partials before saving layout body:', error);
+            this.showToast(`Failed to sync partials: ${error.message}`, 'error');
+            return;
+        }
+
         const layoutData = this.buildLayoutDataFromComponents(components, pageName);
         const layoutFileName = `${pageName}-layout.json`;
 
@@ -2028,6 +2036,24 @@ class VisualBuilder {
         } catch (error) {
             console.error('Failed to save layout body page:', error);
             this.showToast(`Failed to save main: ${error.message}`, 'error');
+        }
+    }
+
+    async syncPageComponentPartials(components = []) {
+        const syncTargets = new Map();
+        (components || [])
+            .filter((item) => item && !item?.props?.isLayoutPlaceholder && !item?.props?.isLayoutContext)
+            .forEach((item) => {
+                const partialPath = item.componentPath || item.partial;
+                if (!partialPath) {
+                    return;
+                }
+                const html = this.getRenderedComponentContent(item, { forCanvas: false });
+                syncTargets.set(partialPath, html);
+            });
+
+        for (const [partialPath, html] of syncTargets.entries()) {
+            await this.apiClient.savePartial(partialPath, html, true);
         }
     }
 
@@ -4027,6 +4053,14 @@ class VisualBuilder {
 
         if (this.pageComponents.length === 0) {
             this.showToast('Add components before saving', 'warning');
+            return;
+        }
+
+        try {
+            await this.syncPageComponentPartials(this.pageComponents);
+        } catch (error) {
+            console.error('Failed to sync page partials before saving layout:', error);
+            this.showToast(`Failed to sync partials: ${error.message}`, 'error');
             return;
         }
         

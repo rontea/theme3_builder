@@ -29,6 +29,9 @@
                             <button class="landing-project-delete absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-rose-500 text-white shadow-md opacity-95 transition hover:scale-110 hover:bg-rose-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ""}" data-layout-file-name="${item.layoutFileName || ""}" title="Delete page">
                                 <i class="fas fa-trash-alt text-[10px]"></i>
                             </button>
+                            <button class="landing-project-clone absolute right-12 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-sky-500 text-white shadow-md opacity-95 transition hover:scale-110 hover:bg-sky-600" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ""}" data-layout-file-name="${item.layoutFileName || ""}" title="Clone page">
+                                <i class="fas fa-clone text-[10px]"></i>
+                            </button>
                             <div class="flex items-start gap-4 min-w-0">
                                 <div class="relative shrink-0">
                                     <button class="landing-project-open" data-project-name="${item.projectName || itemName}" data-page-name="${item.pageName || ""}" data-layout-file-name="${item.layoutFileName || ""}" title="Open page">
@@ -65,6 +68,42 @@
                             pageName: target.dataset.pageName,
                             layoutFileName: target.dataset.layoutFileName
                         });
+                    });
+                });
+                ctx.landingProjectsList.querySelectorAll(".landing-project-clone").forEach((button) => {
+                    button.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const target = e.currentTarget;
+                        const sourcePageName = target.dataset.pageName || "";
+                        const suggestedName = `${sourcePageName}-copy`;
+                        const requestedName = prompt("Enter new cloned page name:", suggestedName);
+                        if (!requestedName) {
+                            return;
+                        }
+                        const normalizedName = String(requestedName)
+                            .trim()
+                            .toLowerCase()
+                            .replace(/[^a-z0-9-_]+/g, "-")
+                            .replace(/-+/g, "-")
+                            .replace(/^-|-$/g, "");
+                        if (!normalizedName) {
+                            ctx.showToast("Clone cancelled: invalid page name", "warning");
+                            return;
+                        }
+                        try {
+                            const result = await ctx.apiClient.clonePage(
+                                target.dataset.projectName,
+                                sourcePageName,
+                                normalizedName,
+                                normalizedName
+                            );
+                            ctx.showToast(`Cloned page: ${result.data?.pageName || normalizedName}`, "success");
+                            await this.loadLandingProjects(ctx);
+                        } catch (error) {
+                            console.error("Failed to clone page:", error);
+                            ctx.showToast(`Clone failed: ${error.message}`, "error");
+                        }
                     });
                 });
             } catch (error) {

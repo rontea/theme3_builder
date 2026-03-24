@@ -5,6 +5,9 @@ function createPagesService(builderTask, pagesRepository) {
         createPage(payload) {
             return builderTask.createPage(payload);
         },
+        clonePage(payload) {
+            return builderTask.clonePage(payload);
+        },
         listPages(projectName) {
             return builderTask.listPages(projectName);
         },

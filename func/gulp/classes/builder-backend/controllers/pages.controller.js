@@ -15,6 +15,19 @@ function createPagesController(builderTask, pagesService) {
                 builderTask.sendError(res, err, "PAGE_CREATE_FAILED");
             }
         },
+        clonePage: async (req, res) => {
+            builderTask.logBoundary("route", "POST /api/pages/clone");
+            try {
+                const { projectName, sourcePageName, targetPageName, targetPageTitle } = req.body || {};
+                if (!projectName || !sourcePageName || !targetPageName) {
+                    return res.status(400).json({ success: false, error: "Missing projectName, sourcePageName, or targetPageName" });
+                }
+                const page = await pagesService.clonePage({ projectName, sourcePageName, targetPageName, targetPageTitle });
+                res.json({ success: true, data: page });
+            } catch (err) {
+                builderTask.sendError(res, err, "PAGE_CLONE_FAILED");
+            }
+        },
         listPages: async (req, res) => {
             builderTask.logBoundary("route", "GET /api/pages");
             try {
