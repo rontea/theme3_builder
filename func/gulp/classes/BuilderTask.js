@@ -817,6 +817,44 @@ class BuilderTask {
         }
     }
 
+    async saveLayoutContent(filePath, content = "", options = {}) {
+        try {
+            const normalized = String(filePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+            if (!normalized) {
+                throw this.createActionableError(
+                    "Layout path is required",
+                    400,
+                    "LAYOUT_PATH_REQUIRED",
+                    { filePath }
+                );
+            }
+
+            const safePath = normalized.endsWith(".html") ? normalized : `${normalized}.html`;
+            const fullPath = this.resolveSafePath(this.layoutsPath, safePath);
+            const exists = await fs.pathExists(fullPath);
+
+            if (exists && !options.overwrite) {
+                throw this.createActionableError(
+                    `Layout already exists: ${safePath}`,
+                    409,
+                    "LAYOUT_EXISTS",
+                    { filePath: safePath }
+                );
+            }
+
+            await fs.ensureDir(path.dirname(fullPath));
+            await fs.writeFile(fullPath, String(content), "utf8");
+
+            return { path: safePath };
+        } catch (err) {
+            logErr.writeLog(err, {
+                customKey: "BUILDER_SAVE_LAYOUT_CONTENT_ERROR",
+                context: { filePath }
+            });
+            throw err;
+        }
+    }
+
     validateComponentPath(item, index) {
         const sourcePath = item.componentPath || item.partial;
         if (!sourcePath || typeof sourcePath !== "string") {
@@ -1073,6 +1111,19 @@ class BuilderTask {
                     res.json({ success: true, data: content });
                 } catch (err) {
                     this.sendError(res, err, "LAYOUT_READ_FAILED");
+                }
+            });
+            // API: Save layout content
+            this.app.post("/api/layout", async (req, res) => {
+                try {
+                    const { path: filePath, content, overwrite } = req.body || {};
+                    if (!filePath) {
+                        return res.status(400).json({ success: false, error: "Missing path parameter" });
+                    }
+                    const result = await this.saveLayoutContent(filePath, content || "", { overwrite: Boolean(overwrite) });
+                    res.json({ success: true, data: result });
+                } catch (err) {
+                    this.sendError(res, err, "LAYOUT_SAVE_FAILED");
                 }
             });
 

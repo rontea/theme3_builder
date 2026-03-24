@@ -3,7 +3,7 @@
 (function exposePagesDashboard(global) {
     const PagesDashboard = {
         async loadLandingProjects(ctx) {
-            ctx.landingContentTitle.textContent = "Pages";
+            ctx.landingContentTitle.textContent = "Landmarks";
             ctx.closeProjectDashboard.style.display = "none";
             ctx.landingProjectsList.innerHTML = '<div class="text-sm text-slate-400">Loading pages...</div>';
             try {
@@ -70,6 +70,157 @@
             } catch (error) {
                 console.error("Failed to load landing projects:", error);
                 ctx.landingProjectsList.innerHTML = '<div class="text-sm text-rose-300">Failed to load pages</div>';
+            }
+        },
+        async loadLandingLandmarks(ctx) {
+            if (!ctx.landingLandmarksList) {
+                return;
+            }
+
+            ctx.landingLandmarksList.innerHTML = '<div class="text-sm text-slate-400">Loading landmarks...</div>';
+
+            try {
+                const result = await ctx.apiClient.listPartials();
+                const items = Array.isArray(result.data) ? result.data : [];
+                const landmarks = items.filter((item) => {
+                    const rawPath = String(item?.path || "");
+                    const normalized = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+                    return normalized.startsWith("landmark/");
+                });
+
+                if (landmarks.length === 0) {
+                    ctx.landingLandmarksList.innerHTML = '<div class="text-sm text-slate-400">No landmarks found in html/partials/landmark.</div>';
+                    return;
+                }
+
+                landmarks.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+
+                const html = landmarks.map((item) => {
+                    const name = item?.name || item?.id || "Landmark";
+                    const path = item?.path || "";
+                    const preview = item?.preview && item.preview.trim().length > 0
+                        ? item.preview
+                        : "No preview available";
+
+                    return `
+                        <div class="group relative rounded-2xl border border-slate-700/60 bg-gradient-to-b from-slate-800/60 to-slate-900/80 p-4 shadow-[0_10px_35px_rgba(2,6,23,0.4)] transition duration-200 hover:-translate-y-0.5 hover:border-emerald-400/40 hover:shadow-[0_14px_45px_rgba(2,6,23,0.55)]">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="truncate text-sm font-semibold text-slate-100">${name}</div>
+                                    <div class="mt-1 truncate text-[10px] uppercase tracking-[0.14em] text-slate-400">${path}</div>
+                                </div>
+                                <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-600/70 bg-slate-900/80 text-slate-100">
+                                    <i class="fas fa-landmark text-emerald-300"></i>
+                                </span>
+                            </div>
+                            <p class="mt-3 text-xs text-slate-300/90 max-h-10 overflow-hidden">${preview}</p>
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                <button type="button" class="landing-landmark-builder inline-flex items-center gap-1.5 rounded-lg border border-slate-600/70 bg-slate-950/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:border-emerald-400/70 hover:text-white" data-path="${path}" title="Edit in Builder">
+                                    <i class="fas fa-layer-group text-[10px]"></i>
+                                    <span>Builder</span>
+                                </button>
+                                <button type="button" class="landing-landmark-preview inline-flex items-center gap-1.5 rounded-lg border border-slate-600/70 bg-slate-950/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:border-sky-400/70 hover:text-white" data-path="${path}" title="Preview Partial">
+                                    <i class="fas fa-eye text-[10px]"></i>
+                                    <span>Preview</span>
+                                </button>
+                                <button type="button" class="landing-landmark-code inline-flex items-center gap-1.5 rounded-lg border border-slate-600/70 bg-slate-950/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:border-amber-400/70 hover:text-white" data-path="${path}" title="Edit HTML">
+                                    <i class="fab fa-html5 text-[10px]"></i>
+                                    <span>Code</span>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+
+                ctx.landingLandmarksList.innerHTML = html;
+
+                ctx.landingLandmarksList.querySelectorAll(".landing-landmark-builder").forEach((button) => {
+                    button.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        const partialPath = e.currentTarget.dataset.path;
+                        if (typeof ctx.openPartialInBuilder === "function") {
+                            await ctx.openPartialInBuilder(partialPath);
+                        }
+                    });
+                });
+                ctx.landingLandmarksList.querySelectorAll(".landing-landmark-preview").forEach((button) => {
+                    button.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        const partialPath = e.currentTarget.dataset.path;
+                        await ctx.openPartialPreviewModal(partialPath);
+                    });
+                });
+                ctx.landingLandmarksList.querySelectorAll(".landing-landmark-code").forEach((button) => {
+                    button.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        const partialPath = e.currentTarget.dataset.path;
+                        await ctx.openPartialCodeModal(partialPath);
+                    });
+                });
+            } catch (error) {
+                console.error("Failed to load landing landmarks:", error);
+                ctx.landingLandmarksList.innerHTML = '<div class="text-sm text-rose-300">Failed to load landmarks</div>';
+            }
+        },
+        async loadLandingLayouts(ctx) {
+            if (!ctx.landingLayoutsList) {
+                return;
+            }
+
+            ctx.landingLayoutsList.innerHTML = '<div class="text-sm text-slate-400">Loading layouts...</div>';
+
+            try {
+                const result = await ctx.apiClient.listLayouts();
+                const items = Array.isArray(result.data) ? result.data : [];
+
+                if (items.length === 0) {
+                    ctx.landingLayoutsList.innerHTML = '<div class="text-sm text-slate-400">No layouts found in html/layouts.</div>';
+                    return;
+                }
+
+                items.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+
+                const html = items.map((item) => {
+                    const name = item?.name || item?.id || "Layout";
+                    const path = item?.path || "";
+
+                    return `
+                        <div class="group relative rounded-2xl border border-slate-700/60 bg-gradient-to-b from-slate-800/60 to-slate-900/80 p-4 shadow-[0_10px_35px_rgba(2,6,23,0.4)] transition duration-200 hover:-translate-y-0.5 hover:border-indigo-400/40 hover:shadow-[0_14px_45px_rgba(2,6,23,0.55)]">
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <div class="truncate text-sm font-semibold text-slate-100">${name}</div>
+                                    <div class="mt-1 truncate text-[10px] uppercase tracking-[0.14em] text-slate-400">${path}</div>
+                                </div>
+                                <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-600/70 bg-slate-900/80 text-slate-100">
+                                    <i class="fas fa-layer-group text-indigo-300"></i>
+                                </span>
+                            </div>
+                            <p class="mt-3 text-xs text-slate-300/90">Edit the main section with drag-and-drop.</p>
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                <button type="button" class="landing-layout-builder inline-flex items-center gap-1.5 rounded-lg border border-slate-600/70 bg-slate-950/60 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:border-indigo-400/70 hover:text-white" data-path="${path}" title="Edit Layout">
+                                    <i class="fas fa-layer-group text-[10px]"></i>
+                                    <span>Builder</span>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+
+                ctx.landingLayoutsList.innerHTML = html;
+
+                ctx.landingLayoutsList.querySelectorAll(".landing-layout-builder").forEach((button) => {
+                    button.addEventListener("click", async (e) => {
+                        e.preventDefault();
+                        const layoutPath = e.currentTarget.dataset.path;
+                        if (typeof ctx.openLayoutInBuilder === "function") {
+                            await ctx.openLayoutInBuilder(layoutPath);
+                        }
+                    });
+                });
+
+            } catch (error) {
+                console.error("Failed to load landing layouts:", error);
+                ctx.landingLayoutsList.innerHTML = '<div class="text-sm text-rose-300">Failed to load layouts</div>';
             }
         },
 

@@ -19,10 +19,20 @@ class VisualBuilder {
         this.pageCreated = false;
         this.partialHeightCache = {};
         this.currentDragPartialPath = null;
+        this.canvasLayoutMode = 'flow';
+        this.freeformSectionTemplate = 'free-layout';
+        this.pendingNativeDragData = null;
         this.selectedItem = null;
+        this.selectedElement = null;
         this.apiBase = '';
         this.pendingDeleteTarget = null;
         this.currentPartialFileName = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
+        this.editingPartialPath = null;
+        this.previewContentMode = 'render';
+        this.currentPartialCodePath = null;
         this.pendingImageEdit = null;
         this.designPresets = [
             {
@@ -157,6 +167,11 @@ class VisualBuilder {
         this.canvasEmpty = document.getElementById('canvasEmpty');
         this.componentCount = document.getElementById('componentCount');
         this.canvasModeLabel = document.getElementById('canvasModeLabel');
+        this.btnCanvasFlow = document.getElementById('btnCanvasFlow');
+        this.btnCanvasFreeform = document.getElementById('btnCanvasFreeform');
+        this.freeformSectionControls = document.getElementById('freeformSectionControls');
+        this.freeformSectionTemplateSelect = document.getElementById('freeformSectionTemplate');
+        this.btnExitCanvasFocus = document.getElementById('btnExitCanvasFocus');
         
         // Buttons
         this.btnUndo = document.getElementById('btnUndo');
@@ -186,10 +201,14 @@ class VisualBuilder {
         this.previewFrame = document.getElementById('previewFrame');
         this.previewFrameWrap = document.getElementById('previewFrameWrap');
         this.previewControls = document.getElementById('previewControls');
+        this.previewTypeControls = document.getElementById('previewTypeControls');
+        this.previewMarkupWrap = document.getElementById('previewMarkupWrap');
+        this.previewMarkupOutput = document.getElementById('previewMarkupOutput');
         this.exportOutput = document.getElementById('exportOutput');
         this.exportFormat = document.getElementById('exportFormat');
         this.partialCodeTitle = document.getElementById('partialCodeTitle');
         this.partialCodeOutput = document.getElementById('partialCodeOutput');
+        this.savePartialCodeButton = document.getElementById('savePartialCode');
         this.partialPreviewTitle = document.getElementById('partialPreviewTitle');
         this.partialPreviewFrame = document.getElementById('partialPreviewFrame');
         this.projectNameInput = document.getElementById('projectNameInput');
@@ -222,8 +241,12 @@ class VisualBuilder {
         this.savedLayoutsList = document.getElementById('savedLayoutsList');
         this.landingScreen = document.getElementById('landingScreen');
         this.landingProjectsList = document.getElementById('landingProjectsList');
+        this.landingLandmarksList = document.getElementById('landingLandmarksList');
+        this.landingLayoutsList = document.getElementById('landingLayoutsList');
         this.landingContentTitle = document.getElementById('landingContentTitle');
         this.syncLandingPages = document.getElementById('syncLandingPages');
+        this.syncLandingLandmarks = document.getElementById('syncLandingLandmarks');
+        this.syncLandingLayouts = document.getElementById('syncLandingLayouts');
         this.closeProjectDashboard = document.getElementById('closeProjectDashboard');
         this.refreshLandingProjects = document.getElementById('refreshLandingProjects');
         
@@ -248,6 +271,9 @@ class VisualBuilder {
         if (this.previewControls) {
             this.previewControls.addEventListener('click', (e) => this.handlePreviewControlClick(e));
         }
+        if (this.previewTypeControls) {
+            this.previewTypeControls.addEventListener('click', (e) => this.handlePreviewViewClick(e));
+        }
         if (this.microQuickFilters) {
             this.microQuickFilters.addEventListener('click', (e) => this.handleMicroQuickFilter(e));
         }
@@ -268,12 +294,32 @@ class VisualBuilder {
         this.btnPreview.addEventListener('click', () => this.showPreview());
         this.btnInspect.addEventListener('click', () => this.toggleInspectorPanel());
         this.btnToggleStitchMode.addEventListener('click', () => this.toggleStitchMode());
+        if (this.btnCanvasFlow) {
+            this.btnCanvasFlow.addEventListener('click', () => this.setCanvasLayoutMode('flow'));
+        }
+        if (this.btnCanvasFreeform) {
+            this.btnCanvasFreeform.addEventListener('click', () => this.setCanvasLayoutMode('freeform'));
+        }
+        if (this.freeformSectionTemplateSelect) {
+            this.freeformSectionTemplateSelect.addEventListener('change', (e) => {
+                this.freeformSectionTemplate = e.target.value || 'free-layout';
+            });
+        }
+        if (this.btnExitCanvasFocus) {
+            this.btnExitCanvasFocus.addEventListener('click', () => this.setCanvasFocusMode(false));
+        }
         this.btnExport.addEventListener('click', () => this.showExportModal());
         this.btnSave.addEventListener('click', () => this.saveLayout());
         this.btnLoadLayout.addEventListener('click', () => this.openLoadLayoutModal());
         this.btnClosePage.addEventListener('click', () => this.closeCurrentPageToDashboard());
         this.btnCreateProject.addEventListener('click', () => this.openProjectModal());
         this.syncLandingPages.addEventListener('click', () => this.syncPagesFromFilesystem());
+        if (this.syncLandingLandmarks) {
+            this.syncLandingLandmarks.addEventListener('click', () => this.syncLandmarksFromFilesystem());
+        }
+        if (this.syncLandingLayouts) {
+            this.syncLandingLayouts.addEventListener('click', () => this.syncLayoutsFromFilesystem());
+        }
         this.syncPagePartials.addEventListener('click', () => this.syncCurrentPagePartials());
         this.refreshLandingProjects.addEventListener('click', () => this.loadLandingProjects());
         this.closeProjectDashboard.addEventListener('click', () => this.closeProjectToMainDashboard());
@@ -285,6 +331,9 @@ class VisualBuilder {
         document.getElementById('closeLoadLayout').addEventListener('click', () => this.hideModal(this.loadLayoutModal));
         document.getElementById('closePartialCodeModal').addEventListener('click', () => this.hideModal(this.partialCodeModal));
         document.getElementById('closePartialPreviewModal').addEventListener('click', () => this.hideModal(this.partialPreviewModal));
+        if (this.savePartialCodeButton) {
+            this.savePartialCodeButton.addEventListener('click', () => this.savePartialCode());
+        }
         if (this.closeImageModalButton) {
             this.closeImageModalButton.addEventListener('click', () => this.closeImageModal());
         }
@@ -330,10 +379,12 @@ class VisualBuilder {
         }
         
         // Close modals on background click
-        [this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal, this.imageModal].forEach(modal => {
+        [this.propertiesPanel, this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal, this.imageModal].forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
-                    if (modal === this.deleteProjectModal) {
+                    if (modal === this.propertiesPanel) {
+                        this.hidePropertiesPanel();
+                    } else if (modal === this.deleteProjectModal) {
                         this.closeDeleteProjectModal();
                     } else if (modal === this.closePageConfirmModal) {
                         this.closeClosePageConfirmDialog();
@@ -373,6 +424,7 @@ class VisualBuilder {
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
+                this.hidePropertiesPanel();
                 this.hideModal(this.previewModal);
                 this.hideModal(this.exportModal);
                 this.hideModal(this.partialCodeModal);
@@ -409,20 +461,31 @@ class VisualBuilder {
         this.btnPreview.disabled = isLocked;
         if (this.btnInspect) this.btnInspect.disabled = isLocked;
         this.btnToggleStitchMode.disabled = isLocked;
+        if (this.btnCanvasFlow) this.btnCanvasFlow.disabled = isLocked;
+        if (this.btnCanvasFreeform) this.btnCanvasFreeform.disabled = isLocked;
+        if (this.freeformSectionTemplateSelect) this.freeformSectionTemplateSelect.disabled = isLocked || this.canvasLayoutMode !== 'freeform';
         this.btnExport.disabled = isLocked;
         this.btnSave.disabled = isLocked;
-        const disablePageActions = isLocked || this.builderMode !== 'page';
+        const isEditingPartial = Boolean(this.editingPartialPath);
+        const isEditingLayout = Boolean(this.editingLayoutPath);
+        const disablePageActions = isLocked || this.builderMode !== 'page' || isEditingPartial || isEditingLayout;
         this.btnLoadLayout.disabled = disablePageActions;
-        this.btnClosePage.disabled = disablePageActions;
-        this.syncPagePartials.disabled = disablePageActions;
+        this.btnClosePage.disabled = isLocked || this.builderMode !== 'page';
+        const disableSync = isLocked || this.builderMode !== 'page';
+        this.syncPagePartials.disabled = disableSync;
         this.searchInput.disabled = isLocked;
         if (this.partialsFilter) this.partialsFilter.disabled = isLocked;
-        this.pageTitleInput.disabled = isLocked;
+        this.pageTitleInput.disabled = isLocked || isEditingPartial || isEditingLayout;
         if (this.partialsTab) this.partialsTab.disabled = isLocked;
         if (this.microTab) this.microTab.disabled = isLocked;
-        if (this.partialsSortable) this.partialsSortable.option('disabled', isLocked);
-        if (this.microSortable) this.microSortable.option('disabled', isLocked);
-        if (this.canvasSortable) this.canvasSortable.option('disabled', isLocked);
+        if (this.editorCanvas && typeof this.editorCanvas.updateInteractionMode === 'function') {
+            this.editorCanvas.updateInteractionMode(this);
+        } else {
+            if (this.partialsSortable) this.partialsSortable.option('disabled', isLocked);
+            if (this.microSortable) this.microSortable.option('disabled', isLocked);
+            if (this.canvasSortable) this.canvasSortable.option('disabled', isLocked);
+        }
+        this.updateSaveButtonLabel();
     }
 
     getSnapshot() {
@@ -445,7 +508,7 @@ class VisualBuilder {
 
       refreshLivePreview() {
           if (this.previewModal.classList.contains('active')) {
-              this.previewFrame.srcdoc = this.generatePreviewHTML();
+              this.updatePreviewModalContent();
           }
       }
 
@@ -456,6 +519,15 @@ class VisualBuilder {
           }
           const mode = button.dataset.preview || 'desktop';
           this.setPreviewMode(mode);
+      }
+
+      handlePreviewViewClick(event) {
+          const button = event.target.closest('[data-preview-view]');
+          if (!button) {
+              return;
+          }
+          const mode = button.dataset.previewView || 'render';
+          this.setPreviewContentMode(mode);
       }
 
       setPreviewMode(mode = 'desktop') {
@@ -471,7 +543,46 @@ class VisualBuilder {
           }
       }
 
+      setPreviewContentMode(mode = 'render') {
+          const allowMarkup = this.builderMode === 'partial';
+          const nextMode = allowMarkup && mode === 'markup' ? 'markup' : 'render';
+          this.previewContentMode = nextMode;
+          if (this.previewTypeControls) {
+              this.previewTypeControls.hidden = !allowMarkup;
+              this.previewTypeControls.querySelectorAll('[data-preview-view]').forEach((button) => {
+                  const target = button.dataset.previewView || 'render';
+                  button.classList.toggle('active', target === nextMode);
+              });
+          }
+          if (this.previewControls) {
+              this.previewControls.hidden = nextMode !== 'render';
+          }
+          if (this.previewFrameWrap) {
+              this.previewFrameWrap.hidden = nextMode !== 'render';
+          }
+          if (this.previewMarkupWrap) {
+              this.previewMarkupWrap.hidden = nextMode !== 'markup';
+          }
+          this.updatePreviewModalContent();
+      }
+
+      updatePreviewModalContent() {
+          if (this.previewContentMode === 'markup' && this.builderMode === 'partial') {
+              if (this.previewMarkupOutput) {
+                  this.previewMarkupOutput.textContent = this.generatePreviewMarkup();
+              }
+              return;
+          }
+          if (this.previewFrame) {
+              this.previewFrame.srcdoc = this.generatePreviewHTML();
+          }
+      }
+
     toggleStitchMode() {
+        if (this.canvasLayoutMode === 'freeform') {
+            this.setCanvasFocusMode(!this.isCanvasFocusMode());
+            return;
+        }
         const isActive = this.canvas.classList.toggle('stitch-mode');
         if (this.canvasContainer) {
             this.canvasContainer.classList.toggle('stitch-mode', isActive);
@@ -483,6 +594,117 @@ class VisualBuilder {
         this.updateCanvasDragHandle();
     }
 
+    isCanvasFocusMode() {
+        const app = document.getElementById('app');
+        return Boolean(app?.classList.contains('canvas-focus-mode'));
+    }
+
+    setCanvasFocusMode(isActive) {
+        const app = document.getElementById('app');
+        if (!app) {
+            return;
+        }
+        app.classList.toggle('canvas-focus-mode', Boolean(isActive));
+        if (this.btnExitCanvasFocus) {
+            this.btnExitCanvasFocus.hidden = !isActive;
+        }
+        if (this.btnToggleStitchMode && this.canvasLayoutMode === 'freeform') {
+            this.btnToggleStitchMode.classList.toggle('btn-primary', Boolean(isActive));
+            this.btnToggleStitchMode.classList.toggle('btn-secondary', !isActive);
+            const label = this.btnToggleStitchMode.querySelector('span');
+            if (label) {
+                label.textContent = isActive ? 'Edit View' : 'Component View';
+            }
+            this.btnToggleStitchMode.title = isActive
+                ? 'Return to the editor'
+                : 'Hide the editor and show only the composed components';
+        }
+    }
+
+    setCanvasLayoutMode(mode = 'flow', options = {}) {
+        const nextMode = mode === 'freeform' ? 'freeform' : 'flow';
+        const previousMode = this.canvasLayoutMode;
+        this.canvasLayoutMode = nextMode;
+
+        if (this.btnCanvasFlow) {
+            this.btnCanvasFlow.classList.toggle('active', nextMode === 'flow');
+        }
+        if (this.btnCanvasFreeform) {
+            this.btnCanvasFreeform.classList.toggle('active', nextMode === 'freeform');
+        }
+        if (this.canvas) {
+            this.canvas.classList.toggle('is-freeform-mode', nextMode === 'freeform');
+        }
+        if (this.canvasContainer) {
+            this.canvasContainer.classList.toggle('is-freeform-mode', nextMode === 'freeform');
+        }
+        if (this.freeformSectionControls) {
+            this.freeformSectionControls.hidden = nextMode !== 'freeform';
+        }
+        if (this.freeformSectionTemplateSelect) {
+            this.freeformSectionTemplateSelect.disabled = nextMode !== 'freeform';
+            this.freeformSectionTemplateSelect.value = this.freeformSectionTemplate || 'free-layout';
+        }
+        if (this.canvasEmpty) {
+            const title = this.canvasEmpty.querySelector('h4');
+            const description = this.canvasEmpty.querySelector('p');
+            if (title) {
+                title.textContent = nextMode === 'freeform'
+                    ? 'Drop To Create Section'
+                    : (this.builderMode === 'page' ? 'Drop Components Here' : 'Build Partial Here');
+            }
+            if (description) {
+                description.textContent = nextMode === 'freeform'
+                    ? 'Each dropped component is placed into an auto-created section wrapper so the layout stays attached to that section.'
+                    : (this.builderMode === 'page'
+                        ? 'Drag partials from the sidebar to start building your page'
+                        : 'Drag micro components from the sidebar to assemble a partial');
+            }
+        }
+        if (this.btnToggleStitchMode) {
+            const disableStitch = nextMode === 'freeform';
+            this.btnToggleStitchMode.disabled = false;
+            if (disableStitch) {
+                this.canvas?.classList.remove('stitch-mode');
+                this.canvasContainer?.classList.remove('stitch-mode');
+                this.setCanvasFocusMode(false);
+                const label = this.btnToggleStitchMode.querySelector('span');
+                if (label) {
+                    label.textContent = 'Component View';
+                }
+                this.btnToggleStitchMode.title = 'Hide the editor and show only the composed components';
+            } else {
+                this.setCanvasFocusMode(false);
+                this.btnToggleStitchMode.classList.remove('btn-primary');
+                this.btnToggleStitchMode.classList.add('btn-secondary');
+                const label = this.btnToggleStitchMode.querySelector('span');
+                if (label) {
+                    label.textContent = this.canvas?.classList.contains('stitch-mode') ? 'Edit View' : 'Stitch View';
+                }
+                this.btnToggleStitchMode.title = this.canvas?.classList.contains('stitch-mode')
+                    ? 'Switch to Edit View'
+                    : 'Switch to Stitch View';
+            }
+        }
+
+        if (this.editorCanvas && typeof this.editorCanvas.updateInteractionMode === 'function') {
+            this.editorCanvas.updateInteractionMode(this);
+        }
+        this.updateCanvasDragHandle();
+        this.filterComponents();
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+
+        if (!options.silent && previousMode !== nextMode) {
+            this.showToast(
+                nextMode === 'freeform'
+                    ? 'Freeform mode enabled. Dropped components will be kept inside auto-created sections.'
+                    : 'Flow mode enabled. Components stack and reorder vertically.',
+                'success'
+            );
+        }
+    }
+
     openProjectModal() {
         this.showLandingScreen();
     }
@@ -491,6 +713,7 @@ class VisualBuilder {
         if (!this.landingScreen) {
             return;
         }
+        this.setCanvasFocusMode(false);
         this.landingScreen.classList.add('active');
         this.setProjectLockState(true);
         this.updateLandingPrimaryAction();
@@ -501,12 +724,27 @@ class VisualBuilder {
         this.currentPageName = null;
         this.pageCreated = false;
         this.currentLayoutFileName = null;
+        this.editingPartialPath = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
         this.updateEditorBreadcrumb();
+        this.updateSaveButtonLabel();
         this.updateLandingPrimaryAction();
         this.loadLandingProjects();
     }
 
     updateEditorBreadcrumb() {
+        if (this.editingLayoutPath) {
+            const name = this.editingLayoutPath.split('/').pop() || this.editingLayoutPath;
+            this.projectNameDisplay.textContent = `Layout: ${name}`;
+            return;
+        }
+        if (this.editingPartialPath) {
+            const name = this.editingPartialPath.split('/').pop() || this.editingPartialPath;
+            this.projectNameDisplay.textContent = `Partial: ${name}`;
+            return;
+        }
         const pageName = this.currentPageName || '';
         this.projectNameDisplay.textContent = pageName || 'No Page';
     }
@@ -534,6 +772,28 @@ class VisualBuilder {
             return;
         }
         this.openCreateProjectButton.innerHTML = '<i class="fas fa-file"></i> Create Page';
+    }
+
+    updateSaveButtonLabel() {
+        if (!this.btnSave) {
+            return;
+        }
+        const label = this.btnSave.querySelector('span');
+        if (this.editingLayoutPath) {
+            if (label) label.textContent = 'Save Layout';
+            this.btnSave.title = 'Save Layout';
+            return;
+        }
+        if (this.editingPartialPath) {
+            if (label) label.textContent = 'Save Partial';
+            this.btnSave.title = 'Save Partial';
+            return;
+        }
+        const isPageMode = this.builderMode === 'page';
+        if (label) {
+            label.textContent = isPageMode ? 'Save' : 'Save Partial';
+        }
+        this.btnSave.title = isPageMode ? 'Save Layout' : 'Save Partial';
     }
 
     handleLandingPrimaryAction() {
@@ -580,12 +840,17 @@ class VisualBuilder {
     performCloseCurrentPageToDashboard() {
         this.pageCreated = false;
         this.currentLayoutFileName = null;
+        this.editingPartialPath = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
         this.historyUndo = [];
         this.historyRedo = [];
         this.pageComponents = [];
         this.pageTitleInput.value = '';
         this.currentPageName = null;
         this.updateEditorBreadcrumb();
+        this.updateSaveButtonLabel();
         this.renderCanvasFromState();
         this.showLandingScreen();
         this.showToast(`Returned to ${this.project.name} dashboard`, 'success');
@@ -614,6 +879,10 @@ class VisualBuilder {
         this.pageCreated = false;
         this.currentPageName = null;
         this.currentLayoutFileName = null;
+        this.editingPartialPath = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
         this.historyUndo = [];
         this.historyRedo = [];
         this.pageComponents = [];
@@ -656,10 +925,15 @@ class VisualBuilder {
             return;
         }
 
+        this.editingPartialPath = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
         this.currentPageName = normalizedPageName;
         this.currentLayoutFileName = null;
         this.pageTitleInput.value = normalizedPageName;
         this.updateEditorBreadcrumb();
+        this.updateSaveButtonLabel();
         this.pageNameInput.value = '';
         this.pageCreated = true;
 
@@ -672,11 +946,54 @@ class VisualBuilder {
     }
 
     async loadLandingProjects() {
-        return this.pagesDashboard.loadLandingProjects(this);
+        const tasks = [this.pagesDashboard.loadLandingProjects(this)];
+        if (typeof this.pagesDashboard.loadLandingLandmarks === 'function') {
+            tasks.push(this.pagesDashboard.loadLandingLandmarks(this));
+        }
+        if (typeof this.pagesDashboard.loadLandingLayouts === 'function') {
+            tasks.push(this.pagesDashboard.loadLandingLayouts(this));
+        }
+        await Promise.all(tasks);
     }
 
     async syncPagesFromFilesystem() {
         return this.pagesDashboard.syncPagesFromFilesystem(this);
+    }
+
+    async syncLandmarksFromFilesystem() {
+        if (!this.syncLandingLandmarks) {
+            return;
+        }
+        this.syncLandingLandmarks.disabled = true;
+        try {
+            if (typeof this.pagesDashboard.loadLandingLandmarks === 'function') {
+                await this.pagesDashboard.loadLandingLandmarks(this);
+            }
+            this.showToast('Landmarks synced', 'success');
+        } catch (error) {
+            console.error('Failed to sync landmarks:', error);
+            this.showToast(`Landmarks sync failed: ${error.message}`, 'error');
+        } finally {
+            this.syncLandingLandmarks.disabled = false;
+        }
+    }
+
+    async syncLayoutsFromFilesystem() {
+        if (!this.syncLandingLayouts) {
+            return;
+        }
+        this.syncLandingLayouts.disabled = true;
+        try {
+            if (typeof this.pagesDashboard.loadLandingLayouts === 'function') {
+                await this.pagesDashboard.loadLandingLayouts(this);
+            }
+            this.showToast('Layouts synced', 'success');
+        } catch (error) {
+            console.error('Failed to sync layouts:', error);
+            this.showToast(`Layouts sync failed: ${error.message}`, 'error');
+        } finally {
+            this.syncLandingLayouts.disabled = false;
+        }
     }
 
     async openLoadLayoutModal() {
@@ -734,12 +1051,17 @@ class VisualBuilder {
     }
 
     async openPageFromDashboard(pageName, layoutFileName) {
+        this.editingPartialPath = null;
+        this.editingLayoutPath = null;
+        this.editingLayoutTemplate = null;
+        this.editingLayoutBodyPageName = null;
         this.currentPageName = pageName;
         this.pageCreated = true;
         this.pageTitleInput.value = pageName;
         this.currentLayoutFileName = layoutFileName || null;
         this.historyUndo = [];
         this.historyRedo = [];
+        this.updateSaveButtonLabel();
 
         if (layoutFileName) {
             await this.loadLayoutByFileName(layoutFileName, pageName);
@@ -756,6 +1078,16 @@ class VisualBuilder {
     }
 
     async syncCurrentPagePartials() {
+        if (this.editingLayoutPath) {
+            await this.openLayoutInBuilder(this.editingLayoutPath);
+            this.showToast('Layout synced', 'success');
+            return;
+        }
+        if (this.editingPartialPath) {
+            await this.openPartialInBuilder(this.editingPartialPath);
+            this.showToast('Partial synced', 'success');
+            return;
+        }
         return this.pagesDashboard.syncCurrentPagePartials(this);
     }
 
@@ -864,6 +1196,12 @@ class VisualBuilder {
             const layoutData = result.data;
             const components = await this.buildPageComponentsFromLayout(layoutData.layout || []);
             this.pageComponents = components;
+            this.canvasLayoutMode = layoutData?.meta?.canvasLayoutMode === 'freeform' ? 'freeform' : 'flow';
+            this.freeformSectionTemplate = layoutData?.meta?.freeformSectionTemplate || this.freeformSectionTemplate || 'free-layout';
+            this.editingPartialPath = null;
+            this.editingLayoutPath = null;
+            this.editingLayoutTemplate = null;
+            this.editingLayoutBodyPageName = null;
             this.historyUndo = [];
             this.historyRedo = [];
             this.renderCanvasFromState();
@@ -876,10 +1214,12 @@ class VisualBuilder {
             this.currentLayoutFileName = fileName;
             this.currentPageName = layoutData.pageName || this.pageTitleInput.value;
             this.updateEditorBreadcrumb();
+            this.updateSaveButtonLabel();
             this.pageCreated = true;
 
             await this.loadPartials();
             this.setBuilderMode('page');
+            this.setCanvasLayoutMode(this.canvasLayoutMode, { silent: true });
 
             this.enterBuilder();
             this.hideModal(this.loadLayoutModal);
@@ -894,7 +1234,7 @@ class VisualBuilder {
 
     async buildPageComponentsFromLayout(layoutItems) {
         const components = [];
-        for (const item of layoutItems) {
+        for (const [index, item] of layoutItems.entries()) {
             const componentPath = item.componentPath || item.partial;
             const endpoint = item.type === 'layout' ? '/api/layout' : '/api/partial';
             const response = await fetch(`${endpoint}?path=${encodeURIComponent(componentPath)}`);
@@ -909,7 +1249,9 @@ class VisualBuilder {
                 componentPath,
                 name: item.name || componentPath.split('/').pop().replace('.html', ''),
                 props: item.props || {},
-                content: result.data
+                content: result.data,
+                children: item.children || {},
+                canvas: item.canvas ? this.normalizeCanvasPlacement(item.canvas, index) : null
             });
         }
         return components;
@@ -1250,8 +1592,9 @@ class VisualBuilder {
             const preview = item.preview && item.preview.trim().length > 0
                 ? item.preview
                 : 'No preview available';
+            const draggableAttr = this.canvasLayoutMode === 'freeform' ? 'true' : 'false';
             return `
-                <div class="component-item" data-type="micro" data-path="${item.id}" data-id="${item.id}">
+                <div class="component-item" draggable="${draggableAttr}" data-type="micro" data-path="${item.id}" data-id="${item.id}">
                     <i class="fas fa-cube"></i>
                     <div class="component-meta">
                         <span class="component-name">${item.name}</span>
@@ -1295,16 +1638,458 @@ class VisualBuilder {
             return;
         }
 
-        this.partialCodeTitle.textContent = `Partial Code: ${partialPath}`;
-        this.partialCodeOutput.textContent = 'Loading...';
+        this.currentPartialCodePath = partialPath;
+        this.partialCodeTitle.textContent = `Edit Partial: ${partialPath}`;
+        if (this.partialCodeOutput) {
+            this.partialCodeOutput.value = 'Loading...';
+        }
         this.partialCodeModal.classList.add('active');
 
         try {
             const result = await this.apiClient.getPartial(partialPath);
-            this.partialCodeOutput.textContent = result.data || '';
+            if (this.partialCodeOutput) {
+                this.partialCodeOutput.value = result.data || '';
+            }
         } catch (error) {
             console.error('Failed to load partial code:', error);
-            this.partialCodeOutput.textContent = `Error: ${error.message}`;
+            if (this.partialCodeOutput) {
+                this.partialCodeOutput.value = `Error: ${error.message}`;
+            }
+        }
+    }
+
+    async openPartialInBuilder(partialPath) {
+        if (!partialPath) {
+            return;
+        }
+
+        try {
+            const instance = await this.createComponentInstance('partial', partialPath);
+            this.editingLayoutPath = null;
+            this.editingLayoutTemplate = null;
+            this.editingLayoutBodyPageName = null;
+            this.editingPartialPath = partialPath;
+            this.pageCreated = true;
+            this.currentPageName = null;
+            this.currentLayoutFileName = null;
+            this.historyUndo = [];
+            this.historyRedo = [];
+            this.pageComponents = [instance];
+            if (this.pageTitleInput) {
+                const name = partialPath.split('/').pop().replace('.html', '');
+                this.pageTitleInput.value = name;
+            }
+            this.setBuilderMode('page');
+            this.enterBuilder();
+            await this.loadPartials();
+            this.updateEditorBreadcrumb();
+            this.updateSaveButtonLabel();
+            this.renderCanvasFromState();
+            this.showToast(`Editing partial: ${partialPath}`, 'success');
+        } catch (error) {
+            console.error('Failed to open partial in builder:', error);
+            this.showToast(`Failed to open partial: ${error.message}`, 'error');
+        }
+    }
+
+    extractPartialTokensFromHtml(html) {
+        if (!html || typeof html !== 'string') {
+            return [];
+        }
+        const tokens = [];
+        const regex = /<!--\s*partial:\s*([^>]+?)\s*-->|{{>\s*([a-zA-Z0-9_./-]+)\s*}}/g;
+        let match = null;
+        while ((match = regex.exec(html)) !== null) {
+            const token = String(match[1] || match[2] || '').trim();
+            if (token) {
+                tokens.push(token);
+            }
+        }
+        return tokens;
+    }
+
+    buildPartialLookup() {
+        const lookup = new Map();
+        (this.partials || []).forEach((item) => {
+            const raw = String(item?.path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            if (!raw) return;
+            const noExt = raw.replace(/\.html$/i, '');
+            const base = noExt.split('/').pop();
+            const keys = [raw, noExt, base, `${base}.html`];
+            keys.forEach((key) => {
+                if (key && !lookup.has(key)) {
+                    lookup.set(key, raw);
+                }
+            });
+        });
+        return lookup;
+    }
+
+    resolvePartialTokenToPath(token, lookup) {
+        const normalized = String(token || '').trim().replace(/\\/g, '/');
+        if (!normalized) return null;
+        const base = normalized.split('/').pop();
+        const candidates = [
+            normalized,
+            normalized.replace(/\.html$/i, ''),
+            normalized.replace(/\.html$/i, '') + '.html',
+            base,
+            base.replace(/\.html$/i, ''),
+            base.replace(/\.html$/i, '') + '.html'
+        ];
+        for (const candidate of candidates) {
+            if (lookup.has(candidate)) {
+                return lookup.get(candidate);
+            }
+        }
+        return null;
+    }
+
+    extractLayoutMainHtml(layoutHtml) {
+        const regex = /(<main\b[^>]*>)([\s\S]*?)(<\/main>)/i;
+        const match = layoutHtml.match(regex);
+        if (!match) {
+            return { html: '', hasMain: false };
+        }
+        return { html: match[2] || '', hasMain: true };
+    }
+
+    async buildComponentsFromLayoutMain(mainHtml) {
+        const components = [];
+        const tokens = this.extractPartialTokensFromHtml(mainHtml);
+        const stripped = String(mainHtml || '')
+            .replace(/<!--\s*partial:\s*[^>]+?\s*-->/g, '')
+            .replace(/{{>\s*[a-zA-Z0-9_./-]+\s*}}/g, '')
+            .trim();
+        if (tokens.length > 0) {
+            const lookup = this.buildPartialLookup();
+            for (const token of tokens) {
+                const resolved = this.resolvePartialTokenToPath(token, lookup);
+                if (!resolved) continue;
+                try {
+                    const instance = await this.createComponentInstance('partial', resolved);
+                    components.push(instance);
+                } catch (error) {
+                    console.warn('Failed to load partial for layout:', token, error);
+                }
+            }
+        }
+
+        if (components.length === 0 && stripped) {
+            components.push({
+                instanceId: this.generateInstanceId(),
+                type: 'layout',
+                componentPath: this.editingLayoutPath || 'layout',
+                name: 'Layout Main',
+                props: {},
+                content: mainHtml,
+                children: {}
+            });
+        }
+
+        if (components.length === 0 && !stripped && tokens.length > 0) {
+            components.push({
+                instanceId: this.generateInstanceId(),
+                type: 'layout',
+                componentPath: this.editingLayoutPath || 'layout',
+                name: 'Main Section',
+                props: { isLayoutPlaceholder: true },
+                content: '<div style="border:1px dashed #64748b; padding:16px; border-radius:12px; font-size:12px; color:#94a3b8;">Main section placeholder ({{&gt; body}}). Drag sections into the canvas to replace it.</div>',
+                children: {}
+            });
+        }
+
+        return components;
+    }
+
+    async loadBodyComponentsFromPage(pageName) {
+        const safeName = (pageName || '').trim();
+        if (!safeName) {
+            return [];
+        }
+        try {
+            const result = await this.apiClient.getPagePartials(this.siteProjectName, safeName);
+            const partialPaths = Array.isArray(result?.data?.partials) ? result.data.partials : [];
+            const instances = [];
+            for (const componentPath of partialPaths) {
+                try {
+                    const instance = await this.createComponentInstance('partial', componentPath);
+                    instances.push(instance);
+                } catch (error) {
+                    console.warn('Failed to load body partial:', componentPath, error);
+                }
+            }
+            return instances;
+        } catch (error) {
+            console.error('Failed to load page body:', error);
+            return [];
+        }
+    }
+
+    removeLayoutPlaceholders() {
+        if (!this.editingLayoutPath) {
+            return;
+        }
+        const next = (this.pageComponents || []).filter((item) => !item?.props?.isLayoutPlaceholder);
+        if (next.length !== (this.pageComponents || []).length) {
+            this.pageComponents = next;
+        }
+    }
+
+    buildLayoutDataFromComponents(components = [], pageName = '') {
+        const safeName = String(pageName || '').trim() || 'page';
+        const now = new Date().toISOString();
+        return {
+            project: this.project,
+            pageName: safeName,
+            pageTitle: safeName,
+            createdAt: now,
+            meta: {
+                version: 1,
+                updatedAt: now,
+                canvasLayoutMode: this.canvasLayoutMode,
+                freeformSectionTemplate: this.freeformSectionTemplate
+            },
+            layout: components.map((item, index) => ({
+                id: item.instanceId || this.generateInstanceId(),
+                order: index + 1,
+                type: item.type,
+                partial: item.componentPath,
+                componentPath: item.componentPath,
+                name: item.name,
+                props: item.props || {},
+                children: item.children || {},
+                canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
+                renderedContent: this.getRenderedComponentContent(item)
+            }))
+        };
+    }
+
+    async openLayoutInBuilder(layoutPath) {
+        if (!layoutPath) {
+            return;
+        }
+
+        try {
+            await this.loadPartials();
+            const result = await this.apiClient.getLayout(layoutPath);
+            const layoutHtml = result?.data || '';
+            const { html: mainHtml, hasMain } = this.extractLayoutMainHtml(layoutHtml);
+            const usesBodyPlaceholder = /{{>\s*body\s*}}|<!--\s*partial:\s*body\s*-->/i.test(mainHtml || "");
+
+            this.editingLayoutPath = layoutPath;
+            this.editingLayoutTemplate = layoutHtml;
+            this.editingLayoutHasMain = hasMain;
+            this.editingPartialPath = null;
+            this.editingLayoutBodyPageName = usesBodyPlaceholder ? 'index' : null;
+
+            let components = [];
+            if (usesBodyPlaceholder) {
+                const layoutTokens = this.extractPartialTokensFromHtml(layoutHtml);
+                const lookup = this.buildPartialLookup();
+                const bodyComponents = await this.loadBodyComponentsFromPage(this.editingLayoutBodyPageName);
+                const bodyFallback = bodyComponents.length > 0 ? bodyComponents : [
+                    {
+                        instanceId: this.generateInstanceId(),
+                        type: 'layout',
+                        componentPath: 'layout/body',
+                        name: 'Main Section',
+                        props: { isLayoutPlaceholder: true },
+                        content: '<div style="border:1px dashed #64748b; padding:16px; border-radius:12px; font-size:12px; color:#94a3b8;">Main section placeholder ({{&gt; body}}). Drag sections into the canvas to replace it.</div>',
+                        children: {}
+                    }
+                ];
+
+                for (const token of layoutTokens) {
+                    if (!token) continue;
+                    if (token.toLowerCase() === 'body') {
+                        components.push(...bodyFallback);
+                        continue;
+                    }
+                    const resolved = this.resolvePartialTokenToPath(token, lookup);
+                    if (!resolved) {
+                        continue;
+                    }
+                    const instance = await this.createComponentInstance('partial', resolved);
+                    instance.props = { ...(instance.props || {}), isLayoutContext: true, layoutSlot: token };
+                    components.push(instance);
+                }
+            } else {
+                components = await this.buildComponentsFromLayoutMain(mainHtml);
+                this.editingLayoutBodyPageName = null;
+            }
+            this.pageCreated = true;
+            this.currentPageName = null;
+            this.currentLayoutFileName = null;
+            this.historyUndo = [];
+            this.historyRedo = [];
+            this.pageComponents = components;
+
+            if (this.pageTitleInput) {
+                const name = layoutPath.split('/').pop().replace('.html', '');
+                this.pageTitleInput.value = name;
+            }
+
+            this.setBuilderMode('page');
+            this.enterBuilder();
+            this.updateEditorBreadcrumb();
+            this.updateSaveButtonLabel();
+            this.renderCanvasFromState();
+            this.showToast(`Layout loaded: ${layoutPath}`, 'success');
+        } catch (error) {
+            console.error('Failed to open layout in builder:', error);
+            this.showToast(`Failed to load layout: ${error.message}`, 'error');
+        }
+    }
+
+    async saveEditingLayout() {
+        const layoutPath = this.editingLayoutPath;
+        if (!layoutPath) {
+            return;
+        }
+
+        if (this.editingLayoutBodyPageName) {
+            await this.saveLayoutBodyPage();
+            return;
+        }
+
+        const template = this.editingLayoutTemplate || '';
+        let bodyHtml = this.pageComponents
+            .filter((item) => !item?.props?.isLayoutPlaceholder)
+            .map((item) => this.getRenderedComponentContent(item, { forCanvas: false }))
+            .join('\n');
+        if (!bodyHtml.trim() && template) {
+            const existing = this.extractLayoutMainHtml(template);
+            if (existing.html && existing.html.trim()) {
+                bodyHtml = existing.html;
+            }
+        }
+        let nextHtml = template;
+        const mainRegex = /(<main\b[^>]*>)([\s\S]*?)(<\/main>)/i;
+        if (mainRegex.test(template)) {
+            nextHtml = template.replace(mainRegex, `$1\n${bodyHtml}\n$3`);
+        } else if (template.includes('{{> body}}')) {
+            nextHtml = template.replace('{{> body}}', bodyHtml);
+        } else if (template.trim().length > 0) {
+            nextHtml = template + `\\n${bodyHtml}`;
+        } else {
+            nextHtml = bodyHtml;
+        }
+
+        try {
+            await this.apiClient.saveLayoutFile(layoutPath, nextHtml, true);
+            this.editingLayoutTemplate = nextHtml;
+            await this.loadPartials();
+            if (typeof this.pagesDashboard.loadLandingLayouts === 'function') {
+                await this.pagesDashboard.loadLandingLayouts(this);
+            }
+            this.showToast(`Layout saved: ${layoutPath}`, 'success');
+        } catch (error) {
+            console.error('Failed to save layout:', error);
+            this.showToast(`Failed to save layout: ${error.message}`, 'error');
+        }
+    }
+
+    async saveLayoutBodyPage() {
+        const pageName = this.editingLayoutBodyPageName;
+        if (!pageName) {
+            return;
+        }
+
+        const components = (this.pageComponents || [])
+            .filter((item) => !item?.props?.isLayoutPlaceholder)
+            .filter((item) => !item?.props?.isLayoutContext);
+
+        if (components.length === 0) {
+            this.showToast('Add sections before saving', 'warning');
+            return;
+        }
+
+        const layoutData = this.buildLayoutDataFromComponents(components, pageName);
+        const layoutFileName = `${pageName}-layout.json`;
+
+        try {
+            const response = await fetch('/api/save-layout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    layoutData,
+                    pageName,
+                    overwrite: true,
+                    saveAs: false,
+                    layoutFileName
+                })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || 'Failed to save page body');
+            }
+            this.showToast(`Main saved to ${pageName}.html`, 'success');
+        } catch (error) {
+            console.error('Failed to save layout body page:', error);
+            this.showToast(`Failed to save main: ${error.message}`, 'error');
+        }
+    }
+
+    async saveEditingPartial() {
+        const partialPath = this.editingPartialPath;
+        if (!partialPath) {
+            return;
+        }
+        const instance = this.pageComponents?.[0];
+        if (!instance) {
+            this.showToast('No partial loaded', 'warning');
+            return;
+        }
+
+        const html = this.getRenderedComponentContent(instance, { forCanvas: false });
+
+        try {
+            await this.apiClient.savePartial(partialPath, html, true);
+            instance.content = html;
+            instance.props = {};
+            instance.children = {};
+            this.renderCanvasFromState();
+            await this.loadPartials();
+            if (typeof this.pagesDashboard.loadLandingLandmarks === 'function') {
+                await this.pagesDashboard.loadLandingLandmarks(this);
+            }
+            this.showToast(`Partial saved: ${partialPath}`, 'success');
+        } catch (error) {
+            console.error('Failed to save partial:', error);
+            this.showToast(`Failed to save partial: ${error.message}`, 'error');
+        }
+    }
+
+    async savePartialCode() {
+        if (!this.currentPartialCodePath) {
+            this.showToast('No partial selected', 'warning');
+            return;
+        }
+        if (!this.partialCodeOutput) {
+            this.showToast('Partial editor not ready', 'warning');
+            return;
+        }
+
+        const content = this.partialCodeOutput.value || '';
+        if (this.savePartialCodeButton) {
+            this.savePartialCodeButton.disabled = true;
+        }
+
+        try {
+            await this.apiClient.savePartial(this.currentPartialCodePath, content, true);
+            await this.loadPartials();
+            if (typeof this.pagesDashboard.loadLandingLandmarks === 'function') {
+                await this.pagesDashboard.loadLandingLandmarks(this);
+            }
+            this.showToast(`Partial saved: ${this.currentPartialCodePath}`, 'success');
+        } catch (error) {
+            console.error('Failed to save partial:', error);
+            this.showToast(`Failed to save partial: ${error.message}`, 'error');
+        } finally {
+            if (this.savePartialCodeButton) {
+                this.savePartialCodeButton.disabled = false;
+            }
         }
     }
 
@@ -1351,8 +2136,9 @@ class VisualBuilder {
         const preview = partial.preview && partial.preview.trim().length > 0
             ? partial.preview
             : 'No preview available';
+        const draggableAttr = this.canvasLayoutMode === 'freeform' ? 'true' : 'false';
         return `
-            <div class="component-item" data-type="partial" data-path="${partial.path}" data-id="${partial.id}">
+            <div class="component-item" draggable="${draggableAttr}" data-type="partial" data-path="${partial.path}" data-id="${partial.id}">
                 <i class="fas fa-puzzle-piece"></i>
                 <div class="component-meta">
                     <span class="component-name">${partial.name}</span>
@@ -1401,20 +2187,37 @@ class VisualBuilder {
             this.searchInput.placeholder = isPageMode ? 'Search components...' : 'Search micro components...';
         }
         if (this.syncPagePartials) {
-            this.syncPagePartials.style.display = isPageMode ? '' : 'none';
+            const showSync = isPageMode;
+            this.syncPagePartials.style.display = showSync ? '' : 'none';
+            const label = this.syncPagePartials.querySelector('span');
+            if (this.editingPartialPath) {
+                if (label) label.textContent = 'Sync Landmark';
+                this.syncPagePartials.title = 'Sync landmark partial from codebase';
+            } else if (this.editingLayoutPath) {
+                if (label) label.textContent = 'Sync Layout';
+                this.syncPagePartials.title = 'Sync layout sections';
+            } else {
+                if (label) label.textContent = 'Sync Page Partials';
+                this.syncPagePartials.title = 'Sync partials used by this page';
+            }
         }
         if (this.pageTitleInput) {
             this.pageTitleInput.placeholder = isPageMode ? 'Enter page title...' : 'Enter partial name...';
         }
+        this.updateSaveButtonLabel();
         if (this.canvasEmpty) {
             const title = this.canvasEmpty.querySelector('h4');
             const description = this.canvasEmpty.querySelector('p');
             if (title) {
-                title.textContent = isPageMode ? 'Drop Components Here' : 'Build Partial Here';
+                title.textContent = isPageMode
+                    ? (this.canvasLayoutMode === 'freeform' ? 'Drop To Create Section' : 'Drop Components Here')
+                    : 'Build Partial Here';
             }
             if (description) {
                 description.textContent = isPageMode
-                    ? 'Drag partials from the sidebar to start building your page'
+                    ? (this.canvasLayoutMode === 'freeform'
+                        ? 'Drag a component to auto-create a grid or flex section that keeps content attached to that section'
+                        : 'Drag partials from the sidebar to start building your page')
                     : 'Drag micro components from the sidebar to assemble a partial';
             }
         }
@@ -1433,11 +2236,15 @@ class VisualBuilder {
         this.hidePropertiesPanel();
         this.hideInspectorPanel();
 
-        if (this.partialsSortable) {
-            this.partialsSortable.option('disabled', !isPageMode);
-        }
-        if (this.microSortable) {
-            this.microSortable.option('disabled', isPageMode);
+        if (this.editorCanvas && typeof this.editorCanvas.updateInteractionMode === 'function') {
+            this.editorCanvas.updateInteractionMode(this);
+        } else {
+            if (this.partialsSortable) {
+                this.partialsSortable.option('disabled', !isPageMode);
+            }
+            if (this.microSortable) {
+                this.microSortable.option('disabled', isPageMode);
+            }
         }
 
         this.updateCanvasDragHandle();
@@ -1472,6 +2279,145 @@ class VisualBuilder {
           return `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       }
 
+      getDefaultCanvasPlacement(index = 0, element = null) {
+          const width = Math.max(280, Math.round(element?.getBoundingClientRect?.().width || 320));
+          const column = index % 3;
+          const row = Math.floor(index / 3);
+          return {
+              x: 24 + column * 72,
+              y: 24 + row * 72,
+              width
+          };
+      }
+
+      getApproximateCanvasItemHeight(item) {
+          if (!item) {
+              return 220;
+          }
+          if (item.componentPath && this.partialHeightCache[item.componentPath]) {
+              return this.partialHeightCache[item.componentPath];
+          }
+          const children = item.children && typeof item.children === 'object'
+              ? Object.values(item.children).flat().length
+              : 0;
+          return 180 + (children * 40);
+      }
+
+      normalizeCanvasPlacement(canvas, index = 0) {
+          const fallback = this.getDefaultCanvasPlacement(index);
+          return {
+              x: Number.isFinite(Number(canvas?.x)) ? Math.max(0, Math.round(Number(canvas.x))) : fallback.x,
+              y: Number.isFinite(Number(canvas?.y)) ? Math.max(0, Math.round(Number(canvas.y))) : fallback.y,
+              width: Number.isFinite(Number(canvas?.width)) ? Math.max(220, Math.round(Number(canvas.width))) : fallback.width
+          };
+      }
+
+      getLayoutSlotNamesForItem(item) {
+          if (!item?.content) {
+              return [];
+          }
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = item.content;
+          return Array.from(wrapper.querySelectorAll('.micro-slot[data-slot]'))
+              .map((slot) => slot.dataset.slot || 'default')
+              .filter(Boolean);
+      }
+
+      getPreferredSectionSlot(item, childType = 'partial', childPath = '') {
+          const slots = this.getLayoutSlotNamesForItem(item);
+          if (slots.length === 0) {
+              return null;
+          }
+          const lowerPath = String(childPath || '').toLowerCase();
+          const wantsMedia = childType === 'partial'
+              ? /(gallery|image|media|hero|banner|cover)/.test(lowerPath)
+              : childPath === 'image';
+          const wantsContent = !wantsMedia;
+
+          const preferred = [];
+          if (wantsMedia) {
+              preferred.push('media', 'right', 'center', 'left', 'top', 'bottom', 'content', 'stack');
+          }
+          if (wantsContent) {
+              preferred.push('content', 'left', 'top', 'right', 'center', 'bottom', 'stack', 'media');
+          }
+          preferred.push(...slots);
+
+          for (const slotName of preferred) {
+              if (!slots.includes(slotName)) {
+                  continue;
+              }
+              const children = Array.isArray(item?.children?.[slotName]) ? item.children[slotName] : [];
+              if (children.length === 0) {
+                  return slotName;
+              }
+          }
+
+          return slots[0];
+      }
+
+      findReusableFreeformSection(templateId = this.freeformSectionTemplate, childType = 'partial', childPath = '') {
+          const components = this.getActiveComponents();
+          const candidates = [...components].reverse();
+          for (const item of candidates) {
+              if (item?.type !== 'micro' || item?.componentPath !== templateId) {
+                  continue;
+              }
+              if (!item?.props?.isAutoSection) {
+                  continue;
+              }
+              const slotName = this.getPreferredSectionSlot(item, childType, childPath);
+              if (!slotName) {
+                  continue;
+              }
+              const children = Array.isArray(item?.children?.[slotName]) ? item.children[slotName] : [];
+              const slotNames = this.getLayoutSlotNamesForItem(item);
+              const canAppendToSameSlot = slotNames.length === 1 && slotNames[0] === slotName;
+              if (children.length === 0 || canAppendToSameSlot) {
+                  return { item, slotName };
+              }
+          }
+          return null;
+      }
+
+      async addComponentToAutoSection(type, componentPath) {
+          const reusable = this.findReusableFreeformSection(this.freeformSectionTemplate, type, componentPath);
+          if (reusable?.item && reusable.slotName) {
+              this.pushHistory();
+              const instance = await this.createComponentInstance(type, componentPath);
+              if (!Array.isArray(reusable.item.children[reusable.slotName])) {
+                  reusable.item.children[reusable.slotName] = [];
+              }
+              reusable.item.children[reusable.slotName].push(instance);
+              this.renderCanvasFromState();
+              this.refreshLivePreview();
+              return reusable.item;
+          }
+
+          this.pushHistory();
+          const section = await this.createComponentInstance('micro', this.freeformSectionTemplate);
+          section.name = `${section.name} Section`;
+          section.props = {
+              ...(section.props || {}),
+              isAutoSection: true,
+              layoutGap: section.props?.layoutGap || 24,
+              layoutPadding: section.props?.layoutPadding || 24
+          };
+          const slotName = this.getPreferredSectionSlot(section, type, componentPath) || this.getLayoutSlotNamesForItem(section)[0];
+          if (slotName) {
+              section.children = section.children || {};
+              if (!Array.isArray(section.children[slotName])) {
+                  section.children[slotName] = [];
+              }
+              const instance = await this.createComponentInstance(type, componentPath);
+              section.children[slotName].push(instance);
+          }
+          this.getActiveComponents().push(section);
+          this.renderCanvasFromState();
+          this.refreshLivePreview();
+          return section;
+      }
+
       async createComponentInstance(type, componentPath) {
           if (type === 'partial') {
               const result = await this.apiClient.getPartial(componentPath);
@@ -1482,7 +2428,8 @@ class VisualBuilder {
                   name: componentPath.split('/').pop().replace('.html', ''),
                   props: {},
                   content: result.data,
-                  children: {}
+                  children: {},
+                  canvas: null
               };
           }
 
@@ -1498,7 +2445,8 @@ class VisualBuilder {
                   name: definition.name,
                   props: { ...(definition.defaultProps || {}) },
                   content: definition.template,
-                  children: {}
+                  children: {},
+                  canvas: null
               };
           }
 
@@ -1604,6 +2552,11 @@ class VisualBuilder {
 
       updateCanvasDragHandle() {
           if (!this.canvasSortable) {
+              return;
+          }
+
+          if (this.canvasLayoutMode === 'freeform') {
+              this.canvasSortable.option('handle', '.canvas-item-header');
               return;
           }
 
@@ -1865,8 +2818,23 @@ class VisualBuilder {
         if (element) {
             element.classList.add('selected');
             this.selectedItem = instanceId;
+            this.selectedElement = null;
             this.showPropertiesPanel(instanceId);
             this.updateInspector(instanceId);
+        }
+    }
+
+    selectCanvasElement(instanceId, elementKey) {
+        if (!instanceId || !elementKey) {
+            return;
+        }
+        this.selectCanvasItem(instanceId);
+        this.selectedElement = { instanceId, key: elementKey };
+        this.showPropertiesPanel(instanceId, elementKey);
+        this.updateInspector(instanceId, elementKey);
+        const canvasItem = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
+        if (canvasItem) {
+            this.applySelectedCanvasElementSelection(canvasItem, instanceId);
         }
     }
 
@@ -1891,160 +2859,257 @@ class VisualBuilder {
         }
     }
 
-      showPropertiesPanel(instanceId) {
-          const item = this.findComponentById(instanceId);
-          if (!item) return;
-          const defaults = this.extractDefaultsFromContent(item.content);
-          const props = { ...defaults, ...(item.props || {}) };
-          const layoutMeta = this.getLayoutMeta(item.content);
-          
-          this.propertiesPanel.classList.add('active');
-          
-          this.propertiesContent.innerHTML = `
-              <div class="form-group">
-                  <label>Component Type</label>
-                <input type="text" value="${item.type}" disabled>
-            </div>
-            <div class="form-group">
-                <label>${item.type === 'micro' ? 'Component ID' : 'File Path'}</label>
-                <input type="text" value="${item.componentPath}" disabled>
-            </div>
-            <div class="form-group">
-                <label>Component Name</label>
-                <input type="text" value="${item.name}" id="propName">
-            </div>
-            <div class="form-group">
-                <label>Title Text</label>
-                <input type="text" value="${props.title || ''}" id="propTitle">
-            </div>
-            <div class="form-group">
-                <label>Paragraph Text</label>
-                <input type="text" value="${props.text || ''}" id="propText">
-            </div>
-            <div class="form-group">
-                <label>Link Text</label>
-                <input type="text" value="${props.linkText || ''}" id="propLinkText">
-            </div>
-            <div class="form-group">
-                <label>Link Href</label>
-                <input type="text" value="${props.linkHref || ''}" id="propLinkHref">
-            </div>
-            <div class="form-group">
-                <label>Image Src</label>
-                <input type="text" value="${props.imageSrc || ''}" id="propImageSrc">
-            </div>
-              <div class="form-group">
-                  <label>Image Alt</label>
-                  <input type="text" value="${props.imageAlt || ''}" id="propImageAlt">
-              </div>
-              ${layoutMeta.isLayout ? `
-              <div class="form-group">
-                  <label>Layout Gap (px)</label>
-                  <input type="number" min="0" value="${props.layoutGap || ''}" id="propLayoutGap" placeholder="24">
-              </div>
-              <div class="form-group">
-                  <label>Layout Padding (px)</label>
-                  <input type="number" min="0" value="${props.layoutPadding || ''}" id="propLayoutPadding" placeholder="0">
-              </div>
-              <div class="form-group">
-                  <label>Align Items</label>
-                  <select id="propLayoutAlign">
-                      <option value="">Default</option>
-                      <option value="flex-start">Start</option>
-                      <option value="center">Center</option>
-                      <option value="flex-end">End</option>
-                      <option value="stretch">Stretch</option>
-                  </select>
-              </div>
-              <div class="form-group">
-                  <label>Justify Content</label>
-                  <select id="propLayoutJustify">
-                      <option value="">Default</option>
-                      <option value="flex-start">Start</option>
-                      <option value="center">Center</option>
-                      <option value="flex-end">End</option>
-                      <option value="space-between">Space Between</option>
-                      <option value="space-around">Space Around</option>
-                  </select>
-              </div>
-              <div class="form-group">
-                  <label>Background Color</label>
-                  <input type="text" value="${props.layoutBg || ''}" id="propLayoutBg" placeholder="#ffffff">
-              </div>
-              ${layoutMeta.isGrid ? `
-              <div class="form-group">
-                  <label>Grid Columns</label>
-                  <select id="propLayoutColumns">
-                      <option value="">Default</option>
-                      <option value="2">2 Columns</option>
-                      <option value="3">3 Columns</option>
-                      <option value="4">4 Columns</option>
-                  </select>
-              </div>
-              ` : ''}
-              ${layoutMeta.isFlex ? `
-              <div class="form-group">
-                  <label class="checkbox-row">
-                      <input type="checkbox" id="propLayoutReverse">
-                      <span>Reverse Order</span>
-                  </label>
-              </div>
-              ` : ''}
-              ` : ''}
-          `;
+    showPropertiesPanel(instanceId, elementKey = null) {
+        const item = this.findComponentById(instanceId);
+        if (!item || !this.propertiesPanel || !this.propertiesContent) return;
 
-        const bindProp = (id, fn) => {
+        const defaults = this.extractDefaultsFromContent(item.content);
+        const props = { ...defaults, ...(item.props || {}) };
+        const layoutMeta = this.getLayoutMeta(item.content);
+        const elementState = elementKey ? this.getSelectedElementState(instanceId, elementKey) : null;
+
+        this.propertiesPanel.classList.add('active');
+
+        const componentSection = `
+            <div class="properties-section">
+                <div class="properties-title">Component</div>
+                <div class="form-group">
+                    <label>Component Type</label>
+                    <input type="text" value="${item.type}" disabled>
+                </div>
+                <div class="form-group">
+                    <label>${item.type === 'micro' ? 'Component ID' : 'File Path'}</label>
+                    <input type="text" value="${item.componentPath}" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Component Name</label>
+                    <input type="text" value="${this.escapeAttribute(item.name || '')}" id="propName">
+                </div>
+            </div>
+        `;
+
+        const legacySection = !elementState ? `
+            <div class="properties-section">
+                <div class="properties-title">Quick Props</div>
+                <div class="form-group">
+                    <label>Title Text</label>
+                    <input type="text" value="${this.escapeAttribute(props.title || '')}" id="propTitle">
+                </div>
+                <div class="form-group">
+                    <label>Paragraph Text</label>
+                    <input type="text" value="${this.escapeAttribute(props.text || '')}" id="propText">
+                </div>
+                <div class="form-group">
+                    <label>Link Text</label>
+                    <input type="text" value="${this.escapeAttribute(props.linkText || '')}" id="propLinkText">
+                </div>
+                <div class="form-group">
+                    <label>Link Href</label>
+                    <input type="text" value="${this.escapeAttribute(props.linkHref || '')}" id="propLinkHref">
+                </div>
+                <div class="form-group">
+                    <label>Image Src</label>
+                    <input type="text" value="${this.escapeAttribute(props.imageSrc || '')}" id="propImageSrc">
+                </div>
+                <div class="form-group">
+                    <label>Image Alt</label>
+                    <input type="text" value="${this.escapeAttribute(props.imageAlt || '')}" id="propImageAlt">
+                </div>
+            </div>
+        ` : '';
+
+        const elementSection = elementState ? `
+            <div class="properties-section">
+                <div class="properties-title">Selected Element</div>
+                <div class="property-chip-row">
+                    <span class="property-chip">${elementState.tag}</span>
+                    <span class="property-chip">${elementState.key}</span>
+                </div>
+                ${elementState.canEditText ? `
+                <div class="form-group">
+                    <label>Text Content</label>
+                    <textarea id="propElementText" rows="4">${this.escapeHtml(elementState.text || '')}</textarea>
+                </div>
+                ` : ''}
+                ${elementState.isLink ? `
+                <div class="form-group">
+                    <label>Href</label>
+                    <input type="text" value="${this.escapeAttribute(elementState.href || '')}" id="propElementHref">
+                </div>
+                ` : ''}
+                ${elementState.isImage ? `
+                <div class="form-group">
+                    <label>Image Src</label>
+                    <input type="text" value="${this.escapeAttribute(elementState.src || '')}" id="propElementSrc">
+                </div>
+                <div class="form-group">
+                    <label>Image Alt</label>
+                    <input type="text" value="${this.escapeAttribute(elementState.alt || '')}" id="propElementAlt">
+                </div>
+                ` : ''}
+                <div class="form-group">
+                    <label>Element ID</label>
+                    <input type="text" value="${this.escapeAttribute(elementState.id || '')}" id="propElementId">
+                </div>
+                <div class="form-group">
+                    <label>Class</label>
+                    <textarea id="propElementClass" rows="3">${this.escapeHtml(elementState.className || '')}</textarea>
+                </div>
+                <div class="form-group">
+                    <label>Title Attribute</label>
+                    <input type="text" value="${this.escapeAttribute(elementState.title || '')}" id="propElementTitle">
+                </div>
+                <div class="form-group">
+                    <label>Inline Style</label>
+                    <textarea id="propElementStyle" rows="4">${this.escapeHtml(elementState.style || '')}</textarea>
+                </div>
+                ${elementState.isImage ? `
+                <button type="button" class="btn btn-secondary property-action-btn" id="propReplaceImage">Replace Image</button>
+                ` : ''}
+            </div>
+        ` : `
+            <div class="properties-section">
+                <p class="project-note">Click any element inside the selected component to edit its own properties here.</p>
+            </div>
+        `;
+
+        const layoutSection = layoutMeta.isLayout ? `
+            <div class="properties-section">
+                <div class="properties-title">Layout</div>
+                <div class="form-group">
+                    <label>Layout Gap (px)</label>
+                    <input type="number" min="0" value="${this.escapeAttribute(props.layoutGap || '')}" id="propLayoutGap" placeholder="24">
+                </div>
+                <div class="form-group">
+                    <label>Layout Padding (px)</label>
+                    <input type="number" min="0" value="${this.escapeAttribute(props.layoutPadding || '')}" id="propLayoutPadding" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label>Align Items</label>
+                    <select id="propLayoutAlign">
+                        <option value="">Default</option>
+                        <option value="flex-start">Start</option>
+                        <option value="center">Center</option>
+                        <option value="flex-end">End</option>
+                        <option value="stretch">Stretch</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Justify Content</label>
+                    <select id="propLayoutJustify">
+                        <option value="">Default</option>
+                        <option value="flex-start">Start</option>
+                        <option value="center">Center</option>
+                        <option value="flex-end">End</option>
+                        <option value="space-between">Space Between</option>
+                        <option value="space-around">Space Around</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Background Color</label>
+                    <input type="text" value="${this.escapeAttribute(props.layoutBg || '')}" id="propLayoutBg" placeholder="#ffffff">
+                </div>
+                ${layoutMeta.isGrid ? `
+                <div class="form-group">
+                    <label>Grid Columns</label>
+                    <select id="propLayoutColumns">
+                        <option value="">Default</option>
+                        <option value="2">2 Columns</option>
+                        <option value="3">3 Columns</option>
+                        <option value="4">4 Columns</option>
+                    </select>
+                </div>
+                ` : ''}
+                ${layoutMeta.isFlex ? `
+                <div class="form-group">
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="propLayoutReverse">
+                        <span>Reverse Order</span>
+                    </label>
+                </div>
+                ` : ''}
+            </div>
+        ` : '';
+
+        this.propertiesContent.innerHTML = `${componentSection}${elementSection}${legacySection}${layoutSection}`;
+
+        const bindProp = (id, fn, eventName = 'input') => {
             const el = document.getElementById(id);
             if (!el) return;
-            el.addEventListener('input', (e) => fn(e.target.value));
+            el.addEventListener(eventName, (e) => fn(e.target.value, e));
         };
 
         bindProp('propName', (value) => this.updateComponentProps(instanceId, { name: value }));
-        bindProp('propTitle', (value) => this.updateComponentProps(instanceId, { props: { title: value } }));
-        bindProp('propText', (value) => this.updateComponentProps(instanceId, { props: { text: value } }));
-        bindProp('propLinkText', (value) => this.updateComponentProps(instanceId, { props: { linkText: value } }));
-          bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
-          bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
-          bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
 
-          if (layoutMeta.isLayout) {
-              const alignSelect = document.getElementById('propLayoutAlign');
-              if (alignSelect) {
-                  alignSelect.value = props.layoutAlign || '';
-                  alignSelect.addEventListener('change', (e) => {
-                      this.updateComponentProps(instanceId, { props: { layoutAlign: e.target.value } });
-                  });
-              }
-              const justifySelect = document.getElementById('propLayoutJustify');
-              if (justifySelect) {
-                  justifySelect.value = props.layoutJustify || '';
-                  justifySelect.addEventListener('change', (e) => {
-                      this.updateComponentProps(instanceId, { props: { layoutJustify: e.target.value } });
-                  });
-              }
-              if (layoutMeta.isGrid) {
-                  const columnsSelect = document.getElementById('propLayoutColumns');
-                  if (columnsSelect) {
-                      columnsSelect.value = props.layoutColumns || layoutMeta.columns || '';
-                      columnsSelect.addEventListener('change', (e) => {
-                          this.updateComponentProps(instanceId, { props: { layoutColumns: e.target.value } });
-                      });
-                  }
-              }
-              if (layoutMeta.isFlex) {
-                  const reverseToggle = document.getElementById('propLayoutReverse');
-                  if (reverseToggle) {
-                      reverseToggle.checked = Boolean(props.layoutReverse);
-                      reverseToggle.addEventListener('change', (e) => {
-                          this.updateComponentProps(instanceId, { props: { layoutReverse: e.target.checked } });
-                      });
-                  }
-              }
-              bindProp('propLayoutGap', (value) => this.updateComponentProps(instanceId, { props: { layoutGap: value } }));
-              bindProp('propLayoutPadding', (value) => this.updateComponentProps(instanceId, { props: { layoutPadding: value } }));
-              bindProp('propLayoutBg', (value) => this.updateComponentProps(instanceId, { props: { layoutBg: value } }));
-          }
-      }
+        if (elementState) {
+            bindProp('propElementText', (value) => this.updateElementTextProperty(instanceId, elementState.key, value));
+            bindProp('propElementHref', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'href', value));
+            bindProp('propElementSrc', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'src', value));
+            bindProp('propElementAlt', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'alt', value));
+            bindProp('propElementId', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'id', value));
+            bindProp('propElementClass', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'className', value));
+            bindProp('propElementTitle', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'title', value));
+            bindProp('propElementStyle', (value) => this.updateElementAttributeProperty(instanceId, elementState.key, 'style', value));
+
+            const replaceBtn = document.getElementById('propReplaceImage');
+            if (replaceBtn) {
+                replaceBtn.addEventListener('click', () => {
+                    this.openImageModal({
+                        instanceId,
+                        inlineKey: elementState.key,
+                        singleImageProp: Boolean(elementState.legacyBindings?.src),
+                        currentSrc: elementState.src || '',
+                        alt: elementState.alt || ''
+                    });
+                });
+            }
+        } else {
+            bindProp('propTitle', (value) => this.updateComponentProps(instanceId, { props: { title: value } }));
+            bindProp('propText', (value) => this.updateComponentProps(instanceId, { props: { text: value } }));
+            bindProp('propLinkText', (value) => this.updateComponentProps(instanceId, { props: { linkText: value } }));
+            bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
+            bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
+            bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
+        }
+
+        if (layoutMeta.isLayout) {
+            const alignSelect = document.getElementById('propLayoutAlign');
+            if (alignSelect) {
+                alignSelect.value = props.layoutAlign || '';
+                alignSelect.addEventListener('change', (e) => {
+                    this.updateComponentProps(instanceId, { props: { layoutAlign: e.target.value } });
+                });
+            }
+            const justifySelect = document.getElementById('propLayoutJustify');
+            if (justifySelect) {
+                justifySelect.value = props.layoutJustify || '';
+                justifySelect.addEventListener('change', (e) => {
+                    this.updateComponentProps(instanceId, { props: { layoutJustify: e.target.value } });
+                });
+            }
+            if (layoutMeta.isGrid) {
+                const columnsSelect = document.getElementById('propLayoutColumns');
+                if (columnsSelect) {
+                    columnsSelect.value = props.layoutColumns || layoutMeta.columns || '';
+                    columnsSelect.addEventListener('change', (e) => {
+                        this.updateComponentProps(instanceId, { props: { layoutColumns: e.target.value } });
+                    });
+                }
+            }
+            if (layoutMeta.isFlex) {
+                const reverseToggle = document.getElementById('propLayoutReverse');
+                if (reverseToggle) {
+                    reverseToggle.checked = Boolean(props.layoutReverse);
+                    reverseToggle.addEventListener('change', (e) => {
+                        this.updateComponentProps(instanceId, { props: { layoutReverse: e.target.checked } });
+                    });
+                }
+            }
+            bindProp('propLayoutGap', (value) => this.updateComponentProps(instanceId, { props: { layoutGap: value } }));
+            bindProp('propLayoutPadding', (value) => this.updateComponentProps(instanceId, { props: { layoutPadding: value } }));
+            bindProp('propLayoutBg', (value) => this.updateComponentProps(instanceId, { props: { layoutBg: value } }));
+        }
+    }
 
     toggleInspectorPanel() {
         if (!this.inspectorPanel) return;
@@ -2067,7 +3132,7 @@ class VisualBuilder {
         }
     }
 
-    updateInspector(instanceId) {
+    updateInspector(instanceId, elementKey = null) {
         if (!this.inspectorContent) return;
         if (!instanceId) {
             this.inspectorContent.innerHTML = '<p class="no-selection">Select a component to inspect its layout</p>';
@@ -2087,7 +3152,15 @@ class VisualBuilder {
         }
 
         const preview = canvasItem.querySelector('.content-preview');
-        const primary = preview?.firstElementChild || preview;
+        const contentRoot = preview?.firstElementChild || preview;
+        if (!contentRoot) {
+            this.inspectorContent.innerHTML = '<p class="no-selection">No rendered element available</p>';
+            return;
+        }
+
+        const primary = elementKey
+            ? this.findElementByInlineKey(contentRoot, elementKey)
+            : contentRoot;
         if (!primary) {
             this.inspectorContent.innerHTML = '<p class="no-selection">No rendered element available</p>';
             return;
@@ -2096,6 +3169,42 @@ class VisualBuilder {
         const styles = window.getComputedStyle(primary);
         const rect = primary.getBoundingClientRect();
         const formatBox = (t, r, b, l) => `${t} ${r} ${b} ${l}`;
+        const px = (value) => {
+            const parsed = parseFloat(String(value || '0'));
+            return Number.isFinite(parsed) ? `${Math.round(parsed)}px` : String(value || '0');
+        };
+        const boxModelHtml = `
+            <div class="inspector-section">
+                <div class="inspector-title">Box Model</div>
+                <div class="box-model">
+                    <div class="box-model-layer box-model-margin">
+                        <div class="box-model-label box-model-label-top">${px(styles.marginTop)}</div>
+                        <div class="box-model-label box-model-label-right">${px(styles.marginRight)}</div>
+                        <div class="box-model-label box-model-label-bottom">${px(styles.marginBottom)}</div>
+                        <div class="box-model-label box-model-label-left">${px(styles.marginLeft)}</div>
+                        <div class="box-model-caption">margin</div>
+                        <div class="box-model-layer box-model-border">
+                            <div class="box-model-label box-model-label-top">${px(styles.borderTopWidth)}</div>
+                            <div class="box-model-label box-model-label-right">${px(styles.borderRightWidth)}</div>
+                            <div class="box-model-label box-model-label-bottom">${px(styles.borderBottomWidth)}</div>
+                            <div class="box-model-label box-model-label-left">${px(styles.borderLeftWidth)}</div>
+                            <div class="box-model-caption">border</div>
+                            <div class="box-model-layer box-model-padding">
+                                <div class="box-model-label box-model-label-top">${px(styles.paddingTop)}</div>
+                                <div class="box-model-label box-model-label-right">${px(styles.paddingRight)}</div>
+                                <div class="box-model-label box-model-label-bottom">${px(styles.paddingBottom)}</div>
+                                <div class="box-model-label box-model-label-left">${px(styles.paddingLeft)}</div>
+                                <div class="box-model-caption">padding</div>
+                                <div class="box-model-content">
+                                    <span>${Math.round(rect.width)} x ${Math.round(rect.height)}</span>
+                                    <small>${styles.display}</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
 
         const details = [
             ['Tag', primary.tagName.toLowerCase()],
@@ -2154,6 +3263,7 @@ class VisualBuilder {
         `;
 
         this.inspectorContent.innerHTML = [
+            boxModelHtml,
             renderSection('Element', details),
             renderSection('Box', box),
             renderSection('Spacing', spacing),
@@ -2179,6 +3289,115 @@ class VisualBuilder {
               imageAlt: image ? (image.getAttribute('alt') || '') : ''
           };
       }
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    escapeAttribute(value) {
+        return this.escapeHtml(value);
+    }
+
+    getRenderedContentRoot(item) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = this.getRenderedComponentContent(item, { forCanvas: true });
+        return wrapper.firstElementChild || null;
+    }
+
+    getSelectableElements(rootEl, options = {}) {
+        if (!rootEl) return [];
+        const includeRoot = options.includeRoot !== false;
+        const nodes = includeRoot ? [rootEl, ...Array.from(rootEl.querySelectorAll('*'))] : Array.from(rootEl.querySelectorAll('*'));
+        return nodes.filter((el) => this.isSelectableCanvasElement(el, rootEl, options.container || null));
+    }
+
+    isSelectableCanvasElement(el, rootEl, containerEl) {
+        if (!el || !rootEl) return false;
+        const tag = el.tagName.toLowerCase();
+        if (['script', 'style', 'br', 'wbr'].includes(tag)) return false;
+        if (el.classList.contains('micro-slot')) return false;
+        if (containerEl) {
+            const owner = el.closest('.canvas-item');
+            if (owner && owner !== containerEl) return false;
+        }
+        if (!containerEl && el.closest('.micro-slot')) return false;
+        return true;
+    }
+
+    findElementByInlineKey(rootEl, key) {
+        if (!rootEl || !key) return null;
+        return this.getSelectableElements(rootEl, { includeRoot: true })
+            .find((el) => this.getInlineKeyForElement(el, rootEl) === key) || null;
+    }
+
+    getLegacyBindingsForElement(item, elementKey) {
+        const root = this.getRenderedContentRoot(item);
+        if (!root || !elementKey) {
+            return {};
+        }
+        const resolveKey = (selector) => {
+            const el = root.querySelector(selector);
+            return el ? this.getInlineKeyForElement(el, root) : '';
+        };
+        const bindings = {};
+        if (resolveKey('h1,h2,h3,h4,h5,h6') === elementKey) {
+            bindings.text = 'title';
+        }
+        if (resolveKey('p') === elementKey) {
+            bindings.text = 'text';
+        }
+        const primaryLink = root.querySelector('a,button');
+        if (primaryLink && this.getInlineKeyForElement(primaryLink, root) === elementKey) {
+            bindings.text = 'linkText';
+        }
+        const anchor = root.querySelector('a');
+        if (anchor && this.getInlineKeyForElement(anchor, root) === elementKey) {
+            bindings.href = 'linkHref';
+        }
+        const image = root.querySelector('img');
+        if (image && this.getInlineKeyForElement(image, root) === elementKey) {
+            bindings.src = 'imageSrc';
+            bindings.alt = 'imageAlt';
+        }
+        return bindings;
+    }
+
+    getSelectedElementState(instanceId, elementKey) {
+        const item = this.findComponentById(instanceId);
+        if (!item) return null;
+        const canvasItem = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
+        const previewRoot = canvasItem?.querySelector('.content-preview')?.firstElementChild || null;
+        let element = previewRoot ? this.findElementByInlineKey(previewRoot, elementKey) : null;
+        if (!element) {
+            const renderedRoot = this.getRenderedContentRoot(item);
+            element = renderedRoot ? this.findElementByInlineKey(renderedRoot, elementKey) : null;
+        }
+        if (!element) return null;
+
+        const tag = element.tagName.toLowerCase();
+        const textValue = tag === 'img' ? '' : (element.textContent || '');
+        return {
+            key: elementKey,
+            tag,
+            text: textValue,
+            href: element.getAttribute('href') || '',
+            src: element.getAttribute('src') || '',
+            alt: element.getAttribute('alt') || '',
+            id: element.getAttribute('id') || '',
+            className: element.getAttribute('class') || '',
+            title: element.getAttribute('title') || '',
+            style: element.getAttribute('style') || '',
+            canEditText: tag !== 'img' && tag !== 'input' && tag !== 'textarea' && tag !== 'select',
+            isLink: tag === 'a',
+            isImage: tag === 'img',
+            legacyBindings: this.getLegacyBindingsForElement(item, elementKey)
+        };
+    }
 
       getLayoutMeta(html) {
           const wrapper = document.createElement('div');
@@ -2223,6 +3442,7 @@ class VisualBuilder {
 
         this.applyInlineTextOverrides(wrapper, props);
         this.applyInlineImageOverrides(wrapper, props);
+        this.applyInlineAttributeOverrides(wrapper, props);
 
         const root = wrapper.firstElementChild;
         if (root) {
@@ -2280,6 +3500,9 @@ class VisualBuilder {
         const containerEl = options.container || null;
         const selectors = 'h1,h2,h3,h4,h5,h6,p,a,span,button,br,wbr,hr,pre,blockquote,ol,ul,li,dl,dt,dd,figure,figcaption,div,strong,b,em,i,u,s,mark,small,sub,sup,code,kbd,samp,var,q,cite,abbr,data,time,bdi,bdo,ruby,rt,rp';
         const nodes = Array.from(rootEl.querySelectorAll(selectors));
+        if (options.includeRoot && rootEl.matches && rootEl.matches(selectors)) {
+            nodes.unshift(rootEl);
+        }
         return nodes.filter((el) => this.isInlineEditableElement(el, rootEl, containerEl));
     }
 
@@ -2324,9 +3547,10 @@ class VisualBuilder {
         if (!inlineText || typeof inlineText !== 'object') {
             return;
         }
-        const elements = this.getInlineEditableElements(wrapper);
+        const root = wrapper.firstElementChild || wrapper;
+        const elements = this.getInlineEditableElements(root, { includeRoot: true });
         elements.forEach((el) => {
-            const key = this.getInlineKeyForElement(el, wrapper);
+            const key = this.getInlineKeyForElement(el, root);
             if (!key) return;
             if (Object.prototype.hasOwnProperty.call(inlineText, key)) {
                 el.textContent = inlineText[key];
@@ -2339,9 +3563,10 @@ class VisualBuilder {
         if (!inlineImages || typeof inlineImages !== 'object') {
             return;
         }
-        const images = Array.from(wrapper.querySelectorAll('img'));
+        const root = wrapper.firstElementChild || wrapper;
+        const images = Array.from(root.querySelectorAll('img'));
         images.forEach((img) => {
-            const key = this.getInlineKeyForElement(img, wrapper);
+            const key = this.getInlineKeyForElement(img, root);
             if (!key || !Object.prototype.hasOwnProperty.call(inlineImages, key)) {
                 return;
             }
@@ -2355,9 +3580,78 @@ class VisualBuilder {
         });
     }
 
+    applyInlineAttributeOverrides(wrapper, props) {
+        const inlineAttributes = props?.inlineAttributes;
+        if (!inlineAttributes || typeof inlineAttributes !== 'object') {
+            return;
+        }
+        const root = wrapper.firstElementChild || wrapper;
+        const elements = this.getSelectableElements(root, { includeRoot: true });
+        elements.forEach((el) => {
+            const key = this.getInlineKeyForElement(el, root);
+            if (!key || !Object.prototype.hasOwnProperty.call(inlineAttributes, key)) {
+                return;
+            }
+            const override = inlineAttributes[key] || {};
+            if (override.id !== undefined) {
+                if (override.id) {
+                    el.setAttribute('id', override.id);
+                } else {
+                    el.removeAttribute('id');
+                }
+            }
+            if (override.className !== undefined) {
+                if (override.className) {
+                    el.setAttribute('class', override.className);
+                } else {
+                    el.removeAttribute('class');
+                }
+            }
+            if (override.title !== undefined) {
+                if (override.title) {
+                    el.setAttribute('title', override.title);
+                } else {
+                    el.removeAttribute('title');
+                }
+            }
+            if (override.style !== undefined) {
+                if (override.style) {
+                    el.setAttribute('style', override.style);
+                } else {
+                    el.removeAttribute('style');
+                }
+            }
+            if (override.href !== undefined && el.tagName.toLowerCase() === 'a') {
+                if (override.href) {
+                    el.setAttribute('href', override.href);
+                } else {
+                    el.removeAttribute('href');
+                }
+            }
+            if (override.src !== undefined && el.tagName.toLowerCase() === 'img') {
+                if (override.src) {
+                    el.setAttribute('src', override.src);
+                } else {
+                    el.removeAttribute('src');
+                }
+            }
+            if (override.alt !== undefined && el.tagName.toLowerCase() === 'img') {
+                if (override.alt || override.alt === '') {
+                    el.setAttribute('alt', override.alt);
+                }
+            }
+        });
+    }
+
     updateComponentProps(instanceId, patch) {
         const item = this.findComponentById(instanceId);
         if (!item) return;
+        const activeElement = document.activeElement;
+        const isEditingProperties = Boolean(
+            activeElement
+            && this.propertiesContent
+            && this.propertiesContent.contains(activeElement)
+        );
 
         if (typeof patch.name === 'string') {
             item.name = patch.name;
@@ -2384,30 +3678,116 @@ class VisualBuilder {
 
         this.refreshLivePreview();
         if (this.selectedItem === instanceId) {
-            this.updateInspector(instanceId);
+            const selectedKey = this.selectedElement?.instanceId === instanceId ? this.selectedElement.key : null;
+            if (!isEditingProperties) {
+                this.showPropertiesPanel(instanceId, selectedKey);
+            }
+            this.updateInspector(instanceId, selectedKey);
+        }
+    }
+
+    updateElementTextProperty(instanceId, elementKey, value) {
+        const item = this.findComponentById(instanceId);
+        if (!item || !elementKey) return;
+
+        const bindings = this.getLegacyBindingsForElement(item, elementKey);
+        const nextProps = { ...(item.props || {}) };
+        if (bindings.text) {
+            nextProps[bindings.text] = value;
+            if (nextProps.inlineText && typeof nextProps.inlineText === 'object') {
+                const inlineText = { ...nextProps.inlineText };
+                delete inlineText[elementKey];
+                nextProps.inlineText = inlineText;
+            }
+        } else {
+            const inlineText = { ...(nextProps.inlineText || {}) };
+            inlineText[elementKey] = value;
+            nextProps.inlineText = inlineText;
+        }
+
+        this.updateComponentProps(instanceId, { props: nextProps });
+    }
+
+    updateElementAttributeProperty(instanceId, elementKey, attributeName, value) {
+        const item = this.findComponentById(instanceId);
+        if (!item || !elementKey || !attributeName) return;
+
+        const bindings = this.getLegacyBindingsForElement(item, elementKey);
+        const nextProps = { ...(item.props || {}) };
+        const legacyProp = bindings[attributeName];
+
+        if (legacyProp) {
+            nextProps[legacyProp] = value;
+            if (nextProps.inlineAttributes && typeof nextProps.inlineAttributes === 'object') {
+                const inlineAttributes = { ...(nextProps.inlineAttributes || {}) };
+                if (inlineAttributes[elementKey]) {
+                    const entry = { ...inlineAttributes[elementKey] };
+                    delete entry[attributeName];
+                    if (Object.keys(entry).length > 0) {
+                        inlineAttributes[elementKey] = entry;
+                    } else {
+                        delete inlineAttributes[elementKey];
+                    }
+                    nextProps.inlineAttributes = inlineAttributes;
+                }
+            }
+            this.updateComponentProps(instanceId, { props: nextProps });
+            return;
+        }
+
+        const inlineAttributes = { ...(nextProps.inlineAttributes || {}) };
+        const entry = { ...(inlineAttributes[elementKey] || {}) };
+        entry[attributeName] = value;
+        inlineAttributes[elementKey] = entry;
+        nextProps.inlineAttributes = inlineAttributes;
+        this.updateComponentProps(instanceId, { props: nextProps });
+    }
+
+    applySelectedCanvasElementSelection(canvasItem, instanceId) {
+        if (!canvasItem) {
+            return;
+        }
+        canvasItem.querySelectorAll('.builder-element-selected').forEach((el) => {
+            el.classList.remove('builder-element-selected');
+        });
+        if (!this.selectedElement || this.selectedElement.instanceId !== instanceId) {
+            return;
+        }
+        const preview = canvasItem.querySelector('.content-preview');
+        const root = preview?.firstElementChild || preview;
+        if (!root) {
+            return;
+        }
+        const target = this.findElementByInlineKey(root, this.selectedElement.key);
+        if (target) {
+            target.classList.add('builder-element-selected');
         }
     }
 
     hidePropertiesPanel() {
         this.propertiesPanel.classList.remove('active');
         this.selectedItem = null;
+        this.selectedElement = null;
         this.updateInspector(null);
         
         document.querySelectorAll('.canvas-item').forEach(item => {
             item.classList.remove('selected');
         });
+        document.querySelectorAll('.builder-element-selected').forEach((el) => {
+            el.classList.remove('builder-element-selected');
+        });
     }
 
-      async showPreview() {
+    async showPreview() {
           const components = this.getActiveComponents();
           if (components.length === 0) {
               this.showToast('Add components to preview', 'warning');
               return;
           }
 
-          if (this.builderMode === 'partial') {
+          if (this.builderMode === 'partial' || this.canvasLayoutMode === 'freeform') {
               this.setPreviewMode(this.previewFrameWrap?.dataset?.size || 'desktop');
-              this.previewFrame.srcdoc = this.generatePreviewHTML();
+              this.setPreviewContentMode(this.previewContentMode || 'render');
               this.previewModal.classList.add('active');
               return;
           }
@@ -2434,6 +3814,30 @@ class VisualBuilder {
         this.showToast(`Opening hosted preview: ${pageName}.html`, 'success');
     }
 
+      getPreviewCanvasStyle(item) {
+          const placement = this.normalizeCanvasPlacement(item?.canvas);
+          return `position:absolute;left:${placement.x}px;top:${placement.y}px;width:${placement.width}px;max-width:calc(100% - ${placement.x}px);`;
+      }
+
+      renderComponentsForCurrentCanvas(components = []) {
+          if (this.canvasLayoutMode !== 'freeform') {
+              return components
+                  .map((item) => this.getRenderedComponentContent(item))
+                  .join('\n');
+          }
+          const stageHeight = Math.max(
+              480,
+              ...components.map((item) => {
+                  const placement = this.normalizeCanvasPlacement(item?.canvas);
+                  return placement.y + this.getApproximateCanvasItemHeight(item) + 48;
+              })
+          );
+          const nodes = components.map((item) => {
+              return `<div class="builder-freeform-node" style="${this.getPreviewCanvasStyle(item)}">${this.getRenderedComponentContent(item)}</div>`;
+          }).join('\n');
+          return `<div class="builder-freeform-stage" style="position:relative; min-height:${Math.round(stageHeight)}px;">${nodes}</div>`;
+      }
+
       generatePreviewHTML() {
           const components = this.getActiveComponents();
           const pageName = this.pageTitleInput.value || (this.builderMode === 'partial' ? 'Partial Preview' : 'Preview');
@@ -2454,6 +3858,8 @@ class VisualBuilder {
           body { margin: 0; padding: 20px; background: var(--preset-surface); color: var(--preset-text); font-family: var(--preset-font-body); }
           * { box-sizing: border-box; }
           .partial-preview { max-width: 1100px; margin: 0 auto; }
+          .builder-freeform-stage { position: relative; width: 100%; }
+          .builder-freeform-node { position: absolute; }
           ${microStyles}
       </style>
   </head>
@@ -2461,9 +3867,7 @@ class VisualBuilder {
   `;
 
         html += wrapperOpen;
-        components.forEach(item => {
-            html += this.getRenderedComponentContent(item) + '\n';
-        });
+        html += this.renderComponentsForCurrentCanvas(components);
         html += wrapperClose;
         
         html += `
@@ -2471,6 +3875,10 @@ class VisualBuilder {
 </html>`;
         
         return html;
+    }
+
+    generatePreviewMarkup() {
+        return this.renderComponentsForCurrentCanvas(this.getActiveComponents()).trim();
     }
 
     showExportModal() {
@@ -2517,7 +3925,9 @@ class VisualBuilder {
             createdAt: new Date().toISOString(),
             meta: {
                 version: 1,
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString(),
+                canvasLayoutMode: this.canvasLayoutMode,
+                freeformSectionTemplate: this.freeformSectionTemplate
             },
               layout: this.pageComponents.map((item, index) => ({
                   id: item.instanceId,
@@ -2528,6 +3938,7 @@ class VisualBuilder {
                   name: item.name,
                   props: item.props || {},
                   children: item.children || {},
+                  canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
                   renderedContent: this.getRenderedComponentContent(item)
               }))
           };
@@ -2539,7 +3950,9 @@ class VisualBuilder {
               meta: {
                   version: 1,
                   type: 'partial',
-                  updatedAt: new Date().toISOString()
+                  updatedAt: new Date().toISOString(),
+                  canvasLayoutMode: this.canvasLayoutMode,
+                  freeformSectionTemplate: this.freeformSectionTemplate
               },
               name,
               createdAt: new Date().toISOString(),
@@ -2551,6 +3964,7 @@ class VisualBuilder {
                   name: item.name,
                   props: item.props || {},
                   children: item.children || {},
+                  canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
                   renderedContent: this.getRenderedComponentContent(item)
               }))
           };
@@ -2559,9 +3973,7 @@ class VisualBuilder {
     getPartialHTML() {
         const components = this.partialComponents;
         let html = '<div class="partial-builder">';
-        components.forEach((item) => {
-            html += this.getRenderedComponentContent(item) + '\n';
-        });
+        html += this.renderComponentsForCurrentCanvas(components);
         html += '</div>';
         return html;
     }
@@ -2595,6 +4007,14 @@ class VisualBuilder {
     }
 
     async saveLayout() {
+        if (this.editingLayoutPath) {
+            await this.saveEditingLayout();
+            return;
+        }
+        if (this.editingPartialPath) {
+            await this.saveEditingPartial();
+            return;
+        }
         if (this.builderMode !== 'page') {
             await this.savePartial();
             return;

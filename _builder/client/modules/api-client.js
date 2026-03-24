@@ -73,12 +73,44 @@
             return this.requestJson("/api/partials");
         }
 
+        listLayouts() {
+            return this.requestJson("/api/layouts");
+        }
+
+        getLayout(pathName) {
+            return this.requestJson(`/api/layout?path=${encodeURIComponent(pathName)}`);
+        }
+
+        saveLayoutFile(pathName, content, overwrite = false) {
+            return this.requestJson("/api/layout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    path: pathName,
+                    content: content || "",
+                    overwrite: Boolean(overwrite)
+                })
+            });
+        }
+
         listMicroComponents() {
             return this.requestJson("/api/micro");
         }
 
         getPartial(pathName) {
             return this.requestJson(`/api/partial?path=${encodeURIComponent(pathName)}`);
+        }
+
+        savePartial(pathName, content, overwrite = false) {
+            return this.requestJson("/api/partial", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    path: pathName,
+                    content: content || "",
+                    overwrite: Boolean(overwrite)
+                })
+            });
         }
 
         async uploadImage(file) {

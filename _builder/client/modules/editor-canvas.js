@@ -2,6 +2,10 @@
 
 (function exposeEditorCanvas(global) {
     const EditorCanvas = {
+        isFreeformMode(ctx) {
+            return ctx?.canvasLayoutMode === "freeform";
+        },
+
         initSortable(ctx) {
             ctx.partialsSortable = new Sortable(ctx.partialsList, {
                 group: { name: "builder", pull: "clone", put: false },
@@ -52,6 +56,8 @@
                 onRemove: (evt) => this.handleRemove(ctx, evt)
             });
 
+            this.bindNativePaletteDrag(ctx);
+            this.bindFreeformCanvasEvents(ctx);
             this.updateCanvasState(ctx);
         },
 
@@ -79,14 +85,20 @@
             this.createCanvasItem(ctx, type, componentPath);
         },
 
-        async createCanvasItem(ctx, type, componentPath) {
+        async createCanvasItem(ctx, type, componentPath, options = {}) {
             try {
                 if (type !== "partial" && type !== "micro") {
                     throw new Error("Unsupported component type");
                 }
 
                 ctx.pushHistory();
+                if (typeof ctx.removeLayoutPlaceholders === "function") {
+                    ctx.removeLayoutPlaceholders();
+                }
                 const instance = await ctx.createComponentInstance(type, componentPath);
+                if (options.canvas && typeof options.canvas === "object") {
+                    instance.canvas = { ...(instance.canvas || {}), ...options.canvas };
+                }
                 ctx.getActiveComponents().push(instance);
 
                 this.renderCanvasFromState(ctx);
@@ -157,6 +169,8 @@
             });
             container.appendChild(div);
             this.hydrateCanvasItem(ctx, item, div);
+            this.applyCanvasItemPosition(ctx, item, div, { isNested });
+            this.enableFreeformItemDragging(ctx, item, div, { isNested });
 
             if (!isNested && item.componentPath) {
                 const measuredHeight = Math.ceil(div.getBoundingClientRect().height || 0);
@@ -202,6 +216,9 @@
                 ? ctx.countComponents(ctx.getActiveComponents())
                 : ctx.getActiveComponents().length;
             ctx.componentCount.textContent = `${count} component${count !== 1 ? "s" : ""}`;
+            if (ctx.canvasDropZone) {
+                ctx.canvasDropZone.classList.toggle("is-freeform", this.isFreeformMode(ctx));
+            }
             if (count > 0) {
                 ctx.canvasEmpty.classList.add("hidden");
                 ctx.canvasDropZone.classList.remove("is-empty");
@@ -209,6 +226,7 @@
                 ctx.canvasEmpty.classList.remove("hidden");
                 ctx.canvasDropZone.classList.add("is-empty");
             }
+            this.syncFreeformExtent(ctx);
         },
 
         hydrateCanvasItem(ctx, item, element) {
@@ -221,6 +239,9 @@
             }
             this.initSlotsForItem(ctx, item, element);
             this.enableInlineEditing(ctx, item, element);
+            if (typeof ctx.applySelectedCanvasElementSelection === "function") {
+                ctx.applySelectedCanvasElementSelection(element, item.instanceId);
+            }
         },
 
         initSlotsForItem(ctx, item, element) {
@@ -265,6 +286,47 @@
                         onUpdate: () => this.updateSlotOrder(ctx, slot)
                     });
                 }
+
+                if (!slot.__nativePaletteDropBound) {
+                    slot.addEventListener("dragover", (evt) => {
+                        if (!this.isFreeformMode(ctx)) {
+                            return;
+                        }
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        slot.classList.add("drag-over");
+                    });
+                    slot.addEventListener("dragleave", () => {
+                        slot.classList.remove("drag-over");
+                    });
+                    slot.addEventListener("drop", async (evt) => {
+                        if (!this.isFreeformMode(ctx)) {
+                            return;
+                        }
+                        evt.preventDefault();
+                        evt.stopPropagation();
+                        slot.classList.remove("drag-over");
+                        const fallback = ctx.pendingNativeDragData || {};
+                        let payload = fallback;
+                        const raw = evt.dataTransfer?.getData("text/plain");
+                        if (raw) {
+                            try {
+                                payload = JSON.parse(raw);
+                            } catch (error) {
+                                payload = fallback;
+                            }
+                        }
+                        const type = payload?.type || "";
+                        const componentPath = payload?.path || "";
+                        if (!type || !componentPath) {
+                            return;
+                        }
+                        ctx.pushHistory();
+                        await ctx.addComponentToSlot(parentId, slotName, type, componentPath);
+                        ctx.pendingNativeDragData = null;
+                    });
+                    slot.__nativePaletteDropBound = true;
+                }
             });
         },
 
@@ -302,13 +364,36 @@
         },
 
         enableInlineEditing(ctx, item, element) {
+            if (item?.props?.isLayoutContext) {
+                return;
+            }
             const preview = element?.querySelector(".content-preview");
             if (!preview) {
                 return;
             }
+            const contentRoot = preview.firstElementChild || preview;
+            if (ctx.getSelectableElements) {
+                const selectableTargets = ctx.getSelectableElements(contentRoot, { container: element, includeRoot: true });
+                selectableTargets.forEach((el) => {
+                    if (!el || el.dataset.propertyInit === "true") {
+                        return;
+                    }
+                    el.dataset.propertyInit = "true";
+                    el.addEventListener("click", (evt) => {
+                        evt.stopPropagation();
+                        const key = ctx.getInlineKeyForElement
+                            ? ctx.getInlineKeyForElement(el, contentRoot)
+                            : "";
+                        if (!key) {
+                            return;
+                        }
+                        ctx.selectCanvasElement(item.instanceId, key);
+                    });
+                });
+            }
 
             const editableTargets = ctx.getInlineEditableElements
-                ? ctx.getInlineEditableElements(preview, { container: element })
+                ? ctx.getInlineEditableElements(contentRoot, { container: element, includeRoot: true })
                 : [];
 
             editableTargets.forEach((el) => {
@@ -353,24 +438,17 @@
                     if (!item?.instanceId) {
                         return;
                     }
-                    if (prop) {
-                        const current = item?.props?.[prop];
-                        if (typeof current === "string" && current.trim() === value) {
-                            return;
-                        }
-                        ctx.updateComponentProps(item.instanceId, { props: { [prop]: value } });
-                        return;
-                    }
                     const key = el.dataset.inlineKey || inlineKey;
                     if (!key) {
                         return;
                     }
-                    const existing = item?.props?.inlineText || {};
-                    if (existing[key] === value) {
+                    const existing = (item?.props?.inlineText || {})[key];
+                    if (!prop && existing === value) {
                         return;
                     }
-                    const next = { ...existing, [key]: value };
-                    ctx.updateComponentProps(item.instanceId, { props: { inlineText: next } });
+                    if (typeof ctx.updateElementTextProperty === "function") {
+                        ctx.updateElementTextProperty(item.instanceId, key, value);
+                    }
                 });
             });
 
@@ -386,22 +464,12 @@
                 img.dataset.inlineImageInit = "true";
                 img.style.cursor = "pointer";
                 img.addEventListener("click", (evt) => {
-                    evt.preventDefault();
                     evt.stopPropagation();
-                    if (!item?.instanceId || typeof ctx.openImageModal !== "function") {
+                    if (!item?.instanceId || typeof ctx.selectCanvasElement !== "function" || typeof ctx.getInlineKeyForElement !== "function") {
                         return;
                     }
-                    const key = ctx.getInlineKeyForElement
-                        ? ctx.getInlineKeyForElement(img, preview)
-                        : "";
-                    const current = img.getAttribute("src") || "";
-                    ctx.openImageModal({
-                        instanceId: item.instanceId,
-                        inlineKey: key,
-                        singleImageProp: Boolean(item?.props?.imageSrc && images.length === 1),
-                        currentSrc: current,
-                        alt: img.getAttribute("alt") || ""
-                    });
+                    const key = ctx.getInlineKeyForElement(img, contentRoot);
+                    ctx.selectCanvasElement(item.instanceId, key);
                 });
             });
         },
@@ -451,6 +519,241 @@
 
         clearDragPreviewIndicator(ctx) {
             ctx.currentDragPartialPath = null;
+        },
+
+        updateInteractionMode(ctx) {
+            if (ctx.partialsSortable) {
+                ctx.partialsSortable.option("disabled", this.isFreeformMode(ctx) || ctx.builderMode !== "page");
+            }
+            if (ctx.microSortable) {
+                ctx.microSortable.option("disabled", this.isFreeformMode(ctx) || ctx.builderMode === "page");
+            }
+            if (ctx.canvasSortable) {
+                ctx.canvasSortable.option("disabled", false);
+            }
+            this.updateCanvasState(ctx);
+        },
+
+        bindNativePaletteDrag(ctx) {
+            if (ctx.__nativePaletteBound) {
+                return;
+            }
+            const onDragStart = (evt) => {
+                const item = evt.target.closest(".component-item");
+                if (!item || !this.isFreeformMode(ctx)) {
+                    return;
+                }
+                if (evt.target.closest(".component-view-code, .component-view-preview")) {
+                    evt.preventDefault();
+                    return;
+                }
+                const payload = {
+                    type: item.dataset.type || "",
+                    path: item.dataset.path || ""
+                };
+                ctx.pendingNativeDragData = payload;
+                if (evt.dataTransfer) {
+                    evt.dataTransfer.effectAllowed = "copy";
+                    evt.dataTransfer.setData("text/plain", JSON.stringify(payload));
+                }
+            };
+            const onDragEnd = () => {
+                ctx.pendingNativeDragData = null;
+                ctx.canvasDropZone?.classList.remove("drag-over");
+            };
+
+            [ctx.partialsList, ctx.microList].forEach((listEl) => {
+                if (!listEl) {
+                    return;
+                }
+                listEl.addEventListener("dragstart", onDragStart);
+                listEl.addEventListener("dragend", onDragEnd);
+            });
+            ctx.__nativePaletteBound = true;
+        },
+
+        bindFreeformCanvasEvents(ctx) {
+            if (!ctx.canvasDropZone || ctx.__freeformCanvasBound) {
+                return;
+            }
+            ctx.canvasDropZone.addEventListener("dragover", (evt) => {
+                if (!this.isFreeformMode(ctx)) {
+                    return;
+                }
+                evt.preventDefault();
+                ctx.canvasDropZone.classList.add("drag-over");
+            });
+            ctx.canvasDropZone.addEventListener("dragleave", (evt) => {
+                if (!this.isFreeformMode(ctx)) {
+                    return;
+                }
+                if (evt.target === ctx.canvasDropZone) {
+                    ctx.canvasDropZone.classList.remove("drag-over");
+                }
+            });
+            ctx.canvasDropZone.addEventListener("drop", async (evt) => {
+                if (!this.isFreeformMode(ctx)) {
+                    return;
+                }
+                evt.preventDefault();
+                ctx.canvasDropZone.classList.remove("drag-over");
+                const fallback = ctx.pendingNativeDragData || {};
+                let payload = fallback;
+                const raw = evt.dataTransfer?.getData("text/plain");
+                if (raw) {
+                    try {
+                        payload = JSON.parse(raw);
+                    } catch (error) {
+                        payload = fallback;
+                    }
+                }
+                const type = payload?.type || "";
+                const componentPath = payload?.path || "";
+                if (!type || !componentPath) {
+                    return;
+                }
+                if (ctx.builderMode === "page" && typeof ctx.addComponentToAutoSection === "function") {
+                    await ctx.addComponentToAutoSection(type, componentPath);
+                    return;
+                }
+                const canvas = this.getCanvasCoordinates(ctx, evt);
+                await this.createCanvasItem(ctx, type, componentPath, { canvas });
+                ctx.pendingNativeDragData = null;
+            });
+            ctx.__freeformCanvasBound = true;
+        },
+
+        getCanvasCoordinates(ctx, evt, size = {}) {
+            const rect = ctx.canvasDropZone.getBoundingClientRect();
+            const scrollLeft = ctx.canvas?.scrollLeft || 0;
+            const scrollTop = ctx.canvas?.scrollTop || 0;
+            const width = Number(size.width) || 320;
+            const height = Number(size.height) || 180;
+            const rawX = evt.clientX - rect.left + scrollLeft - Math.min(width / 2, 140);
+            const rawY = evt.clientY - rect.top + scrollTop - 24;
+            return {
+                x: Math.max(0, Math.round(rawX)),
+                y: Math.max(0, Math.round(rawY)),
+                width
+            };
+        },
+
+        ensureCanvasPlacement(ctx, item, element) {
+            if (item.canvas && Number.isFinite(item.canvas.x) && Number.isFinite(item.canvas.y)) {
+                return item.canvas;
+            }
+            const items = ctx.getActiveComponents();
+            const index = Math.max(0, items.findIndex((entry) => entry.instanceId === item.instanceId));
+            const next = typeof ctx.getDefaultCanvasPlacement === "function"
+                ? ctx.getDefaultCanvasPlacement(index, element)
+                : { x: 24 + (index % 3) * 48, y: 24 + index * 48, width: 320 };
+            item.canvas = { ...next };
+            return item.canvas;
+        },
+
+        applyCanvasItemPosition(ctx, item, element, options = {}) {
+            const isNested = Boolean(options.isNested);
+            const hasCanvasPosition = Boolean(item?.canvas && Number.isFinite(Number(item.canvas.x)) && Number.isFinite(Number(item.canvas.y)));
+            const isFreeform = this.isFreeformMode(ctx) && !isNested && hasCanvasPosition;
+            element.classList.toggle("is-freeform", isFreeform);
+            if (!isFreeform) {
+                element.style.left = "";
+                element.style.top = "";
+                element.style.width = "";
+                return;
+            }
+            const placement = this.ensureCanvasPlacement(ctx, item, element);
+            const width = Number(placement.width) || 320;
+            element.style.left = `${Math.max(0, Math.round(placement.x || 0))}px`;
+            element.style.top = `${Math.max(0, Math.round(placement.y || 0))}px`;
+            element.style.width = `${Math.max(220, Math.round(width))}px`;
+        },
+
+        enableFreeformItemDragging(ctx, item, element, options = {}) {
+            if (options.isNested || element.dataset.freeformInit === "true" || !item?.canvas) {
+                return;
+            }
+            element.dataset.freeformInit = "true";
+            const handle = element.querySelector(".canvas-item-header");
+            if (!handle) {
+                return;
+            }
+            handle.addEventListener("pointerdown", (evt) => {
+                if (!this.isFreeformMode(ctx)) {
+                    return;
+                }
+                if (evt.button !== 0 || evt.target.closest("button")) {
+                    return;
+                }
+                evt.preventDefault();
+                const placement = this.ensureCanvasPlacement(ctx, item, element);
+                const startX = placement.x || 0;
+                const startY = placement.y || 0;
+                const rect = element.getBoundingClientRect();
+                const zoneRect = ctx.canvasDropZone.getBoundingClientRect();
+                const pointerOffsetX = evt.clientX - rect.left;
+                const pointerOffsetY = evt.clientY - rect.top;
+                let moved = false;
+                let historyPushed = false;
+
+                const onMove = (moveEvt) => {
+                    const scrollLeft = ctx.canvas?.scrollLeft || 0;
+                    const scrollTop = ctx.canvas?.scrollTop || 0;
+                    const nextX = Math.max(0, Math.round(moveEvt.clientX - zoneRect.left + scrollLeft - pointerOffsetX));
+                    const nextY = Math.max(0, Math.round(moveEvt.clientY - zoneRect.top + scrollTop - pointerOffsetY));
+                    if (!historyPushed && (Math.abs(nextX - startX) > 2 || Math.abs(nextY - startY) > 2)) {
+                        ctx.pushHistory();
+                        historyPushed = true;
+                    }
+                    moved = moved || historyPushed;
+                    item.canvas = {
+                        ...(item.canvas || {}),
+                        x: nextX,
+                        y: nextY,
+                        width: Number(item.canvas?.width) || Math.round(rect.width || 320)
+                    };
+                    element.classList.add("is-freeform-dragging");
+                    this.applyCanvasItemPosition(ctx, item, element);
+                    this.syncFreeformExtent(ctx);
+                };
+
+                const onUp = () => {
+                    element.classList.remove("is-freeform-dragging");
+                    window.removeEventListener("pointermove", onMove);
+                    window.removeEventListener("pointerup", onUp);
+                    if (moved) {
+                        ctx.refreshLivePreview();
+                        if (ctx.selectedItem === item.instanceId) {
+                            ctx.updateInspector?.(item.instanceId, ctx.selectedElement?.key || null);
+                        }
+                    }
+                };
+
+                window.addEventListener("pointermove", onMove);
+                window.addEventListener("pointerup", onUp);
+            });
+        },
+
+        syncFreeformExtent(ctx) {
+            if (!ctx.canvasDropZone) {
+                return;
+            }
+            if (!this.isFreeformMode(ctx)) {
+                ctx.canvasDropZone.style.minHeight = "";
+                return;
+            }
+            const items = ctx.getActiveComponents();
+            const baseHeight = 480;
+            let maxBottom = baseHeight;
+            items.forEach((item) => {
+                const placement = item?.canvas || {};
+                const top = Number(placement.y) || 0;
+                const approxHeight = typeof ctx.getApproximateCanvasItemHeight === "function"
+                    ? ctx.getApproximateCanvasItemHeight(item)
+                    : 220;
+                maxBottom = Math.max(maxBottom, top + approxHeight + 48);
+            });
+            ctx.canvasDropZone.style.minHeight = `${Math.round(maxBottom)}px`;
         }
     };
 
