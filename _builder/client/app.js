@@ -121,6 +121,8 @@ class VisualBuilder {
         this.initDesignPresets();
         const initialMode = this.getInitialBuilderMode();
         this.setBuilderMode(initialMode);
+        this.updateWorkspaceStatus();
+        this.updateSelectionStatus();
         this.updateEditorBreadcrumb();
         if (this.shouldShowLanding(initialMode)) {
             this.showLandingScreen();
@@ -167,11 +169,14 @@ class VisualBuilder {
         this.canvasEmpty = document.getElementById('canvasEmpty');
         this.componentCount = document.getElementById('componentCount');
         this.canvasModeLabel = document.getElementById('canvasModeLabel');
+        this.canvasModeHint = document.getElementById('canvasModeHint');
+        this.canvasSelectionStatus = document.getElementById('canvasSelectionStatus');
         this.btnCanvasFlow = document.getElementById('btnCanvasFlow');
         this.btnCanvasFreeform = document.getElementById('btnCanvasFreeform');
         this.freeformSectionControls = document.getElementById('freeformSectionControls');
         this.freeformSectionTemplateSelect = document.getElementById('freeformSectionTemplate');
         this.btnExitCanvasFocus = document.getElementById('btnExitCanvasFocus');
+        this.paletteItemCount = document.getElementById('paletteItemCount');
         
         // Buttons
         this.btnUndo = document.getElementById('btnUndo');
@@ -186,6 +191,8 @@ class VisualBuilder {
         this.btnClosePage = document.getElementById('btnClosePage');
         this.btnCreateProject = document.getElementById('btnCreateProject');
         this.projectNameDisplay = document.getElementById('projectNameDisplay');
+        this.builderSurfaceBadge = document.getElementById('builderSurfaceBadge');
+        this.builderTargetBadge = document.getElementById('builderTargetBadge');
 
         // Modals
         this.previewModal = document.getElementById('previewModal');
@@ -486,6 +493,7 @@ class VisualBuilder {
             if (this.canvasSortable) this.canvasSortable.option('disabled', isLocked);
         }
         this.updateSaveButtonLabel();
+        this.updateWorkspaceStatus();
     }
 
     getSnapshot() {
@@ -690,6 +698,7 @@ class VisualBuilder {
         if (this.editorCanvas && typeof this.editorCanvas.updateInteractionMode === 'function') {
             this.editorCanvas.updateInteractionMode(this);
         }
+        this.updateCanvasModeHint();
         this.updateCanvasDragHandle();
         this.filterComponents();
         this.renderCanvasFromState();
@@ -738,15 +747,103 @@ class VisualBuilder {
         if (this.editingLayoutPath) {
             const name = this.editingLayoutPath.split('/').pop() || this.editingLayoutPath;
             this.projectNameDisplay.textContent = `Layout: ${name}`;
+            this.updateWorkspaceStatus();
             return;
         }
         if (this.editingPartialPath) {
             const name = this.editingPartialPath.split('/').pop() || this.editingPartialPath;
             this.projectNameDisplay.textContent = `Partial: ${name}`;
+            this.updateWorkspaceStatus();
             return;
         }
         const pageName = this.currentPageName || '';
         this.projectNameDisplay.textContent = pageName || 'No Page';
+        this.updateWorkspaceStatus();
+    }
+
+    getWorkspaceSurfaceLabel() {
+        if (this.editingLayoutPath) {
+            return 'Layout Editor';
+        }
+        if (this.editingPartialPath) {
+            return 'Landmark Editor';
+        }
+        return this.builderMode === 'partial' ? 'Micro Builder' : 'Page Builder';
+    }
+
+    getWorkspaceTargetLabel() {
+        if (this.editingLayoutPath) {
+            return this.editingLayoutPath.split('/').pop() || 'Active layout';
+        }
+        if (this.editingPartialPath) {
+            return this.editingPartialPath.split('/').pop() || 'Active partial';
+        }
+        const pageName = (this.currentPageName || this.pageTitleInput?.value || '').trim();
+        if (pageName) {
+            return pageName;
+        }
+        return this.builderMode === 'partial' ? 'New partial draft' : 'No active page';
+    }
+
+    updateWorkspaceStatus() {
+        if (this.builderSurfaceBadge) {
+            this.builderSurfaceBadge.textContent = this.getWorkspaceSurfaceLabel();
+        }
+        if (this.builderTargetBadge) {
+            this.builderTargetBadge.textContent = this.getWorkspaceTargetLabel();
+        }
+        this.updateCanvasModeHint();
+    }
+
+    updateCanvasModeHint() {
+        if (!this.canvasModeHint) {
+            return;
+        }
+        let hint = 'Build and reorder sections here.';
+        if (this.canvasLayoutMode === 'freeform') {
+            hint = 'Drop components to create movable sections on a freeform stage.';
+        } else if (this.editingLayoutPath) {
+            hint = 'Adjust the main layout structure while keeping the surrounding shell intact.';
+        } else if (this.editingPartialPath) {
+            hint = 'Refine this landmark partial in isolation, then save it back to the codebase.';
+        } else if (this.builderMode === 'partial') {
+            hint = 'Assemble micro components into a reusable partial.';
+        } else if (!this.pageCreated) {
+            hint = 'Open or create a page, then drag partials in to start shaping it.';
+        } else {
+            hint = 'Drag partials in, reorder them, and edit selected components on the right.';
+        }
+        this.canvasModeHint.textContent = hint;
+    }
+
+    updateSelectionStatus() {
+        if (!this.canvasSelectionStatus) {
+            return;
+        }
+        if (this.selectedItem && typeof this.findComponentById === 'function' && !this.findComponentById(this.selectedItem)) {
+            this.selectedItem = null;
+            this.selectedElement = null;
+        }
+        if (this.selectedElement?.key) {
+            this.canvasSelectionStatus.textContent = 'Element selected';
+            return;
+        }
+        if (this.selectedItem) {
+            this.canvasSelectionStatus.textContent = 'Component selected';
+            return;
+        }
+        this.canvasSelectionStatus.textContent = 'No selection';
+    }
+
+    updatePaletteItemCount(total = 0, filtered = total) {
+        if (!this.paletteItemCount) {
+            return;
+        }
+        const totalCount = Number.isFinite(total) ? total : 0;
+        const filteredCount = Number.isFinite(filtered) ? filtered : totalCount;
+        this.paletteItemCount.textContent = filteredCount === totalCount
+            ? `${filteredCount} available`
+            : `${filteredCount} of ${totalCount}`;
     }
 
     showCreateProjectModal() {
@@ -1658,6 +1755,20 @@ class VisualBuilder {
         }
     }
 
+    async openCanvasComponentCode(instanceId) {
+        const item = this.findComponentById(instanceId);
+        if (!item) {
+            this.showToast('Component not found', 'warning');
+            return;
+        }
+        if (item.type !== 'partial' || !item.componentPath) {
+            this.showToast('Code editing is available for partial components only', 'warning');
+            return;
+        }
+        this.selectCanvasItem(instanceId);
+        await this.openPartialCodeModal(item.componentPath);
+    }
+
     async openPartialInBuilder(partialPath) {
         if (!partialPath) {
             return;
@@ -2104,6 +2215,13 @@ class VisualBuilder {
 
         try {
             await this.apiClient.savePartial(this.currentPartialCodePath, content, true);
+            const pageUpdated = this.updatePartialContentInTree(this.currentPartialCodePath, content, this.pageComponents);
+            const partialUpdated = this.updatePartialContentInTree(this.currentPartialCodePath, content, this.partialComponents);
+            if (pageUpdated || partialUpdated) {
+                this.renderCanvasFromState();
+                this.updateCanvasState();
+                this.refreshLivePreview();
+            }
             await this.loadPartials();
             if (typeof this.pagesDashboard.loadLandingLandmarks === 'function') {
                 await this.pagesDashboard.loadLandingLandmarks(this);
@@ -2180,6 +2298,34 @@ class VisualBuilder {
         `;
     }
 
+    updatePartialContentInTree(partialPath, content, components = []) {
+        if (!partialPath || !Array.isArray(components)) {
+            return false;
+        }
+
+        let updated = false;
+        components.forEach((item) => {
+            if (!item || typeof item !== 'object') {
+                return;
+            }
+
+            if (item.type === 'partial' && item.componentPath === partialPath) {
+                item.content = content;
+                updated = true;
+            }
+
+            if (item.children && typeof item.children === 'object') {
+                Object.values(item.children).forEach((list) => {
+                    if (Array.isArray(list) && this.updatePartialContentInTree(partialPath, content, list)) {
+                        updated = true;
+                    }
+                });
+            }
+        });
+
+        return updated;
+    }
+
     setBuilderMode(mode) {
         if (mode !== 'page' && mode !== 'partial') {
             return;
@@ -2231,6 +2377,7 @@ class VisualBuilder {
             this.pageTitleInput.placeholder = isPageMode ? 'Enter page title...' : 'Enter partial name...';
         }
         this.updateSaveButtonLabel();
+        this.updateWorkspaceStatus();
         if (this.canvasEmpty) {
             const title = this.canvasEmpty.querySelector('h4');
             const description = this.canvasEmpty.querySelector('p');
@@ -2650,6 +2797,7 @@ class VisualBuilder {
             allowActions: isPageMode,
             emptyMessage
         });
+        this.updatePaletteItemCount(items.length, filtered.length);
     }
 
     handleMicroQuickFilter(event) {
@@ -2847,6 +2995,7 @@ class VisualBuilder {
             this.selectedElement = null;
             this.showPropertiesPanel(instanceId);
             this.updateInspector(instanceId);
+            this.updateSelectionStatus();
         }
     }
 
@@ -2858,6 +3007,7 @@ class VisualBuilder {
         this.selectedElement = { instanceId, key: elementKey };
         this.showPropertiesPanel(instanceId, elementKey);
         this.updateInspector(instanceId, elementKey);
+        this.updateSelectionStatus();
         const canvasItem = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
         if (canvasItem) {
             this.applySelectedCanvasElementSelection(canvasItem, instanceId);
@@ -3802,6 +3952,7 @@ class VisualBuilder {
         document.querySelectorAll('.builder-element-selected').forEach((el) => {
             el.classList.remove('builder-element-selected');
         });
+        this.updateSelectionStatus();
     }
 
     async showPreview() {

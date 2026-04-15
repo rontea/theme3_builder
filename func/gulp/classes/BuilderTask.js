@@ -224,6 +224,24 @@ class BuilderTask {
         });
     }
 
+    async dbTransaction(work) {
+        await this.dbRun("BEGIN IMMEDIATE TRANSACTION");
+        try {
+            const result = await work();
+            await this.dbRun("COMMIT");
+            return result;
+        } catch (err) {
+            try {
+                await this.dbRun("ROLLBACK");
+            } catch (rollbackErr) {
+                logErr.writeLog(rollbackErr, {
+                    customKey: "BUILDER_DB_ROLLBACK_ERROR"
+                });
+            }
+            throw err;
+        }
+    }
+
     sanitizeName(value, fallback = "") {
         return sanitizeName(value, fallback);
     }
@@ -1081,19 +1099,21 @@ class BuilderTask {
                 );
             }
 
-            await this.upsertLayoutRecord({
-                layoutFileName,
-                pageName: safePageName,
-                layoutPayload,
-                layoutPath: null
+            const pagePath = await this.createPageFromLayout(layoutPayload, safePageName);
+            await this.dbTransaction(async () => {
+                await this.upsertLayoutRecord({
+                    layoutFileName,
+                    pageName: safePageName,
+                    layoutPayload,
+                    layoutPath: null
+                });
+                await this.upsertPageRecord({
+                    projectName: layoutPayload?.project?.name || "Default Project",
+                    pageName: safePageName,
+                    pageTitle: layoutPayload?.pageTitle || "",
+                    layoutFileName
+                });
             });
-            await this.upsertPageRecord({
-                projectName: layoutPayload?.project?.name || "Default Project",
-                pageName: safePageName,
-                pageTitle: layoutPayload?.pageTitle || "",
-                layoutFileName
-            });
-            const pagePath = await this.createPageFromLayout(layoutData, safePageName);
             console.log(`Layout saved to database: ${layoutFileName}`);
             console.log(`Page generated at: ${pagePath}`);
             this.logBoundary("service", "saveLayout:done", { pageName: safePageName, layoutFileName });

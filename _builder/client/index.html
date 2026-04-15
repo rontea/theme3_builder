@@ -6,7 +6,7 @@
     <title>Theme_3 Visual Builder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body data-builder-mode="page">
@@ -103,55 +103,66 @@
                     <span>Pages</span>
                 </button>
                 <span id="projectNameDisplay" class="project-badge">No Page</span>
+                <div class="workspace-status">
+                    <span id="builderSurfaceBadge" class="status-chip">Page Builder</span>
+                    <span id="builderTargetBadge" class="status-chip status-chip-muted">No active target</span>
+                </div>
             </div>
             <div class="toolbar-center">
-                <input type="text" id="pageTitle" placeholder="Enter page title..." class="page-title-input">
+                <div class="title-field">
+                    <label for="pageTitle">Working Title</label>
+                    <input type="text" id="pageTitle" placeholder="Enter page title..." class="page-title-input">
+                </div>
             </div>
             <div class="toolbar-right">
-                <div class="preset-control">
-                    <label for="designPresetSelect">Preset</label>
-                    <select id="designPresetSelect" class="preset-select" aria-label="Design preset"></select>
+                <div class="toolbar-actions">
+                    <div class="preset-control">
+                        <label for="designPresetSelect">Preset</label>
+                        <select id="designPresetSelect" class="preset-select" aria-label="Design preset"></select>
+                    </div>
+                    <button id="btnUndo" class="btn btn-secondary" title="Undo (Ctrl+Z)">
+                        <i class="fas fa-rotate-left"></i>
+                        <span>Undo</span>
+                    </button>
+                    <button id="btnRedo" class="btn btn-secondary" title="Redo (Ctrl+Y)">
+                        <i class="fas fa-rotate-right"></i>
+                        <span>Redo</span>
+                    </button>
+                    <button id="btnClear" class="btn btn-secondary" title="Clear Canvas">
+                        <i class="fas fa-trash-alt"></i>
+                        <span>Clear</span>
+                    </button>
                 </div>
-                <button id="btnUndo" class="btn btn-secondary" title="Undo (Ctrl+Z)">
-                    <i class="fas fa-rotate-left"></i>
-                    <span>Undo</span>
-                </button>
-                <button id="btnRedo" class="btn btn-secondary" title="Redo (Ctrl+Y)">
-                    <i class="fas fa-rotate-right"></i>
-                    <span>Redo</span>
-                </button>
-                <button id="btnClear" class="btn btn-secondary" title="Clear Canvas">
-                    <i class="fas fa-trash-alt"></i>
-                    <span>Clear</span>
-                </button>
-                <button id="btnPreview" class="btn btn-secondary" title="Preview">
-                    <i class="fas fa-eye"></i>
-                    <span>Preview</span>
-                </button>
-                <button id="btnInspect" class="btn btn-secondary" title="Inspector">
-                    <i class="fas fa-ruler-combined"></i>
-                    <span>Inspect</span>
-                </button>
-                <button id="btnToggleStitchMode" class="btn btn-secondary" title="Toggle Stitch View">
-                    <i class="fas fa-link"></i>
-                    <span>Stitch View</span>
-                </button>
-                <button id="btnExport" class="btn btn-primary" title="Export JSON">
-                    <i class="fas fa-download"></i>
-                    <span>Export</span>
-                </button>
-                <button id="btnSave" class="btn btn-success" title="Save Layout">
-                    <i class="fas fa-save"></i>
-                    <span>Save</span>
-                </button>
-                <button id="btnLoadLayout" class="btn btn-secondary" title="Load Layout">
-                    <i class="fas fa-folder-open"></i>
-                    <span>Load</span>
-                </button>
-                <button id="btnClosePage" class="btn btn-secondary" title="Close Page">
-                    <i class="fas fa-times"></i>
-                    <span>Close Page</span>
-                </button>
+                <div class="toolbar-actions">
+                    <button id="btnPreview" class="btn btn-secondary" title="Preview">
+                        <i class="fas fa-eye"></i>
+                        <span>Preview</span>
+                    </button>
+                    <button id="btnInspect" class="btn btn-secondary" title="Inspector">
+                        <i class="fas fa-ruler-combined"></i>
+                        <span>Inspect</span>
+                    </button>
+                    <button id="btnToggleStitchMode" class="btn btn-secondary" title="Toggle Stitch View">
+                        <i class="fas fa-link"></i>
+                        <span>Stitch View</span>
+                    </button>
+                    <button id="btnExport" class="btn btn-primary" title="Export JSON">
+                        <i class="fas fa-download"></i>
+                        <span>Export</span>
+                    </button>
+                    <button id="btnSave" class="btn btn-success" title="Save Layout">
+                        <i class="fas fa-save"></i>
+                        <span>Save</span>
+                    </button>
+                    <button id="btnLoadLayout" class="btn btn-secondary" title="Load Layout">
+                        <i class="fas fa-folder-open"></i>
+                        <span>Load</span>
+                    </button>
+                    <button id="btnClosePage" class="btn btn-secondary" title="Close Page">
+                        <i class="fas fa-times"></i>
+                        <span>Close Page</span>
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -160,35 +171,44 @@
             <!-- Sidebar - Component Palette -->
             <aside class="sidebar">
                 <div class="sidebar-header">
-                    <h3 id="sidebarTitle">Partials (html/partials)</h3>
-                    <button id="syncPagePartials" class="btn btn-secondary" title="Sync partials used by this page">
-                        <i class="fas fa-link"></i>
-                        <span>Sync Page Partials</span>
-                    </button>
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="searchPartials" placeholder="Search components...">
+                    <div class="sidebar-overview">
+                        <div>
+                            <p class="sidebar-kicker">Palette</p>
+                            <h3 id="sidebarTitle">Partials (html/partials)</h3>
+                        </div>
+                        <span id="paletteItemCount" class="sidebar-count">0 available</span>
                     </div>
-                <div class="filter-box">
-                    <select id="filterPartials" aria-label="Filter partials by category">
-                        <option value="all">All categories</option>
-                    </select>
+                    <p class="sidebar-subtitle">Search, filter, and drag building blocks into the active canvas.</p>
+                    <div class="sidebar-tools">
+                        <button id="syncPagePartials" class="btn btn-secondary" title="Sync partials used by this page">
+                            <i class="fas fa-link"></i>
+                            <span>Sync Page Partials</span>
+                        </button>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchPartials" placeholder="Search components...">
+                        </div>
+                        <div class="filter-box">
+                            <select id="filterPartials" aria-label="Filter partials by category">
+                                <option value="all">All categories</option>
+                            </select>
+                        </div>
+                        <div id="microQuickFilters" class="micro-quick-filters">
+                            <button type="button" class="filter-pill" data-filter="Layout">Layout</button>
+                            <button type="button" class="filter-pill" data-filter="all">All</button>
+                        </div>
+                        <div class="sidebar-tabs">
+                            <button id="partialsTab" class="tab-btn active" type="button">
+                                <i class="fas fa-puzzle-piece"></i>
+                                <span>Partials</span>
+                            </button>
+                            <button id="microTab" class="tab-btn" type="button">
+                                <i class="fas fa-cube"></i>
+                                <span>Micro</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
-                <div id="microQuickFilters" class="micro-quick-filters">
-                    <button type="button" class="filter-pill" data-filter="Layout">Layout</button>
-                    <button type="button" class="filter-pill" data-filter="all">All</button>
-                </div>
-                <div class="sidebar-tabs">
-                    <button id="partialsTab" class="tab-btn active" type="button">
-                        <i class="fas fa-puzzle-piece"></i>
-                        <span>Partials</span>
-                    </button>
-                    <button id="microTab" class="tab-btn" type="button">
-                        <i class="fas fa-cube"></i>
-                        <span>Micro</span>
-                    </button>
-                </div>
-            </div>
 
             <div class="sidebar-content">
                 <!-- Partials List -->
@@ -212,8 +232,13 @@
             <!-- Canvas - Drop Zone -->
             <section class="canvas-container">
                 <div class="canvas-header">
-                    <h3 id="canvasModeLabel">Canvas</h3>
+                    <div class="canvas-heading">
+                        <p class="canvas-kicker">Workspace</p>
+                        <h3 id="canvasModeLabel">Canvas</h3>
+                        <p id="canvasModeHint" class="canvas-mode-hint">Build and reorder sections here.</p>
+                    </div>
                     <div class="canvas-actions">
+                        <span id="canvasSelectionStatus" class="canvas-status-pill">No selection</span>
                         <div class="canvas-layout-toggle" role="group" aria-label="Canvas layout mode">
                             <button id="btnCanvasFlow" type="button" class="canvas-layout-btn active">Flow</button>
                             <button id="btnCanvasFreeform" type="button" class="canvas-layout-btn">Freeform</button>

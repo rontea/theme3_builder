@@ -21,6 +21,36 @@ async function requestJson(base, endpoint, options = {}) {
     return { response, result };
 }
 
+function createHeaderFooterLayout(pageName, pageTitle, projectName) {
+    return {
+        project: { name: projectName, createdAt: new Date().toISOString() },
+        pageTitle,
+        pageName,
+        createdAt: new Date().toISOString(),
+        meta: { version: 1, updatedAt: new Date().toISOString() },
+        layout: [
+            {
+                id: `${pageName}-header`,
+                order: 1,
+                type: "partial",
+                partial: "landmark/header.html",
+                componentPath: "landmark/header.html",
+                name: "header",
+                props: {}
+            },
+            {
+                id: `${pageName}-footer`,
+                order: 2,
+                type: "partial",
+                partial: "landmark/footer.html",
+                componentPath: "landmark/footer.html",
+                name: "footer",
+                props: {}
+            }
+        ]
+    };
+}
+
 async function safeRemove(targetPath) {
     try {
         await fs.remove(targetPath);
@@ -103,33 +133,11 @@ async function run() {
         assert.equal(maliciousSave.result.success, false, "Expected malicious save success=false");
 
         // Initial save
-        const validPayload = {
-            project: { name: "Builder Fix Test", createdAt: new Date().toISOString() },
-            pageTitle: "Builder Fix Test",
-            pageName: "builder-fix-test",
-            createdAt: new Date().toISOString(),
-            meta: { version: 1, updatedAt: new Date().toISOString() },
-            layout: [
-                {
-                    id: "item-1",
-                    order: 1,
-                    type: "partial",
-                    partial: "layout/header.html",
-                    componentPath: "layout/header.html",
-                    name: "header",
-                    props: {}
-                },
-                {
-                    id: "item-2",
-                    order: 2,
-                    type: "partial",
-                    partial: "layout/footer.html",
-                    componentPath: "layout/footer.html",
-                    name: "footer",
-                    props: {}
-                }
-            ]
-        };
+        const validPayload = createHeaderFooterLayout(
+            "builder-fix-test",
+            "Builder Fix Test",
+            "Builder Fix Test"
+        );
 
         const saveInitial = await saveLayout(base, {
             layoutData: validPayload,
@@ -279,33 +287,11 @@ async function run() {
             "Expected created page to be listed"
         );
 
-        const pageFlowPayload = {
-            project: { name: projectName, createdAt: new Date().toISOString() },
-            pageTitle: "Phase 0 Baseline Page",
+        const pageFlowPayload = createHeaderFooterLayout(
             pageName,
-            createdAt: new Date().toISOString(),
-            meta: { version: 1, updatedAt: new Date().toISOString() },
-            layout: [
-                {
-                    id: "phase0-item-1",
-                    order: 1,
-                    type: "partial",
-                    partial: "layout/header.html",
-                    componentPath: "layout/header.html",
-                    name: "header",
-                    props: {}
-                },
-                {
-                    id: "phase0-item-2",
-                    order: 2,
-                    type: "partial",
-                    partial: "layout/footer.html",
-                    componentPath: "layout/footer.html",
-                    name: "footer",
-                    props: {}
-                }
-            ]
-        };
+            "Phase 0 Baseline Page",
+            projectName
+        );
 
         const pageSave = await saveLayout(base, {
             layoutData: pageFlowPayload,
@@ -353,6 +339,15 @@ async function run() {
         assert.equal(pagePartials.result.success, true, "Expected page partials read success=true");
         assert.ok(Array.isArray(pagePartials.result.data.partials), "Expected partials list array");
         assert.ok(pagePartials.result.data.partials.length >= 1, "Expected at least one detected partial");
+
+        const projectsAfterPartialsRead = await requestJson(base, "/api/projects");
+        assert.equal(projectsAfterPartialsRead.response.status, 200, "Expected project list after partials read to return 200");
+        assert.equal(projectsAfterPartialsRead.result.success, true, "Expected project list after partials read success=true");
+        assert.equal(
+            projectsAfterPartialsRead.result.data.filter((item) => item.projectName === projectName).length,
+            1,
+            "Expected partials read to avoid creating duplicate project records"
+        );
 
         const setSyncState = await requestJson(base, "/api/pages/partials/sync-state", {
             method: "POST",

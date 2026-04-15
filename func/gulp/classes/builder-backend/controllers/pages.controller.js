@@ -49,7 +49,6 @@ function createPagesController(builderTask, pagesService) {
                 if (!pageName) {
                     return res.status(400).json({ success: false, error: "Missing pageName parameter" });
                 }
-                await builderTask.upsertProjectRecord(projectName);
                 const partials = await pagesService.getPagePartials(pageName);
                 res.json({ success: true, data: { projectName, pageName, partials } });
             } catch (err) {

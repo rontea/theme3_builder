@@ -132,6 +132,7 @@
                     </div>
                     <div class="canvas-item-actions">
                         <button class="btn-duplicate" title="Duplicate"><i class="fas fa-copy"></i></button>
+                        ${item.type === "partial" ? '<button class="btn-code" title="Edit Code"><i class="fas fa-code"></i></button>' : ''}
                         <button class="btn-toggle-view" title="Collapse view" aria-expanded="true">
                             <i class="fas fa-chevron-up" aria-hidden="true"></i>
                         </button>
@@ -152,6 +153,13 @@
                 e.stopPropagation();
                 ctx.duplicateCanvasItem(item.instanceId);
             });
+            const codeButton = div.querySelector(".btn-code");
+            if (codeButton) {
+                codeButton.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    ctx.openCanvasComponentCode(item.instanceId);
+                });
+            }
             div.querySelector(".btn-edit").addEventListener("click", (e) => {
                 e.stopPropagation();
                 ctx.selectCanvasItem(item.instanceId);
