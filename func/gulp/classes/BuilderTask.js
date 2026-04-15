@@ -24,6 +24,7 @@ const { createPagesService } = require("./builder-backend/services/pages.service
 const { createLayoutsRepository } = require("./builder-backend/repositories/layouts.repository");
 const { createPartialsRepository } = require("./builder-backend/repositories/partials.repository");
 const { createPagesRepository } = require("./builder-backend/repositories/pages.repository");
+const GulpHTMLTasks = require("./GulpHTMLTasks");
 
 /**
  * BuilderTask - Handles the visual drag-and-drop interface builder
@@ -41,6 +42,7 @@ class BuilderTask {
         this.layoutsOutputPath = path.resolve(this.projectRoot, options.layoutsOutputPath || "./_builder/layouts");
         this.databasePath = path.resolve(this.projectRoot, options.databasePath || "./_builder/layouts/builder.sqlite");
         this.pagesOutputPath = path.resolve(this.projectRoot, options.pagesOutputPath || "./html/pages");
+        this.imagesPath = path.resolve(this.projectRoot, options.imagesPath || "./src/images");
         this.bodyLimit = options.bodyLimit || "512kb";
         this.maxLayoutItems = options.maxLayoutItems || 200;
         this.maxLayoutTextLength = options.maxLayoutTextLength || 200;
@@ -220,6 +222,24 @@ class BuilderTask {
         }).finally(() => {
             this.logBoundary("repo", "dbAll:done");
         });
+    }
+
+    async dbTransaction(work) {
+        await this.dbRun("BEGIN IMMEDIATE TRANSACTION");
+        try {
+            const result = await work();
+            await this.dbRun("COMMIT");
+            return result;
+        } catch (err) {
+            try {
+                await this.dbRun("ROLLBACK");
+            } catch (rollbackErr) {
+                logErr.writeLog(rollbackErr, {
+                    customKey: "BUILDER_DB_ROLLBACK_ERROR"
+                });
+            }
+            throw err;
+        }
     }
 
     sanitizeName(value, fallback = "") {
@@ -544,6 +564,142 @@ class BuilderTask {
         return this.upsertPageRecord({ projectName, pageName, pageTitle, layoutFileName: null });
     }
 
+    async clonePage({ projectName, sourcePageName, targetPageName, targetPageTitle = "" }) {
+        this.logBoundary("service", "clonePage:start", { projectName, sourcePageName, targetPageName });
+        const safeProjectName = this.sanitizeName(projectName);
+        const safeSourcePageName = this.sanitizePageName(sourcePageName);
+        const safeTargetPageName = this.sanitizePageName(targetPageName);
+
+        if (!safeProjectName || !safeSourcePageName || !safeTargetPageName) {
+            throw this.createActionableError(
+                "Invalid project or page name",
+                400,
+                "INVALID_PROJECT_OR_PAGE_NAME",
+                { projectName, sourcePageName, targetPageName }
+            );
+        }
+
+        if (safeSourcePageName === safeTargetPageName) {
+            throw this.createActionableError(
+                "Clone target must be different from source page",
+                400,
+                "CLONE_TARGET_SAME_AS_SOURCE",
+                { sourcePageName: safeSourcePageName, targetPageName: safeTargetPageName }
+            );
+        }
+
+        const existingTarget = await this.dbGet(
+            "SELECT page_name AS pageName FROM builder_pages WHERE project_name = ? AND page_name = ?",
+            [safeProjectName, safeTargetPageName]
+        );
+        if (existingTarget) {
+            throw this.createActionableError(
+                `Page already exists: ${safeTargetPageName}.html`,
+                409,
+                "PAGE_ALREADY_EXISTS",
+                { pageName: safeTargetPageName }
+            );
+        }
+
+        const targetPagePath = path.join(this.pagesOutputPath, `${safeTargetPageName}.html`);
+        if (await fs.pathExists(targetPagePath)) {
+            throw this.createActionableError(
+                `Page already exists: ${safeTargetPageName}.html`,
+                409,
+                "PAGE_ALREADY_EXISTS",
+                { pageName: safeTargetPageName, pagePath: targetPagePath }
+            );
+        }
+
+        const sourcePageRow = await this.dbGet(
+            `
+                SELECT
+                    project_name AS projectName,
+                    page_name AS pageName,
+                    page_title AS pageTitle,
+                    layout_file_name AS layoutFileName,
+                    partials_synced AS partialsSynced
+                FROM builder_pages
+                WHERE project_name = ? AND page_name = ?
+            `,
+            [safeProjectName, safeSourcePageName]
+        );
+
+        const nextPageTitle = String(targetPageTitle || sourcePageRow?.pageTitle || safeTargetPageName);
+
+        if (sourcePageRow?.layoutFileName) {
+            const layoutData = await this.getSavedLayout(sourcePageRow.layoutFileName);
+            layoutData.pageName = safeTargetPageName;
+            layoutData.pageTitle = nextPageTitle;
+            layoutData.project = {
+                ...(layoutData.project || {}),
+                name: safeProjectName
+            };
+            layoutData.meta = {
+                ...(layoutData.meta || {})
+            };
+
+            const result = await this.saveLayout(layoutData, {
+                pageName: safeTargetPageName,
+                overwrite: false,
+                saveAs: true,
+                layoutFileName: null
+            });
+
+            await this.upsertPageRecord({
+                projectName: safeProjectName,
+                pageName: safeTargetPageName,
+                pageTitle: nextPageTitle,
+                layoutFileName: result.layoutFileName,
+                partialsSynced: sourcePageRow.partialsSynced
+            });
+
+            return {
+                projectName: safeProjectName,
+                sourcePageName: safeSourcePageName,
+                pageName: safeTargetPageName,
+                pageTitle: nextPageTitle,
+                layoutFileName: result.layoutFileName,
+                pagePath: result.pagePath
+            };
+        }
+
+        const sourcePagePath = path.join(this.pagesOutputPath, `${safeSourcePageName}.html`);
+        if (!await fs.pathExists(sourcePagePath)) {
+            throw this.createActionableError(
+                "Source page not found",
+                404,
+                "PAGE_NOT_FOUND",
+                { projectName: safeProjectName, pageName: safeSourcePageName }
+            );
+        }
+
+        await fs.ensureDir(this.pagesOutputPath);
+        await fs.copy(sourcePagePath, targetPagePath, { overwrite: false, errorOnExist: true });
+        await this.upsertPageRecord({
+            projectName: safeProjectName,
+            pageName: safeTargetPageName,
+            pageTitle: nextPageTitle,
+            layoutFileName: null,
+            partialsSynced: sourcePageRow?.partialsSynced ?? null
+        });
+
+        this.logBoundary("service", "clonePage:done", {
+            projectName: safeProjectName,
+            sourcePageName: safeSourcePageName,
+            targetPageName: safeTargetPageName
+        });
+
+        return {
+            projectName: safeProjectName,
+            sourcePageName: safeSourcePageName,
+            pageName: safeTargetPageName,
+            pageTitle: nextPageTitle,
+            layoutFileName: null,
+            pagePath: targetPagePath
+        };
+    }
+
     async buildPartialLookup() {
         this.initPartialsSlice();
         return this.partialsService.buildPartialLookup();
@@ -816,6 +972,44 @@ class BuilderTask {
         }
     }
 
+    async saveLayoutContent(filePath, content = "", options = {}) {
+        try {
+            const normalized = String(filePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+            if (!normalized) {
+                throw this.createActionableError(
+                    "Layout path is required",
+                    400,
+                    "LAYOUT_PATH_REQUIRED",
+                    { filePath }
+                );
+            }
+
+            const safePath = normalized.endsWith(".html") ? normalized : `${normalized}.html`;
+            const fullPath = this.resolveSafePath(this.layoutsPath, safePath);
+            const exists = await fs.pathExists(fullPath);
+
+            if (exists && !options.overwrite) {
+                throw this.createActionableError(
+                    `Layout already exists: ${safePath}`,
+                    409,
+                    "LAYOUT_EXISTS",
+                    { filePath: safePath }
+                );
+            }
+
+            await fs.ensureDir(path.dirname(fullPath));
+            await fs.writeFile(fullPath, String(content), "utf8");
+
+            return { path: safePath };
+        } catch (err) {
+            logErr.writeLog(err, {
+                customKey: "BUILDER_SAVE_LAYOUT_CONTENT_ERROR",
+                context: { filePath }
+            });
+            throw err;
+        }
+    }
+
     validateComponentPath(item, index) {
         const sourcePath = item.componentPath || item.partial;
         if (!sourcePath || typeof sourcePath !== "string") {
@@ -905,19 +1099,21 @@ class BuilderTask {
                 );
             }
 
-            await this.upsertLayoutRecord({
-                layoutFileName,
-                pageName: safePageName,
-                layoutPayload,
-                layoutPath: null
+            const pagePath = await this.createPageFromLayout(layoutPayload, safePageName);
+            await this.dbTransaction(async () => {
+                await this.upsertLayoutRecord({
+                    layoutFileName,
+                    pageName: safePageName,
+                    layoutPayload,
+                    layoutPath: null
+                });
+                await this.upsertPageRecord({
+                    projectName: layoutPayload?.project?.name || "Default Project",
+                    pageName: safePageName,
+                    pageTitle: layoutPayload?.pageTitle || "",
+                    layoutFileName
+                });
             });
-            await this.upsertPageRecord({
-                projectName: layoutPayload?.project?.name || "Default Project",
-                pageName: safePageName,
-                pageTitle: layoutPayload?.pageTitle || "",
-                layoutFileName
-            });
-            const pagePath = await this.createPageFromLayout(layoutData, safePageName);
             console.log(`Layout saved to database: ${layoutFileName}`);
             console.log(`Page generated at: ${pagePath}`);
             this.logBoundary("service", "saveLayout:done", { pageName: safePageName, layoutFileName });
@@ -954,6 +1150,41 @@ class BuilderTask {
         return "id-" + Math.random().toString(36).substr(2, 9);
     }
 
+    sanitizeFileName(value, fallback = "image") {
+        return String(value || "")
+            .trim()
+            .replace(/[^a-zA-Z0-9._-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^[-.]+/, "")
+            .slice(0, 120) || fallback;
+    }
+
+    getImageExtensionFromMime(mime) {
+        const normalized = String(mime || "").toLowerCase();
+        if (normalized === "image/jpeg") return ".jpg";
+        if (normalized === "image/png") return ".png";
+        if (normalized === "image/gif") return ".gif";
+        if (normalized === "image/webp") return ".webp";
+        if (normalized === "image/svg+xml") return ".svg";
+        return "";
+    }
+
+    getAllowedImageExtensions() {
+        return new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+    }
+
+    async ensureUniqueFileName(dirPath, fileName) {
+        const ext = path.extname(fileName);
+        const base = path.basename(fileName, ext);
+        let candidate = `${base}${ext}`;
+        let counter = 1;
+        while (await fs.pathExists(path.join(dirPath, candidate))) {
+            candidate = `${base}-${counter}${ext}`;
+            counter += 1;
+        }
+        return candidate;
+    }
+
     async startWatchProcess() {
         if (this.watchProcess && !this.watchProcess.killed && this.watchProcess.exitCode === null) {
             return { alreadyRunning: true, pid: this.watchProcess.pid };
@@ -972,6 +1203,43 @@ class BuilderTask {
         });
 
         return { alreadyRunning: false, pid: this.watchProcess.pid };
+    }
+
+    async rebuildPreviewHtml() {
+        const htmlTasks = new GulpHTMLTasks({
+            src: "./html/",
+            dest: "./build",
+            watch: false
+        });
+
+        return new Promise((resolve, reject) => {
+            Promise.resolve(htmlTasks.compileHtmlSync())
+                .then((stream) => {
+                    if (!stream || typeof stream.on !== "function") {
+                        resolve({ built: false });
+                        return;
+                    }
+
+                    let settled = false;
+                    const finish = (result) => {
+                        if (!settled) {
+                            settled = true;
+                            resolve(result);
+                        }
+                    };
+                    const fail = (err) => {
+                        if (!settled) {
+                            settled = true;
+                            reject(err);
+                        }
+                    };
+
+                    stream.on("end", () => finish({ built: true }));
+                    stream.on("finish", () => finish({ built: true }));
+                    stream.on("error", fail);
+                })
+                .catch(reject);
+        });
     }
 
     initLayoutsSlice() {
@@ -1011,6 +1279,7 @@ class BuilderTask {
             this.app.use(cors());
             this.app.use(express.json({ limit: this.bodyLimit }));
             this.app.use(express.static(path.resolve(this.builderPath)));
+            this.app.use("/src/images", express.static(this.imagesPath));
 
             this.initPartialsSlice();
             registerPartialsRoutes(this.app, this.partialsController);
@@ -1036,6 +1305,19 @@ class BuilderTask {
                     res.json({ success: true, data: content });
                 } catch (err) {
                     this.sendError(res, err, "LAYOUT_READ_FAILED");
+                }
+            });
+            // API: Save layout content
+            this.app.post("/api/layout", async (req, res) => {
+                try {
+                    const { path: filePath, content, overwrite } = req.body || {};
+                    if (!filePath) {
+                        return res.status(400).json({ success: false, error: "Missing path parameter" });
+                    }
+                    const result = await this.saveLayoutContent(filePath, content || "", { overwrite: Boolean(overwrite) });
+                    res.json({ success: true, data: result });
+                } catch (err) {
+                    this.sendError(res, err, "LAYOUT_SAVE_FAILED");
                 }
             });
 
@@ -1092,6 +1374,78 @@ class BuilderTask {
 
             this.initPagesSlice();
             registerPagesRoutes(this.app, this.pagesController);
+
+            // API: Upload image to src/images
+            this.app.post("/api/uploads/image", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
+                try {
+                    const rawName = req.headers["x-filename"] || "image";
+                    const rawType = req.headers["x-filetype"] || "";
+                    const safeName = this.sanitizeFileName(rawName, "image");
+                    let ext = path.extname(safeName);
+                    let baseName = ext ? path.basename(safeName, ext) : safeName;
+
+                    if (!ext) {
+                        ext = this.getImageExtensionFromMime(rawType);
+                    }
+                    if (!ext) {
+                        ext = ".png";
+                    }
+
+                    const allowed = this.getAllowedImageExtensions();
+                    if (!allowed.has(ext.toLowerCase())) {
+                        const err = new Error("Unsupported image format");
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    if (!req.body || !req.body.length) {
+                        const err = new Error("Empty upload payload");
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    await fs.ensureDir(this.imagesPath);
+                    const fileName = await this.ensureUniqueFileName(this.imagesPath, `${baseName}${ext}`);
+                    const outputPath = path.join(this.imagesPath, fileName);
+                    await fs.writeFile(outputPath, req.body);
+
+                    res.json({
+                        success: true,
+                        data: {
+                            fileName,
+                            path: `/src/images/${fileName}`
+                        }
+                    });
+                } catch (err) {
+                    this.sendError(res, err, "IMAGE_UPLOAD_FAILED");
+                }
+            });
+
+            // API: List uploaded images
+            this.app.get("/api/uploads/images", async (req, res) => {
+                try {
+                    await fs.ensureDir(this.imagesPath);
+                    const entries = await fs.readdir(this.imagesPath, { withFileTypes: true });
+                    const allowed = this.getAllowedImageExtensions();
+                    const files = [];
+                    for (const entry of entries) {
+                        if (!entry.isFile()) continue;
+                        const ext = path.extname(entry.name).toLowerCase();
+                        if (!allowed.has(ext)) continue;
+                        const filePath = path.join(this.imagesPath, entry.name);
+                        const stat = await fs.stat(filePath);
+                        files.push({
+                            name: entry.name,
+                            path: `/src/images/${entry.name}`,
+                            size: stat.size,
+                            updatedAt: stat.mtime.toISOString()
+                        });
+                    }
+                    res.json({ success: true, data: files });
+                } catch (err) {
+                    this.sendError(res, err, "IMAGE_LIST_FAILED");
+                }
+            });
 
             // API: Build final HTML from layout
             this.app.post("/api/build", async (req, res) => {

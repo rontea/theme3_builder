@@ -85,6 +85,8 @@ class GulpHTMLTasks {
             console.log(this.#src);
             console.log(this.#dest);
 
+            panini.refresh();
+
             let stream = src(this.#pages);
 
             stream = stream.pipe(

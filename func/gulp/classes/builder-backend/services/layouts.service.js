@@ -21,6 +21,7 @@ function createLayoutsService(builderTask, layoutsRepository) {
             await fs.ensureDir(builderTask.pagesOutputPath);
 
             const sections = [];
+            const isFreeform = layoutData?.meta?.canvasLayoutMode === "freeform";
             for (let index = 0; index < layoutData.layout.length; index++) {
                 const item = layoutData.layout[index];
                 const sourcePath = item.componentPath || item.partial;
@@ -40,10 +41,21 @@ function createLayoutsService(builderTask, layoutsRepository) {
                 }
 
                 const partialName = path.basename(sourcePath, ".html");
-                sections.push(`{{> ${partialName}}}`);
+                if (isFreeform) {
+                    const x = Math.max(0, Number(item?.canvas?.x) || 0);
+                    const y = Math.max(0, Number(item?.canvas?.y) || 0);
+                    const width = Math.max(220, Number(item?.canvas?.width) || 320);
+                    sections.push(
+                        `<div class="builder-freeform-node" style="position:absolute; left:${x}px; top:${y}px; width:${width}px; max-width:calc(100% - ${x}px);">{{> ${partialName}}}</div>`
+                    );
+                } else {
+                    sections.push(`{{> ${partialName}}}`);
+                }
             }
 
-            const html = sections.join("\n") + "\n";
+            const html = isFreeform
+                ? `<div class="builder-freeform-stage" style="position:relative; min-height:960px;">\n${sections.join("\n")}\n</div>\n`
+                : sections.join("\n") + "\n";
             const pageFilePath = path.join(builderTask.pagesOutputPath, `${pageName}.html`);
             await fs.writeFile(pageFilePath, html, "utf8");
             return pageFilePath;

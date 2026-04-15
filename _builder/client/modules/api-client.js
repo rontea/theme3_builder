@@ -35,6 +35,14 @@
             });
         }
 
+        clonePage(projectName, sourcePageName, targetPageName, targetPageTitle) {
+            return this.requestJson("/api/pages/clone", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectName, sourcePageName, targetPageName, targetPageTitle })
+            });
+        }
+
         listPages(projectName) {
             return this.requestJson(`/api/pages?projectName=${encodeURIComponent(projectName)}`);
         }
@@ -73,8 +81,77 @@
             return this.requestJson("/api/partials");
         }
 
+        listLayouts() {
+            return this.requestJson("/api/layouts");
+        }
+
+        getLayout(pathName) {
+            return this.requestJson(`/api/layout?path=${encodeURIComponent(pathName)}`);
+        }
+
+        saveLayoutFile(pathName, content, overwrite = false) {
+            return this.requestJson("/api/layout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    path: pathName,
+                    content: content || "",
+                    overwrite: Boolean(overwrite)
+                })
+            });
+        }
+
+        listMicroComponents() {
+            return this.requestJson("/api/micro");
+        }
+
         getPartial(pathName) {
             return this.requestJson(`/api/partial?path=${encodeURIComponent(pathName)}`);
+        }
+
+        savePartial(pathName, content, overwrite = false) {
+            return this.requestJson("/api/partial", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    path: pathName,
+                    content: content || "",
+                    overwrite: Boolean(overwrite)
+                })
+            });
+        }
+
+        async uploadImage(file) {
+            if (!file) {
+                throw new Error("Missing file to upload");
+            }
+            const response = await fetch(this.buildUrl("/api/uploads/image"), {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/octet-stream",
+                    "X-Filename": file.name || "image",
+                    "X-Filetype": file.type || ""
+                },
+                body: await file.arrayBuffer()
+            });
+            const result = await response.json();
+            if (!result || !result.success) {
+                throw new Error((result && result.error) || "Image upload failed");
+            }
+            return result;
+        }
+
+        listImages() {
+            return this.requestJson("/api/uploads/images");
+        }
+
+        async getPreviewStyles() {
+            try {
+                const result = await this.requestJson("/api/preview-styles");
+                return result;
+            } catch (err) {
+                return { success: false, data: { css: "" }, error: err.message };
+            }
         }
     }
 

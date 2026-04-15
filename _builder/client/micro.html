@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme_3 Micro Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body data-builder-mode="partial" data-hide-landing="true">
+    <div id="landingScreen" class="landing-screen bg-[radial-gradient(70rem_35rem_at_85%_-10%,rgba(14,165,233,0.18),transparent_55%),radial-gradient(55rem_30rem_at_-10%_90%,rgba(34,197,94,0.15),transparent_55%),#020617]">
+        <div class="mx-auto h-full max-w-[1500px] grid grid-cols-1 lg:grid-cols-[360px,1fr] gap-7">
+            <aside class="rounded-3xl border border-slate-700/50 bg-slate-900/70 p-7 shadow-[0_20px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl">
+                <div class="flex items-center gap-3 text-slate-100 font-semibold text-base">
+                    <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-600/70 bg-slate-800/80">
+                        <i class="fas fa-layer-group text-sky-400"></i>
+                    </span>
+                    <span class="tracking-tight">Theme_3 Builder</span>
+                </div>
+                <h1 class="mt-6 text-4xl font-bold leading-none tracking-tight text-white">Pages</h1>
+                <p class="mt-3 text-sm text-slate-300">Design and maintain your site pages in one place.</p>
+                <button id="openCreateProjectModal" class="mt-6 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:scale-[1.01] hover:from-emerald-400 hover:to-teal-400">
+                    <i class="fas fa-file-circle-plus text-xs"></i>
+                    <span>Create Page</span>
+                </button>
+                <div class="mt-7 rounded-2xl border border-slate-700/60 bg-slate-950/50 px-4 py-3">
+                    <p class="text-[11px] uppercase tracking-[0.22em] text-slate-500">Workflow</p>
+                    <p class="mt-2 text-sm text-slate-300">Sync pages, open one, and stitch partials in the editor.</p>
+                </div>
+            </aside>
+            <section class="rounded-3xl border border-slate-700/50 bg-slate-900/55 p-7 shadow-[0_20px_80px_rgba(2,6,23,0.55)] backdrop-blur-xl flex min-h-0 flex-col">
+                <div class="mb-5 flex items-center justify-between gap-3">
+                    <div>
+                        <h2 id="landingContentTitle" class="text-3xl font-bold tracking-tight text-white">Landmarks</h2>
+                        <p class="mt-1 text-xs text-slate-400">Select a landmark to edit, preview, and publish.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="syncLandingPages" class="inline-flex items-center gap-2 rounded-xl border border-slate-600/80 bg-slate-800/85 px-3.5 py-2 text-xs font-semibold text-slate-100 transition hover:border-sky-400/70 hover:bg-slate-700" title="Sync html/pages">
+                            <i class="fas fa-rotate text-[11px]"></i>
+                            <span>Sync</span>
+                        </button>
+                        <button id="closeProjectDashboard" class="inline-flex items-center gap-2 rounded-xl border border-slate-600/80 bg-slate-800/85 px-3.5 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-400 hover:bg-slate-700" title="Close Project Dashboard">
+                            <i class="fas fa-times text-[11px]"></i>
+                            <span>Close Project</span>
+                        </button>
+                        <button id="refreshLandingProjects" class="inline-flex items-center gap-2 rounded-xl border border-slate-600/80 bg-slate-800/85 px-3.5 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-400 hover:bg-slate-700">
+                            <i class="fas fa-rotate text-[11px]"></i>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1 min-h-0 overflow-y-auto pr-1.5">
+                    <div id="landingProjectsList" class="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-4">
+                        <div class="text-sm text-slate-400">Loading projects...</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <div id="app">
+        <!-- Toolbar -->
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <div class="logo">
+                    <i class="fas fa-layer-group"></i>
+                    <span>Theme_3 Builder</span>
+                </div>
+                <button id="btnCreateProject" class="btn btn-secondary" title="Open Pages Dashboard">
+                    <i class="fas fa-folder-open"></i>
+                    <span>Pages</span>
+                </button>
+                <span id="projectNameDisplay" class="project-badge">No Page</span>
+            </div>
+            <div class="toolbar-center">
+                <input type="text" id="pageTitle" placeholder="Enter page title..." class="page-title-input">
+            </div>
+            <div class="toolbar-right">
+                <div class="preset-control">
+                    <label for="designPresetSelect">Preset</label>
+                    <select id="designPresetSelect" class="preset-select" aria-label="Design preset"></select>
+                </div>
+                <button id="btnUndo" class="btn btn-secondary" title="Undo (Ctrl+Z)">
+                    <i class="fas fa-rotate-left"></i>
+                    <span>Undo</span>
+                </button>
+                <button id="btnRedo" class="btn btn-secondary" title="Redo (Ctrl+Y)">
+                    <i class="fas fa-rotate-right"></i>
+                    <span>Redo</span>
+                </button>
+                <button id="btnClear" class="btn btn-secondary" title="Clear Canvas">
+                    <i class="fas fa-trash-alt"></i>
+                    <span>Clear</span>
+                </button>
+                <button id="btnPreview" class="btn btn-secondary" title="Preview">
+                    <i class="fas fa-eye"></i>
+                    <span>Preview</span>
+                </button>
+                <button id="btnInspect" class="btn btn-secondary" title="Inspector">
+                    <i class="fas fa-ruler-combined"></i>
+                    <span>Inspect</span>
+                </button>
+                <button id="btnToggleStitchMode" class="btn btn-secondary" title="Toggle Stitch View">
+                    <i class="fas fa-link"></i>
+                    <span>Stitch View</span>
+                </button>
+                <button id="btnExport" class="btn btn-primary" title="Export JSON">
+                    <i class="fas fa-download"></i>
+                    <span>Export</span>
+                </button>
+                <button id="btnSave" class="btn btn-success" title="Save Layout">
+                    <i class="fas fa-save"></i>
+                    <span>Save</span>
+                </button>
+                <button id="btnLoadLayout" class="btn btn-secondary" title="Load Layout">
+                    <i class="fas fa-folder-open"></i>
+                    <span>Load</span>
+                </button>
+                <button id="btnClosePage" class="btn btn-secondary" title="Close Page">
+                    <i class="fas fa-times"></i>
+                    <span>Close Page</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Sidebar - Component Palette -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h3 id="sidebarTitle">Partials (html/partials)</h3>
+                    <button id="syncPagePartials" class="btn btn-secondary" title="Sync partials used by this page">
+                        <i class="fas fa-link"></i>
+                        <span>Sync Page Partials</span>
+                    </button>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchPartials" placeholder="Search components...">
+                    </div>
+                <div class="filter-box">
+                    <select id="filterPartials" aria-label="Filter partials by category">
+                        <option value="all">All categories</option>
+                    </select>
+                </div>
+                <div id="microQuickFilters" class="micro-quick-filters">
+                    <button type="button" class="filter-pill" data-filter="Layout">Layout</button>
+                    <button type="button" class="filter-pill" data-filter="all">All</button>
+                </div>
+                <div class="sidebar-tabs">
+                    <button id="partialsTab" class="tab-btn" type="button">
+                        <i class="fas fa-puzzle-piece"></i>
+                        <span>Partials</span>
+                    </button>
+                    <button id="microTab" class="tab-btn active" type="button">
+                        <i class="fas fa-cube"></i>
+                        <span>Micro</span>
+                    </button>
+                </div>
+            </div>
+
+                <div class="sidebar-content">
+                    <!-- Partials List (hidden in micro builder) -->
+                    <div id="partialsList" class="component-list">
+                        <div class="loading">Partials are available in the page builder.</div>
+                    </div>
+                    <!-- Micro Components List -->
+                    <div id="microList" class="component-list active">
+                        <div class="loading">Loading micro components...</div>
+                    </div>
+                </div>
+
+                <div class="sidebar-footer">
+                    <div class="info-box">
+                        <i class="fas fa-info-circle"></i>
+                        <span>Drag components to the canvas to build your page</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Canvas - Drop Zone -->
+            <section class="canvas-container">
+                <div class="canvas-header">
+                    <h3 id="canvasModeLabel">Canvas</h3>
+                    <div class="canvas-actions">
+                        <div class="canvas-layout-toggle" role="group" aria-label="Canvas layout mode">
+                            <button id="btnCanvasFlow" type="button" class="canvas-layout-btn active">Flow</button>
+                            <button id="btnCanvasFreeform" type="button" class="canvas-layout-btn">Freeform</button>
+                        </div>
+                        <div id="freeformSectionControls" class="freeform-section-controls" hidden>
+                            <label for="freeformSectionTemplate">Section</label>
+                            <select id="freeformSectionTemplate" class="freeform-section-select">
+                                <option value="free-layout">Free Layout</option>
+                                <option value="grid-2col">Grid 2</option>
+                                <option value="grid-3col">Grid 3</option>
+                                <option value="flex-split">Flex Split</option>
+                                <option value="stack">Stack</option>
+                                <option value="media-text">Media + Text</option>
+                                <option value="hero-split">Hero Split</option>
+                            </select>
+                        </div>
+                        <span id="componentCount">0 components</span>
+                    </div>
+                </div>
+                
+                <div id="canvas" class="canvas">
+                    <button id="btnExitCanvasFocus" class="btn btn-secondary canvas-focus-exit" type="button" hidden>
+                        <i class="fas fa-pen"></i>
+                        <span>Back To Editor</span>
+                    </button>
+                    <div class="canvas-empty" id="canvasEmpty">
+                        <div class="empty-icon">
+                            <i class="fas fa-mouse-pointer"></i>
+                        </div>
+                        <h4>Drop Components Here</h4>
+                        <p>Drag partials from the sidebar to start building your page</p>
+                    </div>
+                    
+                    <div id="canvasDropZone" class="canvas-drop-zone">
+                        <!-- Dropped components will appear here -->
+                    </div>
+                </div>
+            </section>
+
+            <aside class="inspector-panel" id="inspectorPanel">
+                <div class="panel-header">
+                    <h3>Inspector</h3>
+                    <button id="closeInspector" class="btn-close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="panel-content" id="inspectorContent">
+                    <p class="no-selection">Select a component to inspect its layout</p>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <div id="propertiesPanel" class="modal">
+        <div class="modal-content properties-modal-content">
+            <div class="modal-header">
+                <h3>Properties</h3>
+                <button id="closeProperties" class="btn-close">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body properties-modal-body">
+                <div class="panel-content" id="propertiesContent">
+                    <p class="no-selection">Select a component to edit its properties</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="previewModal" class="modal">
+                <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h3>Preview</h3>
+                    <div id="previewTypeControls" class="preview-controls preview-view-controls" hidden>
+                        <button type="button" class="preview-btn active" data-preview-view="render">Preview</button>
+                        <button type="button" class="preview-btn" data-preview-view="markup">Markup</button>
+                    </div>
+                    <div id="previewControls" class="preview-controls">
+                        <button type="button" class="preview-btn active" data-preview="desktop">Desktop</button>
+                        <button type="button" class="preview-btn" data-preview="tablet">Tablet</button>
+                        <button type="button" class="preview-btn" data-preview="mobile">Mobile</button>
+                    </div>
+                    <button class="btn-close" id="closePreview">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="previewFrameWrap" class="preview-frame-wrap" data-size="desktop">
+                        <iframe id="previewFrame" class="preview-frame"></iframe>
+                    </div>
+                    <div id="previewMarkupWrap" class="preview-markup-wrap" hidden>
+                        <pre id="previewMarkupOutput" class="preview-markup-output"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <!-- Export Modal -->
+    <div id="exportModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Export Layout</h3>
+                <button class="btn-close" id="closeExport">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="exportFormat">Format:</label>
+                    <select id="exportFormat">
+                        <option value="json">JSON Configuration</option>
+                        <option value="html">Generated HTML</option>
+                    </select>
+                </div>
+                <div class="export-preview">
+                    <textarea id="exportOutput" readonly></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="copyExport" class="btn btn-primary">
+                    <i class="fas fa-copy"></i> Copy to Clipboard
+                </button>
+                <button id="downloadExport" class="btn btn-success">
+                    <i class="fas fa-download"></i> Download
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Replace Modal -->
+    <div id="imageModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Replace Image</h3>
+                <button class="btn-close" id="closeImageModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="imageUrlInput">Image URL</label>
+                    <input type="text" id="imageUrlInput" placeholder="https://example.com/image.jpg">
+                    <button id="applyImageUrl" class="btn btn-primary image-modal-action" type="button">
+                        <i class="fas fa-link"></i>
+                        <span>Apply URL</span>
+                    </button>
+                </div>
+                <div class="form-group">
+                    <label for="imageAltInput">Alt text</label>
+                    <input type="text" id="imageAltInput" placeholder="Describe the image">
+                </div>
+                <div class="form-group">
+                    <label for="imageUploadInput">Upload image</label>
+                    <input type="file" id="imageUploadInput" accept="image/*">
+                    <button id="uploadImageButton" class="btn btn-secondary image-modal-action" type="button">
+                        <i class="fas fa-upload"></i>
+                        <span>Upload to src/images</span>
+                    </button>
+                    <p id="imageUploadStatus" class="project-note image-upload-status"></p>
+                </div>
+                <div class="form-group">
+                    <div class="image-library-header">
+                        <label>Media library</label>
+                        <button id="refreshImageLibrary" class="btn btn-secondary" type="button">
+                            <i class="fas fa-sync-alt"></i>
+                            <span>Refresh</span>
+                        </button>
+                    </div>
+                    <div id="imageLibraryList" class="image-library-grid">
+                        <div class="loading">Loading images...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelImageModal" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load Layout Modal -->
+    <div id="loadLayoutModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Load Saved Layout</h3>
+                <button class="btn-close" id="closeLoadLayout">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="savedLayoutsList" class="saved-layouts-list">
+                    <div class="loading">Loading saved layouts...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Project Confirm Modal -->
+    <div id="deleteProjectModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Delete Project</h3>
+                <button class="btn-close" id="closeDeleteProject">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="project-note">This will permanently remove the saved layout and generated page.</p>
+                <p id="deleteProjectName" class="delete-project-name"></p>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelDeleteProject" class="btn btn-secondary">Cancel</button>
+                <button id="confirmDeleteProject" class="btn btn-danger">
+                    <i class="fas fa-trash-alt"></i>
+                    <span>Delete</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Close Page Confirm Modal -->
+    <div id="closePageConfirmModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Close Page</h3>
+                <button class="btn-close" id="closeClosePageConfirmModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="project-note">Close this page and discard unsaved changes?</p>
+                <p id="closePageName" class="delete-project-name"></p>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelClosePageConfirm" class="btn btn-secondary">Cancel</button>
+                <button id="confirmClosePageConfirm" class="btn btn-danger">
+                    <i class="fas fa-times"></i>
+                    <span>Close Page</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Project Modal -->
+    <div id="createProjectModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Create Project</h3>
+                <button class="btn-close" id="closeCreateProjectModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="projectNameInput">Project Name</label>
+                    <input type="text" id="projectNameInput" placeholder="Enter project name...">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelCreateProject" class="btn btn-secondary">Cancel</button>
+                <button id="confirmCreateProject" class="btn btn-success">
+                    <i class="fas fa-check"></i>
+                    <span>Create</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Page Modal -->
+    <div id="createPageModal" class="modal">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h3>Create Page</h3>
+                <button class="btn-close" id="closeCreatePageModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="pageNameInput">Page Name</label>
+                    <input type="text" id="pageNameInput" placeholder="e.g. about or about-us">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="cancelCreatePage" class="btn btn-secondary">Cancel</button>
+                <button id="confirmCreatePage" class="btn btn-success">
+                    <i class="fas fa-check"></i>
+                    <span>Create Page</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Partial Code Modal -->
+    <div id="partialCodeModal" class="modal">
+        <div class="modal-content modal-large code-modal-content">
+            <div class="modal-header">
+                <h3 id="partialCodeTitle">Partial Code</h3>
+                <button class="btn-close" id="closePartialCodeModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body code-modal-body">
+                <textarea id="partialCodeOutput" class="code-view" spellcheck="false"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button id="savePartialCode" class="btn btn-success" type="button">
+                    <i class="fas fa-save"></i>
+                    <span>Save Partial</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Partial Preview Modal -->
+    <div id="partialPreviewModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="partialPreviewTitle">Partial Preview</h3>
+                <button class="btn-close" id="closePartialPreviewModal">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <iframe id="partialPreviewFrame" class="preview-frame"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- SortableJS (local copy to avoid CDN/network blocking) -->
+    <script src="vendor/Sortable.min.js"></script>
+    <script src="modules/api-client.js"></script>
+    <script src="modules/state-store.js"></script>
+    <script src="modules/notifications.js"></script>
+    <script src="modules/modals.js"></script>
+    <script src="modules/pages-dashboard.js"></script>
+    <script src="modules/editor-canvas.js"></script>
+    <!-- App JS -->
+    <script src="app.js"></script>
+</body>
+</html>

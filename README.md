@@ -1,34 +1,29 @@
-# theme_3
+# theme_3 Builder
 
 > **Warning**
-> This is a Beta version 0.0.0-beta version
-> You can test this release.
+> This is a Development version
 
 A command-line interface (CLI) tool to manage and build web projects efficiently.
-
-> **Warning**
-> This build is currently on Beta.
-
+With GUI Interface in building site.
 #### Version 2.0.0-dev.1 What's New
 
 - ** Under Development  Documentation **
 - CLI th3 
-- Gulpfile.js removed
+- Gulpfile removed (use CLI commands instead)
 - Extend list of keys in config.js
 - Manipulate config.js 
-- Expand gulpfile for extend commands
 
 #### NPM : 
-- [npm](https://www.npmjs.com/package/theme_3)
+- [npm](#)
 #### GitHub : 
-- [git](https://github.com/rontea/theme_3)
+- [git](#)
 
 
 #### Installation
 
 ```node
 npm init
-npm i theme_3
+npm i 
 npm install
 th3 - List all commands
 ```
@@ -49,7 +44,7 @@ npm link
 
 #### Updated Commands
 
-- Move to CLI and set gulpfiles optional for commands
+- Move to CLI-based commands for build and watch
 
 ```node
 th3 <cmd> [args]
@@ -288,12 +283,10 @@ Builder troubleshooting:
 - https://github.com/necolas/idiomatic-css#general-principles
 
 ## Resources
-- [gulp](https://riptutorial.com/gulp/topic/1341/getting-started-with-gulp)
 - [jQuery](https://jquery.com)
 - [Bootstrap](https://getbootstrap.com/)
 - [node](https://nodejs.org/en/)
 - [npm](https://www.npmjs.com/)
-- [gulp](https://gulpjs.com/)
 - [panini](https://foundation.zurb.com/sites/docs/panini.html)
   - [Playlist](https://www.youtube.com/playlist?list=PLJVWPVPk_D_3A4OBvLtsrcjL7gs1QEWLW)
 - [Bulma](https://bulma.io/)
