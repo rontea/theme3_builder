@@ -77,6 +77,7 @@ th3 <cmd> [args]
 | `th3 icons-bootstrap`  | Compile icons bootstrap                        |
 | `th3 move-res`         | Move resources folder or file to build based on dest |  
 | `th3 builder`          | Launch visual drag-and-drop builder            |
+| `th3 cms`              | Run CMS commands (`serve`, `export`, `migrate-content`) |
 
 ##### Samples
 ```
@@ -104,6 +105,8 @@ Builder endpoints:
 - `GET /api/saved-layouts`
 - `GET /api/saved-layout?fileName=<name.json>`
 - Full contract reference: `docs/builder-api-contracts.md`
+- CMS usage guide: `docs/cms-builder-workflow.md`
+- CMS runbook: `docs/cms-runbook.md`
 
 Saved layout files:
 - All saved layout JSON files are written to `_builder/layouts`.
@@ -131,6 +134,40 @@ Builder troubleshooting:
 - Builder does not find your components:
   - Ensure component files are under `html/partials/**/*.html`.
   - Confirm paths do not traverse outside the partials folder.
+
+### Theme CMS Export Bridge
+
+Run:
+```node
+th3 cms export
+```
+
+Optional:
+```node
+th3 cms export --include-drafts
+th3 cms export --preview
+th3 cms export --output ./html/data/cms
+```
+
+Bridge output:
+- `html/data/cms/manifest.json`
+- `html/data/cms/collections/*.json`
+- `html/data/cms/entries/*.json`
+
+### Phase 5 Content Migration
+
+Run:
+```node
+th3 cms migrate-content
+```
+
+This upserts seeded content for:
+- `supporters`
+- `projects`
+- `insights`
+- `cta_blocks`
+
+And exports bridge data to `html/data/cms/` unless `--skip-export` is set.
 
 
 ### Check DIR's Environment

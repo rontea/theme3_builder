@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theme CMS</title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-dot"></span>
+            <div>
+                <p class="eyebrow">Theme CMS</p>
+                <h1>Content Hub</h1>
+            </div>
+        </div>
+        <nav class="topnav">
+            <button class="nav-item is-active" type="button" data-view="content">Content</button>
+            <button class="nav-item" type="button" data-view="structure">Structure</button>
+            <button class="nav-item" type="button" data-view="configuration">Configuration</button>
+            <button class="nav-item" type="button" data-view="publish">Publish</button>
+        </nav>
+        <div class="topbar-actions">
+            <button id="viewSite" class="btn btn-secondary" type="button">View Site</button>
+            <button id="refreshCollections" class="btn btn-secondary" type="button">Refresh</button>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section class="view is-active" data-view-panel="content">
+            <aside class="rail panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Content Types</p>
+                        <h2>Site Models</h2>
+                    </div>
+                </div>
+                <div id="sectionsList" class="item-list">
+                    <p class="empty">Loading content types...</p>
+                </div>
+            </aside>
+
+            <section class="canvas">
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Entries</p>
+                            <h2 id="entriesTitle">Content Entries</h2>
+                            <p id="entriesSubtitle" class="subtle">Select a content type to manage entries.</p>
+                        </div>
+                        <div class="actions-inline">
+                            <input id="entriesSearch" class="search-input" type="search" placeholder="Search entries...">
+                            <button id="refreshEntries" class="btn btn-secondary" type="button">Refresh Entries</button>
+                            <button id="newEntry" class="btn btn-primary" type="button">New Entry</button>
+                        </div>
+                    </div>
+                    <div id="entriesList" class="item-list item-list-large">
+                        <p class="empty">Select a content type to manage entries.</p>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="eyebrow">Editor</p>
+                            <h2 id="editorTitle">Entry Editor</h2>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="saveEntry" class="btn btn-primary" type="button">Save Entry</button>
+                            <button id="deleteEntry" class="btn btn-danger" type="button">Delete Entry</button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Collection</span>
+                                <input id="entryCollection" type="text" readonly>
+                            </label>
+                            <label class="field">
+                                <span>Entry Key</span>
+                                <input id="entryKey" type="text" placeholder="entry-key">
+                            </label>
+                        </div>
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Status</span>
+                                <select id="entryStatus">
+                                    <option value="draft">Draft</option>
+                                    <option value="published">Published</option>
+                                    <option value="archived">Archived</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>Sort Order</span>
+                                <input id="entrySortOrder" type="number" value="0">
+                            </label>
+                        </div>
+                        <div id="entryFormFields" class="dynamic-fields"></div>
+                        <details class="raw-json">
+                            <summary>Advanced JSON</summary>
+                            <label class="field">
+                                <span>Data JSON</span>
+                                <textarea id="entryData" rows="12" spellcheck="false"></textarea>
+                            </label>
+                        </details>
+                    </div>
+                </article>
+            </section>
+        </section>
+
+        <section class="view" data-view-panel="structure">
+            <article class="panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Structure</p>
+                        <h2>Collection Manager</h2>
+                    </div>
+                    <div class="actions-inline">
+                        <button id="newCollection" class="btn btn-secondary" type="button">New Collection</button>
+                        <button id="saveCollection" class="btn btn-primary" type="button">Save Collection</button>
+                        <button id="deleteCollection" class="btn btn-danger" type="button">Delete Collection</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Slug</span>
+                                <input id="collectionSlug" type="text" placeholder="projects">
+                            </label>
+                        <label class="field">
+                            <span>Name</span>
+                            <input id="collectionName" type="text" placeholder="Projects">
+                            </label>
+                        </div>
+                        <div class="field-grid">
+                            <label class="field">
+                                <span>Template</span>
+                                <select id="collectionTemplate">
+                                    <option value="custom">Custom</option>
+                                    <option value="blog">Blog</option>
+                                    <option value="news">News</option>
+                                    <option value="projects">Projects</option>
+                                    <option value="navigation">Navigation</option>
+                                </select>
+                            </label>
+                            <label class="field field-toggle">
+                                <span>Singleton Type</span>
+                                <span class="field-checkbox">
+                                    <input id="collectionSingleton" type="checkbox">
+                                    <span>Single record only</span>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="applyTemplate" class="btn btn-secondary" type="button">Apply Template</button>
+                        </div>
+                        <label class="field">
+                            <span>Schema JSON</span>
+                            <textarea id="collectionSchema" rows="14" spellcheck="false"></textarea>
+                        </label>
+                    </div>
+            </article>
+        </section>
+
+        <section class="view" data-view-panel="configuration">
+            <article class="panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Configuration</p>
+                        <h2>CMS Settings</h2>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <p class="subtle">
+                        Configuration presets are intentionally lightweight right now.
+                        Use collections plus schema fields to model navigation, site settings,
+                        and reusable blocks. Dedicated settings screens can be added next.
+                    </p>
+                    <div class="field-grid">
+                        <label class="field">
+                            <span>Site Preview URL</span>
+                            <input id="sitePreviewUrl" type="url" placeholder="http://localhost:3000">
+                        </label>
+                    </div>
+                    <div class="actions-inline">
+                        <button id="saveSitePreviewUrl" class="btn btn-primary" type="button">Save Preview URL</button>
+                    </div>
+                </div>
+            </article>
+        </section>
+
+        <section class="view" data-view-panel="publish">
+            <article class="panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="eyebrow">Publish</p>
+                        <h2>Export Bridge Data</h2>
+                        <p class="subtle">Write normalized CMS JSON to <code>html/data/cms</code>.</p>
+                    </div>
+                    <button id="publishExport" class="btn btn-primary" type="button">Export Now</button>
+                </div>
+                <div class="panel-body">
+                    <label class="field-inline">
+                        <input id="publishIncludeDrafts" type="checkbox">
+                        <span>Include Draft Entries</span>
+                    </label>
+                    <label class="field-inline">
+                        <input id="publishIncludeArchived" type="checkbox">
+                        <span>Include Archived Entries</span>
+                    </label>
+                    <pre id="publishResult" class="publish-result">No export run yet.</pre>
+                </div>
+            </article>
+        </section>
+    </main>
+
+    <div id="status" class="status" hidden></div>
+    <script src="./app.js"></script>
+</body>
+</html>

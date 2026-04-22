@@ -63,6 +63,7 @@ async function run() {
     const sandboxRoot = path.resolve(__dirname, "..", ".tmp", "builder-fix");
     const builder = new BuilderTask({
         port: 0,
+        cmsProjectRoot: sandboxRoot,
         layoutsOutputPath: path.join(sandboxRoot, "_builder", "layouts"),
         databasePath: path.join(sandboxRoot, "_builder", "layouts", "builder.sqlite"),
         pagesOutputPath: path.join(sandboxRoot, "html", "pages")
@@ -91,6 +92,11 @@ async function run() {
         const layoutsBody = await layoutsRes.json();
         assert.equal(layoutsBody.success, true, "Expected /api/layouts success=true");
         assert.ok(Array.isArray(layoutsBody.data), "Expected /api/layouts data array");
+
+        const cmsAdminRes = await fetch(`${base}/cms/`);
+        assert.equal(cmsAdminRes.status, 200, "Expected /cms/ admin shell to return 200");
+        const cmsAdminHtml = await cmsAdminRes.text();
+        assert.ok(cmsAdminHtml.includes("Theme CMS"), "Expected /cms/ response to include CMS admin shell");
 
         // Watch endpoint regression (preview dependency)
         const watchStart = await requestJson(base, "/api/watch/start", { method: "POST" });
@@ -381,6 +387,720 @@ async function run() {
         const syncedPage = pagesAfterSync.result.data.find((item) => item.pageName === pageName);
         assert.ok(syncedPage, "Expected regression page to exist after sync");
         assert.ok(Array.isArray(syncedPage.partials), "Expected synced page to include partials array");
+
+        // CMS regression: collections and entries CRUD
+        const createCmsCollection = await requestJson(base, "/api/cms/collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                slug: "supporters",
+                name: "Supporters",
+                schema: {
+                    fields: [
+                        { name: "name", label: "Name", type: "text" },
+                        { name: "tier", label: "Tier", type: "text" },
+                        { name: "url", label: "URL", type: "text" }
+                    ]
+                }
+            })
+        });
+        assert.equal(createCmsCollection.response.status, 200, "Expected CMS collection create to return 200");
+        assert.equal(createCmsCollection.result.success, true, "Expected CMS collection create success=true");
+        assert.equal(createCmsCollection.result.data.slug, "supporters", "Expected CMS collection slug");
+
+        const listCmsCollections = await requestJson(base, "/api/cms/collections");
+        assert.equal(listCmsCollections.response.status, 200, "Expected CMS collections list to return 200");
+        assert.equal(listCmsCollections.result.success, true, "Expected CMS collections list success=true");
+        assert.ok(
+            listCmsCollections.result.data.some((item) => item.slug === "supporters"),
+            "Expected supporters collection in CMS list"
+        );
+
+        const createCmsEntry = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "supporters",
+                entryKey: "openai",
+                status: "published",
+                sortOrder: 1,
+                data: {
+                    name: "OpenAI",
+                    tier: "founding",
+                    url: "https://openai.com",
+                    active: true
+                }
+            })
+        });
+        assert.equal(createCmsEntry.response.status, 200, "Expected CMS entry create to return 200");
+        assert.equal(createCmsEntry.result.success, true, "Expected CMS entry create success=true");
+        assert.equal(createCmsEntry.result.data.entryKey, "openai", "Expected CMS entry key");
+        const cmsEntryId = createCmsEntry.result.data.id;
+
+        const createSupporterVisionary = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "supporters",
+                entryKey: "anthropic",
+                status: "published",
+                sortOrder: 2,
+                data: {
+                    name: "Anthropic",
+                    tier: "visionary",
+                    url: "https://anthropic.com",
+                    active: true
+                }
+            })
+        });
+        assert.equal(createSupporterVisionary.response.status, 200, "Expected second supporter entry create to return 200");
+        const cmsSupporterVisionaryId = createSupporterVisionary.result.data.id;
+
+        const createSupporterCommunity = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "supporters",
+                entryKey: "community-friends",
+                status: "published",
+                sortOrder: 3,
+                data: {
+                    name: "Community Friends",
+                    tier: "community",
+                    url: "https://example.com/community",
+                    active: true
+                }
+            })
+        });
+        assert.equal(createSupporterCommunity.response.status, 200, "Expected third supporter entry create to return 200");
+        const cmsSupporterCommunityId = createSupporterCommunity.result.data.id;
+
+        const listCmsEntries = await requestJson(base, "/api/cms/entries?collection=supporters");
+        assert.equal(listCmsEntries.response.status, 200, "Expected CMS entries list to return 200");
+        assert.equal(listCmsEntries.result.success, true, "Expected CMS entries list success=true");
+        assert.ok(
+            listCmsEntries.result.data.some((item) => item.entryKey === "openai"),
+            "Expected openai entry in CMS list"
+        );
+
+        const cmsExport = await requestJson(base, "/api/cms/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({})
+        });
+        assert.equal(cmsExport.response.status, 200, "Expected CMS export to return 200");
+        assert.equal(cmsExport.result.success, true, "Expected CMS export success=true");
+        assert.equal(cmsExport.result.data.totals.collections >= 1, true, "Expected at least one exported collection");
+        assert.equal(cmsExport.result.data.totals.entries >= 1, true, "Expected at least one exported entry");
+
+        const cmsManifestPath = path.join(sandboxRoot, "html", "data", "cms", "manifest.json");
+        const cmsSupportersEntriesPath = path.join(sandboxRoot, "html", "data", "cms", "entries", "supporters.json");
+        const cmsManifest = await fs.readJson(cmsManifestPath);
+        const cmsSupportersEntries = await fs.readJson(cmsSupportersEntriesPath);
+        assert.equal(cmsManifest.version, 1, "Expected CMS manifest version 1");
+        assert.ok(
+            Array.isArray(cmsManifest.collections) && cmsManifest.collections.some((item) => item.slug === "supporters"),
+            "Expected supporters collection in CMS manifest"
+        );
+        assert.ok(
+            Array.isArray(cmsSupportersEntries.entries) && cmsSupportersEntries.entries.some((item) => item.entryKey === "openai"),
+            "Expected openai entry in exported supporters entries"
+        );
+
+        const cmsRenderPageName = "phase3-cms-render-test";
+        const cmsRenderPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 3 CMS Render Test",
+            pageName: cmsRenderPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "cms-render-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "about/about_cta.html",
+                    componentPath: "about/about_cta.html",
+                    name: "about cta",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "record",
+                            collection: "supporters",
+                            selection: { filter: { name: "OpenAI" } },
+                            fieldMap: { heading: "name", buttonUrl: "url", buttonLabel: "tier" },
+                            fallback: "static"
+                        }
+                    },
+                    renderedContent: `<section class="phase3-stale"><h2>STALE CLIENT CONTENT</h2><a href="https://example.com">wrong</a></section>`
+                }
+            ]
+        };
+        const cmsRenderSave = await saveLayout(base, {
+            layoutData: cmsRenderPayload,
+            pageName: cmsRenderPageName,
+            overwrite: true
+        });
+        assert.equal(cmsRenderSave.response.status, 200, "Expected CMS render layout save to return 200");
+        assert.equal(cmsRenderSave.result.success, true, "Expected CMS render layout save success=true");
+        const cmsRenderPagePath = cmsRenderSave.result.data.pagePath;
+        createdPageFiles.add(cmsRenderPagePath);
+        const cmsRenderHtml = await fs.readFile(cmsRenderPagePath, "utf8");
+        assert.ok(!cmsRenderHtml.includes("STALE CLIENT CONTENT"), "Expected backend CMS render to override stale renderedContent");
+        assert.ok(cmsRenderHtml.includes("OpenAI"), "Expected generated page to contain resolved CMS content");
+        assert.ok(cmsRenderHtml.includes("https://openai.com"), "Expected generated page to contain resolved CMS link");
+        assert.ok(!cmsRenderHtml.includes("{{> about_cta}}"), "Expected generated page to avoid raw partial include when CMS render succeeds");
+
+        const createInsightOne = await requestJson(base, "/api/cms/collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                slug: "insights",
+                name: "Insights",
+                schema: {
+                    fields: [
+                        { name: "title", label: "Title", type: "text" },
+                        { name: "category", label: "Category", type: "text" },
+                        { name: "image_src", label: "Image", type: "text" },
+                        { name: "image_alt", label: "Image Alt", type: "text" },
+                        { name: "detail_url", label: "URL", type: "text" }
+                    ]
+                }
+            })
+        });
+        assert.equal(createInsightOne.response.status, 200, "Expected insights collection create to return 200");
+
+        const createInsightEntryOne = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "insights",
+                entryKey: "future-ai",
+                status: "published",
+                sortOrder: 1,
+                data: {
+                    title: "Future Systems",
+                    category: "Research",
+                    image_src: "https://example.com/future.jpg",
+                    image_alt: "Future systems",
+                    detail_url: "future.html"
+                }
+            })
+        });
+        assert.equal(createInsightEntryOne.response.status, 200, "Expected first insight entry create to return 200");
+
+        const createInsightEntryTwo = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "insights",
+                entryKey: "edge-notes",
+                status: "published",
+                sortOrder: 2,
+                data: {
+                    title: "Edge Notes",
+                    category: "Engineering",
+                    image_src: "https://example.com/edge.jpg",
+                    image_alt: "Edge notes",
+                    detail_url: "edge.html"
+                }
+            })
+        });
+        assert.equal(createInsightEntryTwo.response.status, 200, "Expected second insight entry create to return 200");
+
+        const cmsCollectionPageName = "phase3-cms-collection-test";
+        const cmsCollectionPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 3 CMS Collection Test",
+            pageName: cmsCollectionPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "cms-collection-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "home/insights.html",
+                    componentPath: "home/insights.html",
+                    name: "insights",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "collection",
+                            collection: "insights",
+                            selection: { sort: "sort_order:asc", limit: 2 },
+                            fieldMap: {
+                                title: "title",
+                                category: "category",
+                                imageSrc: "image_src",
+                                imageAlt: "image_alt",
+                                linkHref: "detail_url"
+                            },
+                            fallback: "static"
+                        }
+                    },
+                    renderedContent: `<section><div>STALE COLLECTION CONTENT</div></section>`
+                }
+            ]
+        };
+        const cmsCollectionSave = await saveLayout(base, {
+            layoutData: cmsCollectionPayload,
+            pageName: cmsCollectionPageName,
+            overwrite: true
+        });
+        assert.equal(cmsCollectionSave.response.status, 200, "Expected CMS collection save to return 200");
+        const cmsCollectionPagePath = cmsCollectionSave.result.data.pagePath;
+        createdPageFiles.add(cmsCollectionPagePath);
+        const cmsCollectionHtml = await fs.readFile(cmsCollectionPagePath, "utf8");
+        assert.ok(!cmsCollectionHtml.includes("STALE COLLECTION CONTENT"), "Expected backend collection render to override stale renderedContent");
+        assert.ok(cmsCollectionHtml.includes("Future Systems"), "Expected collection render to include first CMS title");
+        assert.ok(cmsCollectionHtml.includes("Edge Notes"), "Expected collection render to include second CMS title");
+        assert.ok(cmsCollectionHtml.includes("future.html"), "Expected collection render to include first CMS href");
+        assert.ok(cmsCollectionHtml.includes("edge.html"), "Expected collection render to include second CMS href");
+
+        const cmsFallbackPageName = "phase3-cms-fallback-test";
+        const cmsFallbackPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 3 CMS Fallback Test",
+            pageName: cmsFallbackPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "cms-fallback-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "about/about_cta.html",
+                    componentPath: "about/about_cta.html",
+                    name: "about cta fallback",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "record",
+                            collection: "supporters",
+                            selection: { filter: { name: "Missing Entry" } },
+                            fieldMap: { heading: "name" },
+                            fallback: "static"
+                        }
+                    },
+                    renderedContent: `<section><h2>SHOULD NOT SURVIVE</h2></section>`
+                }
+            ]
+        };
+        const cmsFallbackSave = await saveLayout(base, {
+            layoutData: cmsFallbackPayload,
+            pageName: cmsFallbackPageName,
+            overwrite: true
+        });
+        assert.equal(cmsFallbackSave.response.status, 200, "Expected CMS fallback save to return 200");
+        const cmsFallbackPagePath = cmsFallbackSave.result.data.pagePath;
+        createdPageFiles.add(cmsFallbackPagePath);
+        const cmsFallbackHtml = await fs.readFile(cmsFallbackPagePath, "utf8");
+        assert.ok(!cmsFallbackHtml.includes("SHOULD NOT SURVIVE"), "Expected fallback render to ignore stale renderedContent");
+        assert.ok(cmsFallbackHtml.includes("Let's start a"), "Expected fallback render to preserve static partial markup");
+
+        const createCtaCollection = await requestJson(base, "/api/cms/collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                slug: "cta_blocks",
+                name: "CTA Blocks",
+                schema: {
+                    fields: [
+                        { name: "key", label: "Key", type: "text" },
+                        { name: "heading", label: "Heading", type: "text" },
+                        { name: "button_label", label: "Button Label", type: "text" },
+                        { name: "button_url", label: "Button URL", type: "text" },
+                        { name: "active", label: "Active", type: "boolean" }
+                    ]
+                }
+            })
+        });
+        assert.equal(createCtaCollection.response.status, 200, "Expected CTA blocks collection create to return 200");
+
+        const createCtaEntry = await requestJson(base, "/api/cms/entries", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                collection: "cta_blocks",
+                entryKey: "about-cta",
+                status: "published",
+                sortOrder: 1,
+                data: {
+                    key: "about-cta",
+                    heading: "Build something together.",
+                    button_label: "Reach Out",
+                    button_url: "mailto:studio@example.com",
+                    active: true
+                }
+            })
+        });
+        assert.equal(createCtaEntry.response.status, 200, "Expected CTA block entry create to return 200");
+        const ctaEntryId = createCtaEntry.result.data.id;
+
+        const phase4CtaPageName = "phase4-cta-block-test";
+        const phase4CtaPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 4 CTA Block Test",
+            pageName: phase4CtaPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "phase4-cta-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "about/about_cta.html",
+                    componentPath: "about/about_cta.html",
+                    name: "about cta",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "record",
+                            collection: "cta_blocks",
+                            selection: { filter: { key: "about-cta", active: true } },
+                            fieldMap: {
+                                heading: "heading",
+                                buttonLabel: "button_label",
+                                buttonUrl: "button_url"
+                            },
+                            fallback: "static"
+                        }
+                    }
+                }
+            ]
+        };
+        const phase4CtaSave = await saveLayout(base, {
+            layoutData: phase4CtaPayload,
+            pageName: phase4CtaPageName,
+            overwrite: true
+        });
+        assert.equal(phase4CtaSave.response.status, 200, "Expected phase 4 CTA save to return 200");
+        const phase4CtaPagePath = phase4CtaSave.result.data.pagePath;
+        createdPageFiles.add(phase4CtaPagePath);
+        const phase4CtaHtml = await fs.readFile(phase4CtaPagePath, "utf8");
+        assert.ok(phase4CtaHtml.includes("Build something together."), "Expected CTA block render to include CMS heading");
+        assert.ok(phase4CtaHtml.includes("Reach Out"), "Expected CTA block render to include CMS button label");
+        assert.ok(phase4CtaHtml.includes("mailto:studio@example.com"), "Expected CTA block render to include CMS button URL");
+
+        const phase4SupportersPageName = "phase4-supporters-test";
+        const phase4SupportersPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 4 Supporters Test",
+            pageName: phase4SupportersPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "phase4-supporters-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "home/cta.html",
+                    componentPath: "home/cta.html",
+                    name: "supporters",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "collection",
+                            collection: "supporters",
+                            selection: {
+                                groups: [
+                                    {
+                                        title: "Founding Pillars",
+                                        filter: { active: true, tier: "founding" },
+                                        itemTag: "a",
+                                        itemClassName: "font-heading text-4xl md:text-6xl font-bold uppercase hover:text-gray-300 transition-colors"
+                                    },
+                                    {
+                                        title: "Visionary Contributors",
+                                        filter: { active: true, tier: "visionary" },
+                                        itemTag: "a",
+                                        itemClassName: "font-heading text-xl md:text-2xl font-medium uppercase"
+                                    },
+                                    {
+                                        title: "Community Support",
+                                        filter: { active: true, tier: "community" },
+                                        itemTag: "a"
+                                    }
+                                ]
+                            },
+                            fieldMap: {
+                                label: "name",
+                                linkHref: "url"
+                            },
+                            fallback: "static"
+                        }
+                    }
+                }
+            ]
+        };
+        const phase4SupportersSave = await saveLayout(base, {
+            layoutData: phase4SupportersPayload,
+            pageName: phase4SupportersPageName,
+            overwrite: true
+        });
+        assert.equal(phase4SupportersSave.response.status, 200, "Expected phase 4 supporters save to return 200");
+        const phase4SupportersPagePath = phase4SupportersSave.result.data.pagePath;
+        createdPageFiles.add(phase4SupportersPagePath);
+        const phase4SupportersHtml = await fs.readFile(phase4SupportersPagePath, "utf8");
+        assert.ok(phase4SupportersHtml.includes("OpenAI"), "Expected supporters render to include founding supporter");
+        assert.ok(phase4SupportersHtml.includes("Anthropic"), "Expected supporters render to include visionary supporter");
+        assert.ok(phase4SupportersHtml.includes("Community Friends"), "Expected supporters render to include community supporter");
+        assert.ok(phase4SupportersHtml.includes("https://anthropic.com"), "Expected supporters render to include supporter URLs");
+
+        const createProjectsCollection = await requestJson(base, "/api/cms/collections", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                slug: "projects",
+                name: "Projects",
+                schema: {
+                    fields: [
+                        { name: "title", label: "Title", type: "text" },
+                        { name: "category", label: "Category", type: "text" },
+                        { name: "image_src", label: "Image", type: "text" },
+                        { name: "image_alt", label: "Image Alt", type: "text" },
+                        { name: "detail_url", label: "URL", type: "text" },
+                        { name: "year", label: "Year", type: "text" },
+                        { name: "active", label: "Active", type: "boolean" },
+                        { name: "featured", label: "Featured", type: "boolean" }
+                    ]
+                }
+            })
+        });
+        assert.equal(createProjectsCollection.response.status, 200, "Expected projects collection create to return 200");
+
+        const projectEntries = [
+            {
+                entryKey: "aimana",
+                sortOrder: 1,
+                data: {
+                    title: "AIMANA",
+                    category: "AI Animation",
+                    image_src: "https://example.com/aimana.jpg",
+                    image_alt: "AIMANA",
+                    detail_url: "aimana.html",
+                    year: "2024",
+                    active: true,
+                    featured: true
+                }
+            },
+            {
+                entryKey: "voyager",
+                sortOrder: 2,
+                data: {
+                    title: "VOYAGER",
+                    category: "Cloud",
+                    image_src: "https://example.com/voyager.jpg",
+                    image_alt: "Voyager",
+                    detail_url: "voyager.html",
+                    year: "2024",
+                    active: true,
+                    featured: true
+                }
+            },
+            {
+                entryKey: "neural-canvas",
+                sortOrder: 3,
+                data: {
+                    title: "NEURAL CANVAS",
+                    category: "Engineering",
+                    image_src: "https://example.com/neural.jpg",
+                    image_alt: "Neural Canvas",
+                    detail_url: "neural.html",
+                    year: "2023",
+                    active: true,
+                    featured: false
+                }
+            },
+            {
+                entryKey: "oscillate",
+                sortOrder: 4,
+                data: {
+                    title: "OSCILLATE",
+                    category: "Product",
+                    image_src: "https://example.com/oscillate.jpg",
+                    image_alt: "Oscillate",
+                    detail_url: "oscillate.html",
+                    year: "2023",
+                    active: true,
+                    featured: false
+                }
+            }
+        ];
+        const projectEntryIds = [];
+        for (const entry of projectEntries) {
+            const createProjectEntry = await requestJson(base, "/api/cms/entries", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    collection: "projects",
+                    entryKey: entry.entryKey,
+                    status: "published",
+                    sortOrder: entry.sortOrder,
+                    data: entry.data
+                })
+            });
+            assert.equal(createProjectEntry.response.status, 200, `Expected project entry ${entry.entryKey} create to return 200`);
+            projectEntryIds.push(createProjectEntry.result.data.id);
+        }
+
+        const phase4ProjectListingPageName = "phase4-project-listing-test";
+        const phase4ProjectListingPayload = {
+            project: { name: projectName, createdAt: new Date().toISOString() },
+            pageTitle: "Phase 4 Project Listing Test",
+            pageName: phase4ProjectListingPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 1, updatedAt: new Date().toISOString() },
+            layout: [
+                {
+                    id: "phase4-project-listing-item",
+                    order: 1,
+                    type: "partial",
+                    partial: "project/project_listing.html",
+                    componentPath: "project/project_listing.html",
+                    name: "project listing",
+                    props: {
+                        cmsBinding: {
+                            source: "cms",
+                            mode: "collection",
+                            collection: "projects",
+                            selection: {
+                                filter: { active: true },
+                                sort: "sort_order:asc",
+                                limit: 4
+                            },
+                            fieldMap: {
+                                title: "title",
+                                category: "category",
+                                year: "year",
+                                imageSrc: "image_src",
+                                imageAlt: "image_alt",
+                                linkHref: "detail_url"
+                            },
+                            fallback: "static"
+                        }
+                    }
+                }
+            ]
+        };
+        const phase4ProjectListingSave = await saveLayout(base, {
+            layoutData: phase4ProjectListingPayload,
+            pageName: phase4ProjectListingPageName,
+            overwrite: true
+        });
+        assert.equal(phase4ProjectListingSave.response.status, 200, "Expected phase 4 project listing save to return 200");
+        const phase4ProjectListingPagePath = phase4ProjectListingSave.result.data.pagePath;
+        createdPageFiles.add(phase4ProjectListingPagePath);
+        const phase4ProjectListingHtml = await fs.readFile(phase4ProjectListingPagePath, "utf8");
+        assert.ok(phase4ProjectListingHtml.includes("AIMANA"), "Expected project listing render to include first project");
+        assert.ok(phase4ProjectListingHtml.includes("VOYAGER"), "Expected project listing render to include second project");
+        assert.ok(phase4ProjectListingHtml.includes("NEURAL CANVAS"), "Expected project listing render to include third project");
+        assert.ok(phase4ProjectListingHtml.includes("OSCILLATE"), "Expected project listing render to include fourth project");
+        assert.ok(phase4ProjectListingHtml.includes("aimana.html"), "Expected project listing render to include project links");
+        assert.ok(phase4ProjectListingHtml.includes("2023"), "Expected project listing render to include CMS year values");
+
+        const updateCmsEntry = await requestJson(base, `/api/cms/entries/${cmsEntryId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                sortOrder: 2,
+                data: {
+                    name: "OpenAI",
+                    tier: "visionary",
+                    url: "https://openai.com",
+                    active: true
+                }
+            })
+        });
+        assert.equal(updateCmsEntry.response.status, 200, "Expected CMS entry update to return 200");
+        assert.equal(updateCmsEntry.result.success, true, "Expected CMS entry update success=true");
+        assert.equal(updateCmsEntry.result.data.sortOrder, 2, "Expected updated CMS entry sort order");
+        assert.equal(updateCmsEntry.result.data.data.tier, "visionary", "Expected updated CMS entry tier");
+
+        const deleteCmsCollectionBlocked = await requestJson(base, "/api/cms/collections/supporters", {
+            method: "DELETE"
+        });
+        assert.equal(deleteCmsCollectionBlocked.response.status, 409, "Expected CMS collection delete conflict with existing entries");
+        assert.equal(deleteCmsCollectionBlocked.result.success, false, "Expected blocked CMS collection delete success=false");
+
+        const deleteCmsEntry = await requestJson(base, `/api/cms/entries/${cmsEntryId}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteCmsEntry.response.status, 200, "Expected CMS entry delete to return 200");
+        assert.equal(deleteCmsEntry.result.success, true, "Expected CMS entry delete success=true");
+
+        const deleteSupporterVisionary = await requestJson(base, `/api/cms/entries/${cmsSupporterVisionaryId}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteSupporterVisionary.response.status, 200, "Expected visionary supporter entry delete to return 200");
+
+        const deleteSupporterCommunity = await requestJson(base, `/api/cms/entries/${cmsSupporterCommunityId}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteSupporterCommunity.response.status, 200, "Expected community supporter entry delete to return 200");
+
+        const updateCmsCollection = await requestJson(base, "/api/cms/collections/supporters", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name: "Supporters Directory",
+                schema: {
+                    fields: [
+                        { name: "name", label: "Name", type: "text" },
+                        { name: "tier", label: "Tier", type: "text" },
+                        { name: "url", label: "URL", type: "text" },
+                        { name: "active", label: "Active", type: "boolean" }
+                    ]
+                }
+            })
+        });
+        assert.equal(updateCmsCollection.response.status, 200, "Expected CMS collection update to return 200");
+        assert.equal(updateCmsCollection.result.success, true, "Expected CMS collection update success=true");
+        assert.equal(updateCmsCollection.result.data.name, "Supporters Directory", "Expected updated CMS collection name");
+
+        const deleteCmsCollection = await requestJson(base, "/api/cms/collections/supporters", {
+            method: "DELETE"
+        });
+        assert.equal(deleteCmsCollection.response.status, 200, "Expected CMS collection delete to return 200");
+        assert.equal(deleteCmsCollection.result.success, true, "Expected CMS collection delete success=true");
+
+        const deleteCtaEntry = await requestJson(base, `/api/cms/entries/${ctaEntryId}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteCtaEntry.response.status, 200, "Expected CTA block entry delete to return 200");
+
+        const deleteCtaCollection = await requestJson(base, "/api/cms/collections/cta_blocks", {
+            method: "DELETE"
+        });
+        assert.equal(deleteCtaCollection.response.status, 200, "Expected CTA blocks collection delete to return 200");
+
+        const deleteInsightsEntryOne = await requestJson(base, `/api/cms/entries/${createInsightEntryOne.result.data.id}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteInsightsEntryOne.response.status, 200, "Expected first insights entry delete to return 200");
+
+        const deleteInsightsEntryTwo = await requestJson(base, `/api/cms/entries/${createInsightEntryTwo.result.data.id}`, {
+            method: "DELETE"
+        });
+        assert.equal(deleteInsightsEntryTwo.response.status, 200, "Expected second insights entry delete to return 200");
+
+        const deleteInsightsCollection = await requestJson(base, "/api/cms/collections/insights", {
+            method: "DELETE"
+        });
+        assert.equal(deleteInsightsCollection.response.status, 200, "Expected insights collection delete to return 200");
+
+        for (const projectEntryId of projectEntryIds) {
+            const deleteProjectEntry = await requestJson(base, `/api/cms/entries/${projectEntryId}`, {
+                method: "DELETE"
+            });
+            assert.equal(deleteProjectEntry.response.status, 200, "Expected project entry delete to return 200");
+        }
+
+        const deleteProjectsCollection = await requestJson(base, "/api/cms/collections/projects", {
+            method: "DELETE"
+        });
+        assert.equal(deleteProjectsCollection.response.status, 200, "Expected projects collection delete to return 200");
 
         const deletedPage = await requestJson(base, "/api/pages", {
             method: "DELETE",

@@ -3,6 +3,7 @@
 const express = require("express");
 const cors = require("cors");
 const { glob } = require("glob");
+const parse5 = require("parse5");
 const path = require("path");
 const fs = require("fs-extra");
 const sqlite3 = require("sqlite3");
@@ -15,15 +16,20 @@ const { sanitizeName, sanitizePageName } = require("./builder-backend/utils/sani
 const { registerLayoutsRoutes } = require("./builder-backend/routes/layouts.routes");
 const { registerPartialsRoutes } = require("./builder-backend/routes/partials.routes");
 const { registerPagesRoutes } = require("./builder-backend/routes/pages.routes");
+const { registerCmsRoutes } = require("./builder-backend/routes/cms.routes");
 const { createLayoutsController } = require("./builder-backend/controllers/layouts.controller");
 const { createPartialsController } = require("./builder-backend/controllers/partials.controller");
 const { createPagesController } = require("./builder-backend/controllers/pages.controller");
+const { createCmsController } = require("./builder-backend/controllers/cms.controller");
 const { createLayoutsService } = require("./builder-backend/services/layouts.service");
 const { createPartialsService } = require("./builder-backend/services/partials.service");
 const { createPagesService } = require("./builder-backend/services/pages.service");
+const { createCmsService } = require("./builder-backend/services/cms.service");
+const { createCmsService: createThemeCmsService } = require("../../../theme-cms/server/services/cms.service");
 const { createLayoutsRepository } = require("./builder-backend/repositories/layouts.repository");
 const { createPartialsRepository } = require("./builder-backend/repositories/partials.repository");
 const { createPagesRepository } = require("./builder-backend/repositories/pages.repository");
+const { createCmsRepository } = require("./builder-backend/repositories/cms.repository");
 const GulpHTMLTasks = require("./GulpHTMLTasks");
 
 /**
@@ -41,6 +47,9 @@ class BuilderTask {
         this.builderPath = path.resolve(this.projectRoot, options.builderPath || "./_builder/client");
         this.layoutsOutputPath = path.resolve(this.projectRoot, options.layoutsOutputPath || "./_builder/layouts");
         this.databasePath = path.resolve(this.projectRoot, options.databasePath || "./_builder/layouts/builder.sqlite");
+        this.cmsProjectRoot = path.resolve(options.cmsProjectRoot || this.projectRoot);
+        this.cmsAdminPath = path.resolve(this.projectRoot, "./theme-cms/admin");
+        this.cmsExportPath = path.resolve(this.cmsProjectRoot, options.cmsExportPath || "./html/data/cms");
         this.pagesOutputPath = path.resolve(this.projectRoot, options.pagesOutputPath || "./html/pages");
         this.imagesPath = path.resolve(this.projectRoot, options.imagesPath || "./src/images");
         this.bodyLimit = options.bodyLimit || "512kb";
@@ -59,6 +68,10 @@ class BuilderTask {
         this.pagesRepository = null;
         this.pagesService = null;
         this.pagesController = null;
+        this.cmsAuthoringRepository = null;
+        this.cmsAuthoringService = null;
+        this.cmsService = null;
+        this.cmsController = null;
     }
 
     logBoundary(layer, action, details = {}) {
@@ -248,6 +261,700 @@ class BuilderTask {
 
     sanitizePageName(value, fallback = "page") {
         return sanitizePageName(value, fallback);
+    }
+
+    sanitizeCmsSlug(value, fallback = "") {
+        const normalized = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/(^-+|-+$)/g, "");
+        return normalized || fallback;
+    }
+
+    sanitizeCmsEntryKey(value, fallback = "") {
+        const normalized = String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/(^-+|-+$)/g, "");
+        return normalized || fallback;
+    }
+
+    normalizeCmsSchema(schema) {
+        if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+            return { fields: [] };
+        }
+
+        const fields = Array.isArray(schema.fields) ? schema.fields : [];
+        return {
+            ...schema,
+            fields: fields.map((field) => ({
+                name: this.sanitizeCmsSlug(field?.name || ""),
+                label: String(field?.label || field?.name || "").trim(),
+                type: String(field?.type || "text").trim().toLowerCase()
+            })).filter((field) => field.name)
+        };
+    }
+
+    normalizeCmsEntryData(data) {
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw this.createActionableError(
+                "CMS entry data must be an object",
+                400,
+                "CMS_ENTRY_DATA_INVALID",
+                { dataType: typeof data }
+            );
+        }
+
+        return data;
+    }
+
+    parseJsonRecord(value, fallback) {
+        try {
+            return JSON.parse(String(value || ""));
+        } catch (err) {
+            return fallback;
+        }
+    }
+
+    toCamelCase(value) {
+        return String(value || "").replace(/[-_]+([a-zA-Z0-9])/g, (_, char) => char.toUpperCase());
+    }
+
+    toSnakeCase(value) {
+        return String(value || "")
+            .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+            .replace(/[-\s]+/g, "_")
+            .toLowerCase();
+    }
+
+    buildCmsDataAliases(data = {}) {
+        const aliases = {};
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            return aliases;
+        }
+
+        Object.entries(data).forEach(([key, value]) => {
+            aliases[key] = value;
+            aliases[this.toCamelCase(key)] = value;
+            aliases[this.toSnakeCase(key)] = value;
+        });
+        return aliases;
+    }
+
+    getCmsValueByKey(source, key) {
+        if (!source || typeof source !== "object" || !key) {
+            return undefined;
+        }
+
+        const candidates = [key, this.toCamelCase(key), this.toSnakeCase(key)];
+        for (const candidate of candidates) {
+            if (Object.prototype.hasOwnProperty.call(source, candidate)) {
+                return source[candidate];
+            }
+        }
+        return undefined;
+    }
+
+    getCmsEntryComparableValue(entry, key) {
+        if (!entry || !key) {
+            return undefined;
+        }
+        if (key === "status") {
+            return entry.status;
+        }
+        if (key === "entryKey" || key === "entry_key") {
+            return entry.entryKey;
+        }
+        if (key === "sortOrder" || key === "sort_order") {
+            return entry.sortOrder;
+        }
+        return this.getCmsValueByKey(this.buildCmsDataAliases(entry.data || {}), key);
+    }
+
+    normalizeCmsMappedRecord(data = {}, meta = {}) {
+        const aliases = this.buildCmsDataAliases(data);
+        if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+            Object.entries(meta).forEach(([key, value]) => {
+                aliases[key] = value;
+                aliases[this.toCamelCase(key)] = value;
+                aliases[this.toSnakeCase(key)] = value;
+            });
+        }
+        return aliases;
+    }
+
+    mapCmsEntryData(entry, binding, index = 0) {
+        const fieldMap = binding?.fieldMap && typeof binding.fieldMap === "object" ? binding.fieldMap : {};
+        const source = this.buildCmsDataAliases(entry?.data || {});
+        const mapped = {};
+
+        if (Object.keys(fieldMap).length === 0) {
+            Object.assign(mapped, source);
+        } else {
+            Object.entries(fieldMap).forEach(([targetKey, sourceKey]) => {
+                const value = this.getCmsValueByKey(source, sourceKey);
+                if (value !== undefined) {
+                    mapped[targetKey] = value;
+                }
+            });
+        }
+
+        if (mapped.title === undefined && mapped.heading === undefined && mapped.name !== undefined) {
+            mapped.title = mapped.name;
+        }
+        if (mapped.linkHref === undefined) {
+            const hrefValue = mapped.href ?? mapped.url ?? mapped.detailUrl ?? mapped.detail_url ?? mapped.buttonUrl ?? mapped.button_url;
+            if (hrefValue !== undefined) {
+                mapped.linkHref = hrefValue;
+            }
+        }
+        if (mapped.imageSrc === undefined) {
+            const imageValue = mapped.src ?? mapped.image ?? mapped.image_src;
+            if (imageValue !== undefined) {
+                mapped.imageSrc = imageValue;
+            }
+        }
+        if (mapped.imageAlt === undefined) {
+            const altValue = mapped.alt ?? mapped.image_alt;
+            if (altValue !== undefined) {
+                mapped.imageAlt = altValue;
+            }
+        }
+        if (mapped.title === undefined) {
+            const titleValue = mapped.heading ?? mapped.headline;
+            if (titleValue !== undefined) {
+                mapped.title = titleValue;
+            }
+        }
+        if (mapped.text === undefined) {
+            const textValue = mapped.body ?? mapped.summary ?? mapped.description;
+            if (textValue !== undefined) {
+                mapped.text = textValue;
+            }
+        }
+        if (mapped.linkText === undefined) {
+            const labelValue = mapped.buttonLabel ?? mapped.button_label ?? mapped.label;
+            if (labelValue !== undefined) {
+                mapped.linkText = labelValue;
+            }
+        }
+
+        return this.normalizeCmsMappedRecord(mapped, {
+            index: String(index + 1).padStart(2, "0"),
+            sortOrder: entry?.sortOrder ?? index,
+            status: entry?.status || "",
+            entryKey: entry?.entryKey || ""
+        });
+    }
+
+    async resolveCmsBindingData(binding) {
+        if (!binding || binding.source !== "cms" || !binding.collection) {
+            return null;
+        }
+
+        const entries = await this.listCmsEntries(binding.collection);
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return null;
+        }
+
+        const filter = binding?.selection?.filter && typeof binding.selection.filter === "object"
+            ? binding.selection.filter
+            : {};
+        const filtered = entries.filter((entry) => {
+            return Object.entries(filter).every(([key, expected]) => {
+                const actual = this.getCmsEntryComparableValue(entry, key);
+                return actual === expected;
+            });
+        });
+
+        const sortSpec = String(binding?.selection?.sort || "sort_order:asc").trim();
+        const [rawSortKey, rawSortDir] = sortSpec.split(":");
+        const sortKey = rawSortKey || "sort_order";
+        const sortDir = String(rawSortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
+        filtered.sort((a, b) => {
+            const left = this.getCmsEntryComparableValue(a, sortKey);
+            const right = this.getCmsEntryComparableValue(b, sortKey);
+            if (left === right) return Number(a?.id || 0) - Number(b?.id || 0);
+            if (left === undefined || left === null) return sortDir === "asc" ? 1 : -1;
+            if (right === undefined || right === null) return sortDir === "asc" ? -1 : 1;
+            if (typeof left === "number" && typeof right === "number") {
+                return sortDir === "asc" ? left - right : right - left;
+            }
+            const cmp = String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
+            return sortDir === "asc" ? cmp : -cmp;
+        });
+
+        const limitValue = Number(binding?.selection?.limit);
+        const limited = Number.isFinite(limitValue) && limitValue > 0
+            ? filtered.slice(0, limitValue)
+            : filtered;
+        const mode = binding.mode === "collection" ? "collection" : "record";
+        const groups = Array.isArray(binding?.selection?.groups) ? binding.selection.groups : [];
+        const mapped = limited.map((entry, index) => this.mapCmsEntryData(entry, binding, index));
+        const mappedGroups = groups.map((group) => {
+            const groupFilter = group?.filter && typeof group.filter === "object" ? group.filter : {};
+            const groupEntries = filtered
+                .filter((entry) => Object.entries(groupFilter).every(([key, expected]) => this.getCmsEntryComparableValue(entry, key) === expected))
+                .map((entry, index) => this.mapCmsEntryData(entry, binding, index));
+            return {
+                ...group,
+                items: groupEntries
+            };
+        });
+        if (mapped.length === 0 && mappedGroups.every((group) => !Array.isArray(group.items) || group.items.length === 0)) {
+            return null;
+        }
+
+        return {
+            mode,
+            items: mapped,
+            record: mapped[0],
+            groups: mappedGroups
+        };
+    }
+
+    isElementNode(node) {
+        return Boolean(node && node.nodeName && node.nodeName !== "#text" && node.nodeName !== "#comment" && node.tagName);
+    }
+
+    walkElementNodes(node, visit) {
+        if (!node) {
+            return;
+        }
+        if (this.isElementNode(node)) {
+            visit(node);
+        }
+        const children = Array.isArray(node.childNodes) ? node.childNodes : [];
+        children.forEach((child) => this.walkElementNodes(child, visit));
+    }
+
+    getElementNodes(root) {
+        const nodes = [];
+        this.walkElementNodes(root, (node) => nodes.push(node));
+        return nodes;
+    }
+
+    getAttr(node, name) {
+        const attrs = Array.isArray(node?.attrs) ? node.attrs : [];
+        const match = attrs.find((attr) => attr.name === name);
+        return match ? match.value : "";
+    }
+
+    setAttr(node, name, value) {
+        if (!node) {
+            return;
+        }
+        if (!Array.isArray(node.attrs)) {
+            node.attrs = [];
+        }
+        const existing = node.attrs.find((attr) => attr.name === name);
+        if (existing) {
+            existing.value = String(value);
+            return;
+        }
+        node.attrs.push({ name, value: String(value) });
+    }
+
+    setElementText(node, value) {
+        if (!node) {
+            return;
+        }
+        node.childNodes = [{ nodeName: "#text", value: String(value), parentNode: node }];
+    }
+
+    isPlainTextElement(node) {
+        if (!this.isElementNode(node)) {
+            return false;
+        }
+        const children = Array.isArray(node.childNodes) ? node.childNodes : [];
+        return children.every((child) => child.nodeName === "#text");
+    }
+
+    findFirstElement(root, predicate) {
+        let match = null;
+        this.walkElementNodes(root, (node) => {
+            if (!match && predicate(node)) {
+                match = node;
+            }
+        });
+        return match;
+    }
+
+    findCmsEyebrowNode(root) {
+        const elements = this.getElementNodes(root);
+        const headingIndex = elements.findIndex((node) => /^h[1-6]$/i.test(node.tagName));
+        const spans = elements.filter((node) => node.tagName === "span");
+        if (headingIndex >= 0) {
+            const preceding = spans.filter((node) => elements.indexOf(node) < headingIndex);
+            if (preceding.length > 0) {
+                return preceding[preceding.length - 1];
+            }
+        }
+        return spans[0] || null;
+    }
+
+    cloneAstNode(node) {
+        if (!node || typeof node !== "object") {
+            return null;
+        }
+
+        const clone = {
+            nodeName: node.nodeName
+        };
+        if (node.tagName) {
+            clone.tagName = node.tagName;
+            clone.namespaceURI = node.namespaceURI;
+            clone.attrs = Array.isArray(node.attrs)
+                ? node.attrs.map((attr) => ({ name: attr.name, value: attr.value }))
+                : [];
+        }
+        if (node.value !== undefined) {
+            clone.value = node.value;
+        }
+        if (node.data !== undefined) {
+            clone.data = node.data;
+        }
+        if (node.mode !== undefined) {
+            clone.mode = node.mode;
+        }
+        if (node.sourceCodeLocation !== undefined) {
+            clone.sourceCodeLocation = node.sourceCodeLocation;
+        }
+
+        const children = Array.isArray(node.childNodes) ? node.childNodes.map((child) => this.cloneAstNode(child)).filter(Boolean) : [];
+        clone.childNodes = children;
+        children.forEach((child) => {
+            child.parentNode = clone;
+        });
+        return clone;
+    }
+
+    findCmsRepeaterTemplate(root) {
+        const parents = [root].concat(this.getElementNodes(root));
+        let best = null;
+
+        const scoreCandidate = (template, count) => {
+            const className = this.getAttr(template, "class");
+            let score = count;
+            if (/(card|item|post|project|blog|supporter)/i.test(className)) score += 10;
+            if (this.findFirstElement(template, (node) => node.tagName === "img")) score += 5;
+            if (this.findFirstElement(template, (node) => /^h[1-6]$/i.test(node.tagName))) score += 4;
+            if (this.findFirstElement(template, (node) => node.tagName === "p")) score += 2;
+            if (["a", "article", "li"].includes(template.tagName)) score += 2;
+            return score;
+        };
+
+        parents.forEach((parent) => {
+            const children = Array.isArray(parent?.childNodes) ? parent.childNodes.filter((node) => this.isElementNode(node)) : [];
+            if (children.length < 2) {
+                return;
+            }
+
+            const groups = new Map();
+            children.forEach((child) => {
+                const signature = `${child.tagName}::${this.getAttr(child, "class").split(/\s+/).filter(Boolean).sort().join(".")}`;
+                if (!groups.has(signature)) {
+                    groups.set(signature, []);
+                }
+                groups.get(signature).push(child);
+            });
+
+            groups.forEach((group) => {
+                if (group.length < 2) {
+                    return;
+                }
+                const candidate = {
+                    parent,
+                    template: group[0],
+                    siblings: group,
+                    score: scoreCandidate(group[0], group.length)
+                };
+                if (!best || candidate.score > best.score) {
+                    best = candidate;
+                }
+            });
+        });
+
+        return best;
+    }
+
+    findCmsTemplateSequence(root) {
+        const parents = [root].concat(this.getElementNodes(root));
+        let best = null;
+
+        const isCardNode = (node) => {
+            if (!this.isElementNode(node) || node.tagName !== "div") {
+                return false;
+            }
+            const hasLink = Boolean(this.findFirstElement(node, (child) => child.tagName === "a"));
+            const hasHeading = Boolean(this.findFirstElement(node, (child) => /^h[1-6]$/i.test(child.tagName)));
+            const hasImage = Boolean(this.findFirstElement(node, (child) => child.tagName === "img"));
+            return hasLink && (hasHeading || hasImage);
+        };
+
+        parents.forEach((parent) => {
+            const candidates = Array.isArray(parent?.childNodes)
+                ? parent.childNodes.filter((child) => isCardNode(child))
+                : [];
+            if (candidates.length < 2) {
+                return;
+            }
+            const score = candidates.length * 10;
+            if (!best || score > best.score) {
+                best = { parent, templates: candidates, score };
+            }
+        });
+
+        return best;
+    }
+
+    applyCmsDataToAst(root, data = {}) {
+        if (!root || !data || typeof data !== "object") {
+            return;
+        }
+
+        const heading = this.findFirstElement(root, (node) => /^h[1-6]$/i.test(node.tagName));
+        const paragraph = this.findFirstElement(root, (node) => node.tagName === "p");
+        const image = this.findFirstElement(root, (node) => node.tagName === "img");
+        const link = root.tagName === "a" ? root : this.findFirstElement(root, (node) => node.tagName === "a");
+        const eyebrow = this.findCmsEyebrowNode(root);
+
+        const titleValue = data.title ?? data.heading ?? data.headline ?? data.name;
+        const textValue = data.text ?? data.body ?? data.summary ?? data.description;
+        const hrefValue = data.linkHref ?? data.href ?? data.url ?? data.detailUrl ?? data.detail_url ?? data.buttonUrl ?? data.button_url;
+        const linkTextValue = data.linkText ?? data.buttonLabel ?? data.button_label ?? data.label;
+        const imageSrcValue = data.imageSrc ?? data.src ?? data.image ?? data.image_src;
+        const imageAltValue = data.imageAlt ?? data.alt ?? data.image_alt;
+        const eyebrowValue = data.eyebrow ?? data.category ?? data.label ?? data.tier;
+        const indexValue = data.index ?? data.orderLabel ?? data.order_label;
+        const yearValue = data.year;
+
+        if (heading && titleValue !== undefined) this.setElementText(heading, titleValue);
+        if (paragraph && textValue !== undefined) this.setElementText(paragraph, textValue);
+        if (link && hrefValue !== undefined) this.setAttr(link, "href", hrefValue);
+        if (link && linkTextValue !== undefined && this.isPlainTextElement(link)) this.setElementText(link, linkTextValue);
+        if (image && imageSrcValue !== undefined) this.setAttr(image, "src", imageSrcValue);
+        if (image && imageAltValue !== undefined) this.setAttr(image, "alt", imageAltValue);
+        if (eyebrow && eyebrowValue !== undefined) this.setElementText(eyebrow, eyebrowValue);
+
+        if (indexValue !== undefined && heading) {
+            const elements = this.getElementNodes(root);
+            const headingIndex = elements.indexOf(heading);
+            const precedingSpans = elements.filter((node, index) => node.tagName === "span" && index < headingIndex);
+            if (precedingSpans.length > 1) {
+                this.setElementText(precedingSpans[0], indexValue);
+            }
+        }
+
+        if (yearValue !== undefined && heading) {
+            const elements = this.getElementNodes(root);
+            const headingIndex = elements.indexOf(heading);
+            const followingSpans = elements.filter((node, index) => node.tagName === "span" && index > headingIndex);
+            if (followingSpans.length > 0) {
+                this.setElementText(followingSpans[followingSpans.length - 1], yearValue);
+            }
+        }
+    }
+
+    applyCmsCollectionRenderingToAst(root, records = []) {
+        if (!Array.isArray(records) || records.length === 0) {
+            return false;
+        }
+
+        const repeater = this.findCmsRepeaterTemplate(root);
+        if (!repeater || !Array.isArray(repeater.parent?.childNodes)) {
+            return false;
+        }
+
+        const { parent, template, siblings } = repeater;
+        const firstIndex = parent.childNodes.indexOf(siblings[0]);
+        parent.childNodes = parent.childNodes.filter((node) => !siblings.includes(node));
+
+        const clones = records.map((record) => {
+            const clone = this.cloneAstNode(template);
+            if (clone) {
+                clone.parentNode = parent;
+                this.applyCmsDataToAst(clone, record);
+            }
+            return clone;
+        }).filter(Boolean);
+
+        parent.childNodes.splice(firstIndex, 0, ...clones);
+        return clones.length > 0;
+    }
+
+    applyCmsTemplateSequenceRenderingToAst(root, records = []) {
+        if (!Array.isArray(records) || records.length === 0) {
+            return false;
+        }
+
+        const sequence = this.findCmsTemplateSequence(root);
+        if (!sequence || !Array.isArray(sequence.parent?.childNodes)) {
+            return false;
+        }
+
+        const { parent, templates } = sequence;
+        const firstIndex = parent.childNodes.indexOf(templates[0]);
+        parent.childNodes = parent.childNodes.filter((node) => !templates.includes(node));
+
+        const clones = records.map((record, index) => {
+            const template = templates[index % templates.length];
+            const clone = this.cloneAstNode(template);
+            if (clone) {
+                clone.parentNode = parent;
+                this.applyCmsDataToAst(clone, record);
+            }
+            return clone;
+        }).filter(Boolean);
+
+        parent.childNodes.splice(firstIndex, 0, ...clones);
+        return clones.length > 0;
+    }
+
+    createAstTextNode(value, parentNode = null) {
+        return {
+            nodeName: "#text",
+            value: String(value),
+            parentNode
+        };
+    }
+
+    createAstElement(tagName, attrs = {}, textContent = "", parentNode = null) {
+        const node = {
+            nodeName: tagName,
+            tagName,
+            namespaceURI: "http://www.w3.org/1999/xhtml",
+            attrs: Object.entries(attrs)
+                .filter(([, value]) => value !== undefined && value !== null && value !== "")
+                .map(([name, value]) => ({ name, value: String(value) })),
+            childNodes: [],
+            parentNode
+        };
+        if (textContent !== undefined && textContent !== null && textContent !== "") {
+            node.childNodes.push(this.createAstTextNode(textContent, node));
+        }
+        return node;
+    }
+
+    applyCmsGroupedCollectionRenderingToAst(root, groups = []) {
+        if (!Array.isArray(groups) || groups.length === 0) {
+            return false;
+        }
+
+        const outer = Array.isArray(root?.childNodes)
+            ? root.childNodes.find((child) => this.isElementNode(child))
+            : null;
+        if (!outer || !Array.isArray(outer.childNodes)) {
+            return false;
+        }
+
+        const groupBlocks = outer.childNodes.filter((block) => {
+            if (!this.isElementNode(block) || !Array.isArray(block.childNodes)) {
+                return false;
+            }
+            const directSpan = block.childNodes.find((child) => this.isElementNode(child) && child.tagName === "span");
+            const directContainer = block.childNodes.find((child) => this.isElementNode(child) && child.tagName === "div");
+            return Boolean(directSpan && directContainer);
+        });
+
+        if (groupBlocks.length === 0) {
+            return false;
+        }
+
+        groups.slice(0, groupBlocks.length).forEach((group, index) => {
+            const block = groupBlocks[index];
+            const titleNode = block.childNodes.find((child) => this.isElementNode(child) && child.tagName === "span");
+            const listNode = block.childNodes.find((child) => this.isElementNode(child) && child.tagName === "div");
+            if (!titleNode || !listNode) {
+                return;
+            }
+
+            if (group.title) {
+                this.setElementText(titleNode, group.title);
+            }
+
+            listNode.childNodes = [];
+            (group.items || []).forEach((record) => {
+                const text = record.label ?? record.title ?? record.name ?? "";
+                if (!text) {
+                    return;
+                }
+                const tagName = group.itemTag || (record.linkHref ? "a" : "span");
+                const attrs = {};
+                if (group.itemClassName) {
+                    attrs.class = group.itemClassName;
+                }
+                if (tagName === "a" && record.linkHref) {
+                    attrs.href = record.linkHref;
+                }
+                listNode.childNodes.push(this.createAstElement(tagName, attrs, text, listNode));
+            });
+        });
+
+        return true;
+    }
+
+    async renderCmsBoundComponent(item) {
+        const binding = item?.props?.cmsBinding;
+        if (!binding || binding.source !== "cms" || !binding.collection) {
+            return typeof item?.renderedContent === "string" && item.renderedContent.trim().length > 0
+                ? item.renderedContent
+                : null;
+        }
+
+        const sourcePath = item.componentPath || item.partial;
+        const fullPath = this.resolveSafePath(this.partialsPath, sourcePath);
+        const staticMarkup = await fs.readFile(fullPath, "utf8");
+
+        let resolved = null;
+        try {
+            resolved = await this.resolveCmsBindingData(binding);
+        } catch (err) {
+            logErr.writeLog(err, {
+                customKey: "CMS_BINDING_RESOLVE_FAILED",
+                context: { sourcePath, collection: binding.collection }
+            });
+            return staticMarkup;
+        }
+
+        if (!resolved) {
+            return staticMarkup;
+        }
+
+        try {
+            const fragment = parse5.parseFragment(staticMarkup);
+            const root = this.getElementNodes(fragment)[0] || null;
+            if (!root) {
+                return staticMarkup;
+            }
+
+            if (resolved.mode === "record" && resolved.record) {
+                this.applyCmsDataToAst(root, resolved.record);
+            } else if (resolved.mode === "collection") {
+                const groupedApplied = Array.isArray(resolved.groups) && resolved.groups.length > 0
+                    ? this.applyCmsGroupedCollectionRenderingToAst(root, resolved.groups)
+                    : false;
+                if (!groupedApplied && Array.isArray(resolved.items) && resolved.items.length > 0) {
+                    const repeatedApplied = this.applyCmsCollectionRenderingToAst(root, resolved.items);
+                    const sequenceApplied = repeatedApplied ? true : this.applyCmsTemplateSequenceRenderingToAst(root, resolved.items);
+                    if (!sequenceApplied) {
+                        return staticMarkup;
+                    }
+                }
+            }
+
+            return parse5.serialize(fragment);
+        } catch (err) {
+            logErr.writeLog(err, {
+                customKey: "CMS_BINDING_RENDER_FAILED",
+                context: { sourcePath, collection: binding.collection }
+            });
+            return staticMarkup;
+        }
     }
 
     async upsertProjectRecord(projectName) {
@@ -809,6 +1516,75 @@ class BuilderTask {
         return { projectName: safeProjectName };
     }
 
+    async listCmsCollections() {
+        const publishedPath = path.join(this.cmsExportPath, "collections", "index.json");
+        if (await fs.pathExists(publishedPath)) {
+            const published = await fs.readJson(publishedPath);
+            const items = Array.isArray(published?.collections) ? published.collections : [];
+            return items;
+        }
+
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.listCollections();
+    }
+
+    async createCmsCollection({ slug, name, schema }) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.createCollection({ slug, name, schema });
+    }
+
+    async updateCmsCollection(slug, { name, schema }) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.updateCollection(slug, { name, schema });
+    }
+
+    async deleteCmsCollection(slug) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.deleteCollection(slug);
+    }
+
+    async listCmsEntries(collectionSlug) {
+        const safeCollectionSlug = this.sanitizeCmsSlug(collectionSlug);
+        const publishedPath = path.join(this.cmsExportPath, "entries", `${safeCollectionSlug}.json`);
+        if (safeCollectionSlug && await fs.pathExists(publishedPath)) {
+            const published = await fs.readJson(publishedPath);
+            const items = Array.isArray(published?.entries) ? published.entries : [];
+            return items.map((entry) => ({
+                id: entry.id,
+                collection: safeCollectionSlug,
+                entryKey: entry.entryKey,
+                status: entry.status,
+                sortOrder: entry.sortOrder,
+                data: entry.data || {},
+                createdAt: entry.createdAt,
+                updatedAt: entry.updatedAt
+            }));
+        }
+
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.listEntries(collectionSlug);
+    }
+
+    async createCmsEntry({ collection, entryKey, status = "draft", sortOrder = 0, data }) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.createEntry({ collection, entryKey, status, sortOrder, data });
+    }
+
+    async updateCmsEntry(id, payload = {}) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.updateEntry(id, payload);
+    }
+
+    async deleteCmsEntry(id) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.deleteEntry(id);
+    }
+
+    async exportCmsContent(options = {}) {
+        await this.initCmsAuthoringSlice();
+        return this.cmsAuthoringService.exportContent(options);
+    }
+
     async getSavedLayout(fileName) {
         this.logBoundary("service", "getSavedLayout:start", { fileName });
         if (typeof fileName !== "string" || !/^[a-zA-Z0-9._-]+\.json$/.test(fileName)) {
@@ -1269,6 +2045,25 @@ class BuilderTask {
         this.pagesController = createPagesController(this, this.pagesService);
     }
 
+    async initCmsAuthoringSlice() {
+        if (this.cmsAuthoringRepository && this.cmsAuthoringService) {
+            return;
+        }
+        this.cmsAuthoringRepository = createCmsRepository(this);
+        await this.cmsAuthoringRepository.initSchema();
+        this.cmsAuthoringService = createThemeCmsService(this.cmsAuthoringRepository, {
+            config: this.cmsAuthoringRepository.config || null
+        });
+    }
+
+    initCmsSlice() {
+        if (this.cmsService && this.cmsController) {
+            return;
+        }
+        this.cmsService = createCmsService(this);
+        this.cmsController = createCmsController(this, this.cmsService);
+    }
+
     /**
      * Initialize and start the Express server
      */
@@ -1279,6 +2074,10 @@ class BuilderTask {
             this.app.use(cors());
             this.app.use(express.json({ limit: this.bodyLimit }));
             this.app.use(express.static(path.resolve(this.builderPath)));
+            this.app.use("/cms", express.static(this.cmsAdminPath));
+            this.app.get("/cms", (req, res) => {
+                res.sendFile(path.resolve(this.cmsAdminPath, "index.html"));
+            });
             this.app.use("/src/images", express.static(this.imagesPath));
 
             this.initPartialsSlice();
@@ -1374,6 +2173,9 @@ class BuilderTask {
 
             this.initPagesSlice();
             registerPagesRoutes(this.app, this.pagesController);
+
+            this.initCmsSlice();
+            registerCmsRoutes(this.app, this.cmsController);
 
             // API: Upload image to src/images
             this.app.post("/api/uploads/image", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
@@ -1493,6 +2295,9 @@ class BuilderTask {
      */
     async stopServer() {
         await this.closeDatabase();
+        if (this.cmsAuthoringRepository && typeof this.cmsAuthoringRepository.close === "function") {
+            await this.cmsAuthoringRepository.close();
+        }
         if (this.watchProcess && !this.watchProcess.killed) {
             try {
                 this.watchProcess.kill();

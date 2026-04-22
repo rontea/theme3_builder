@@ -48,3 +48,7 @@
 
 ## Backlog - Refactor
 - [ ] Review and plan MVC-style refactor for builder codebase (routes/controllers/services/UI modules), then schedule incremental migration.
+- [ ] Extract CMS out of builder into `theme-cms/` and keep builder focused on layout composition plus `cmsBinding`.
+  See `todo/cms-separation-plan.md`.
+- [ ] Migrate the current in-builder CMS prototype into a standalone CMS app.
+  Use `todo/cms-builder-plan.md` as prototype history and `todo/cms-separation-plan.md` as the target architecture.

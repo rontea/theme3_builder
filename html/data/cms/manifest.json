@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-22T10:59:44.967Z",
+  "source": {
+    "databasePath": "C:\\Design\\theme_3-main\\theme-cms\\data\\cms.sqlite"
+  },
+  "statusFilter": [
+    "published"
+  ],
+  "totals": {
+    "collections": 4,
+    "entries": 11
+  },
+  "collections": [
+    {
+      "slug": "cta_blocks",
+      "name": "CTA Blocks",
+      "entryCount": 1,
+      "files": {
+        "collection": "collections/cta_blocks.json",
+        "entries": "entries/cta_blocks.json"
+      }
+    },
+    {
+      "slug": "insights",
+      "name": "Insights",
+      "entryCount": 3,
+      "files": {
+        "collection": "collections/insights.json",
+        "entries": "entries/insights.json"
+      }
+    },
+    {
+      "slug": "projects",
+      "name": "Projects",
+      "entryCount": 4,
+      "files": {
+        "collection": "collections/projects.json",
+        "entries": "entries/projects.json"
+      }
+    },
+    {
+      "slug": "supporters",
+      "name": "Supporters",
+      "entryCount": 3,
+      "files": {
+        "collection": "collections/supporters.json",
+        "entries": "entries/supporters.json"
+      }
+    }
+  ]
+}

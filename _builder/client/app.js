@@ -34,6 +34,9 @@ class VisualBuilder {
         this.previewContentMode = 'render';
         this.currentPartialCodePath = null;
         this.pendingImageEdit = null;
+        this.cmsCollections = [];
+        this.cmsEntriesByCollection = {};
+        this.cmsEntriesLoadPromises = {};
         this.designPresets = [
             {
                 id: 'default',
@@ -118,6 +121,7 @@ class VisualBuilder {
         this.bindEvents();
         this.initSortable();
         await this.initMicroComponents();
+        await this.loadCmsCollections();
         this.initDesignPresets();
         const initialMode = this.getInitialBuilderMode();
         this.setBuilderMode(initialMode);
@@ -190,6 +194,7 @@ class VisualBuilder {
         this.btnLoadLayout = document.getElementById('btnLoadLayout');
         this.btnClosePage = document.getElementById('btnClosePage');
         this.btnCreateProject = document.getElementById('btnCreateProject');
+        this.btnOpenCms = document.getElementById('btnOpenCms');
         this.projectNameDisplay = document.getElementById('projectNameDisplay');
         this.builderSurfaceBadge = document.getElementById('builderSurfaceBadge');
         this.builderTargetBadge = document.getElementById('builderTargetBadge');
@@ -256,7 +261,6 @@ class VisualBuilder {
         this.syncLandingLayouts = document.getElementById('syncLandingLayouts');
         this.closeProjectDashboard = document.getElementById('closeProjectDashboard');
         this.refreshLandingProjects = document.getElementById('refreshLandingProjects');
-        
         // Page title
         this.pageTitleInput = document.getElementById('pageTitle');
         
@@ -320,6 +324,9 @@ class VisualBuilder {
         this.btnLoadLayout.addEventListener('click', () => this.openLoadLayoutModal());
         this.btnClosePage.addEventListener('click', () => this.closeCurrentPageToDashboard());
         this.btnCreateProject.addEventListener('click', () => this.openProjectModal());
+        if (this.btnOpenCms) {
+            this.btnOpenCms.addEventListener('click', () => this.openCmsModal());
+        }
         this.syncLandingPages.addEventListener('click', () => this.syncPagesFromFilesystem());
         if (this.syncLandingLandmarks) {
             this.syncLandingLandmarks.addEventListener('click', () => this.syncLandmarksFromFilesystem());
@@ -386,7 +393,7 @@ class VisualBuilder {
         }
         
         // Close modals on background click
-        [this.propertiesPanel, this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal, this.imageModal].forEach(modal => {
+        [this.propertiesPanel, this.previewModal, this.exportModal, this.loadLayoutModal, this.deleteProjectModal, this.closePageConfirmModal, this.createProjectModal, this.createPageModal, this.partialCodeModal, this.partialPreviewModal, this.imageModal].filter(Boolean).forEach(modal => {
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     if (modal === this.propertiesPanel) {
@@ -473,6 +480,7 @@ class VisualBuilder {
         if (this.freeformSectionTemplateSelect) this.freeformSectionTemplateSelect.disabled = isLocked || this.canvasLayoutMode !== 'freeform';
         this.btnExport.disabled = isLocked;
         this.btnSave.disabled = isLocked;
+        if (this.btnOpenCms) this.btnOpenCms.disabled = false;
         const isEditingPartial = Boolean(this.editingPartialPath);
         const isEditingLayout = Boolean(this.editingLayoutPath);
         const disablePageActions = isLocked || this.builderMode !== 'page' || isEditingPartial || isEditingLayout;
@@ -2594,12 +2602,13 @@ class VisualBuilder {
       async createComponentInstance(type, componentPath) {
           if (type === 'partial') {
               const result = await this.apiClient.getPartial(componentPath);
+              const defaultCmsBinding = this.getDefaultCmsBindingForComponent(componentPath);
               return {
                   instanceId: this.generateInstanceId(),
                   type,
                   componentPath,
                   name: componentPath.split('/').pop().replace('.html', ''),
-                  props: {},
+                  props: defaultCmsBinding ? { cmsBinding: defaultCmsBinding } : {},
                   content: result.data,
                   children: {},
                   canvas: null
@@ -3035,6 +3044,708 @@ class VisualBuilder {
         }
     }
 
+    openCmsModal() {
+        const popup = window.open('/cms/', '_blank', 'noopener');
+        if (!popup) {
+            window.location.href = '/cms/';
+        }
+    }
+
+    closeCmsModal() {
+        // Builder no longer hosts CMS authoring in a modal.
+    }
+
+    getDefaultCmsCollectionSchema() {
+        return {
+            fields: [
+                { name: 'title', label: 'Title', type: 'text' }
+            ]
+        };
+    }
+
+    formatCmsSchema(schema) {
+        return JSON.stringify(schema || this.getDefaultCmsCollectionSchema(), null, 2);
+    }
+
+    formatCmsEntryData(data) {
+        return JSON.stringify(data || {}, null, 2);
+    }
+
+    parseJsonInput(rawValue, fallback = null) {
+        const text = String(rawValue || '').trim();
+        if (!text) {
+            return fallback;
+        }
+        return JSON.parse(text);
+    }
+
+    cloneCmsBinding(binding) {
+        if (!binding || typeof binding !== 'object') {
+            return null;
+        }
+        return JSON.parse(JSON.stringify(binding));
+    }
+
+    getDefaultCmsBindingForComponent(componentPath = '') {
+        const normalizedPath = String(componentPath || '').replace(/\\/g, '/').trim();
+        const presets = {
+            'about/about_cta.html': {
+                source: 'cms',
+                mode: 'record',
+                collection: 'cta_blocks',
+                selection: {
+                    filter: {
+                        key: 'about-cta',
+                        active: true
+                    }
+                },
+                fieldMap: {
+                    heading: 'heading',
+                    buttonLabel: 'button_label',
+                    buttonUrl: 'button_url'
+                },
+                fallback: 'static'
+            },
+            'home/insights.html': {
+                source: 'cms',
+                mode: 'collection',
+                collection: 'insights',
+                selection: {
+                    filter: {
+                        active: true
+                    },
+                    sort: 'sort_order:asc',
+                    limit: 3
+                },
+                fieldMap: {
+                    title: 'title',
+                    category: 'category',
+                    imageSrc: 'image_src',
+                    imageAlt: 'image_alt',
+                    linkHref: 'detail_url'
+                },
+                fallback: 'static'
+            },
+            'home/projects.html': {
+                source: 'cms',
+                mode: 'collection',
+                collection: 'projects',
+                selection: {
+                    filter: {
+                        active: true,
+                        featured: true
+                    },
+                    sort: 'sort_order:asc',
+                    limit: 2
+                },
+                fieldMap: {
+                    title: 'title',
+                    category: 'category',
+                    text: 'summary',
+                    imageSrc: 'image_src',
+                    imageAlt: 'image_alt',
+                    linkHref: 'detail_url'
+                },
+                fallback: 'static'
+            },
+            'project/project_listing.html': {
+                source: 'cms',
+                mode: 'collection',
+                collection: 'projects',
+                selection: {
+                    filter: {
+                        active: true
+                    },
+                    sort: 'sort_order:asc',
+                    limit: 4
+                },
+                fieldMap: {
+                    title: 'title',
+                    category: 'category',
+                    year: 'year',
+                    imageSrc: 'image_src',
+                    imageAlt: 'image_alt',
+                    linkHref: 'detail_url'
+                },
+                fallback: 'static'
+            },
+            'home/cta.html': {
+                source: 'cms',
+                mode: 'collection',
+                collection: 'supporters',
+                selection: {
+                    groups: [
+                        {
+                            title: 'Founding Pillars',
+                            filter: { active: true, tier: 'founding' },
+                            itemTag: 'a',
+                            itemClassName: 'font-heading text-4xl md:text-6xl font-bold uppercase hover:text-gray-300 transition-colors'
+                        },
+                        {
+                            title: 'Visionary Contributors',
+                            filter: { active: true, tier: 'visionary' },
+                            itemTag: 'a',
+                            itemClassName: 'font-heading text-xl md:text-2xl font-medium uppercase'
+                        },
+                        {
+                            title: 'Community Support',
+                            filter: { active: true, tier: 'community' },
+                            itemTag: 'a',
+                            itemClassName: ''
+                        }
+                    ]
+                },
+                fieldMap: {
+                    label: 'name',
+                    linkHref: 'url'
+                },
+                fallback: 'static'
+            }
+        };
+
+        return this.cloneCmsBinding(presets[normalizedPath] || null);
+    }
+
+    async ensureCmsEntriesLoaded(collectionSlug, options = {}) {
+        const slug = String(collectionSlug || '').trim();
+        if (!slug) {
+            return [];
+        }
+
+        if (!options.force && Array.isArray(this.cmsEntriesByCollection[slug])) {
+            return this.cmsEntriesByCollection[slug];
+        }
+
+        if (!options.force && this.cmsEntriesLoadPromises[slug]) {
+            return this.cmsEntriesLoadPromises[slug];
+        }
+
+        this.cmsEntriesLoadPromises[slug] = this.apiClient
+            .listCmsEntries(slug)
+            .then((result) => {
+                const entries = Array.isArray(result?.data) ? result.data : [];
+                this.cmsEntriesByCollection[slug] = entries;
+                return entries;
+            })
+            .catch((error) => {
+                console.error(`Failed to load CMS entries for ${slug}:`, error);
+                return [];
+            })
+            .finally(() => {
+                delete this.cmsEntriesLoadPromises[slug];
+            });
+
+        return this.cmsEntriesLoadPromises[slug];
+    }
+
+    getCachedCmsEntries(collectionSlug) {
+        const slug = String(collectionSlug || '').trim();
+        if (!slug) {
+            return [];
+        }
+        if (Array.isArray(this.cmsEntriesByCollection[slug])) {
+            return this.cmsEntriesByCollection[slug];
+        }
+        return [];
+    }
+
+    collectCmsBindingCollections(items = [], bucket = new Set()) {
+        items.forEach((item) => {
+            if (!item || typeof item !== 'object') {
+                return;
+            }
+            const collection = item?.props?.cmsBinding?.collection;
+            if (collection) {
+                bucket.add(collection);
+            }
+            const children = item?.children && typeof item.children === 'object' ? Object.values(item.children) : [];
+            children.forEach((group) => {
+                if (Array.isArray(group) && group.length > 0) {
+                    this.collectCmsBindingCollections(group, bucket);
+                }
+            });
+        });
+        return bucket;
+    }
+
+    async ensureCmsBindingsLoadedForComponents(items = []) {
+        const collections = Array.from(this.collectCmsBindingCollections(items));
+        if (collections.length === 0) {
+            return;
+        }
+        await Promise.all(collections.map((slug) => this.ensureCmsEntriesLoaded(slug)));
+    }
+
+    toCamelCase(value) {
+        return String(value || '').replace(/[-_]+([a-zA-Z0-9])/g, (_, char) => char.toUpperCase());
+    }
+
+    toSnakeCase(value) {
+        return String(value || '')
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+            .replace(/[-\s]+/g, '_')
+            .toLowerCase();
+    }
+
+    buildCmsDataAliases(data = {}) {
+        const aliases = {};
+        if (!data || typeof data !== 'object') {
+            return aliases;
+        }
+        Object.entries(data).forEach(([key, value]) => {
+            aliases[key] = value;
+            aliases[this.toCamelCase(key)] = value;
+            aliases[this.toSnakeCase(key)] = value;
+        });
+        return aliases;
+    }
+
+    getCmsValueByKey(source, key) {
+        if (!source || typeof source !== 'object' || !key) {
+            return undefined;
+        }
+        const candidates = [key, this.toCamelCase(key), this.toSnakeCase(key)];
+        for (const candidate of candidates) {
+            if (Object.prototype.hasOwnProperty.call(source, candidate)) {
+                return source[candidate];
+            }
+        }
+        return undefined;
+    }
+
+    getCmsEntryComparableValue(entry, key) {
+        if (!entry || !key) {
+            return undefined;
+        }
+        if (key === 'status') {
+            return entry.status;
+        }
+        if (key === 'entryKey' || key === 'entry_key') {
+            return entry.entryKey;
+        }
+        if (key === 'sortOrder' || key === 'sort_order') {
+            return entry.sortOrder;
+        }
+        return this.getCmsValueByKey(this.buildCmsDataAliases(entry.data || {}), key);
+    }
+
+    normalizeCmsMappedRecord(data = {}, meta = {}) {
+        const aliases = this.buildCmsDataAliases(data);
+        if (meta && typeof meta === 'object') {
+            Object.entries(meta).forEach(([key, value]) => {
+                aliases[key] = value;
+                aliases[this.toCamelCase(key)] = value;
+                aliases[this.toSnakeCase(key)] = value;
+            });
+        }
+        return aliases;
+    }
+
+    mapCmsEntryData(entry, binding, index = 0) {
+        const fieldMap = binding?.fieldMap && typeof binding.fieldMap === 'object' ? binding.fieldMap : {};
+        const source = this.buildCmsDataAliases(entry?.data || {});
+        const mapped = {};
+
+        if (Object.keys(fieldMap).length === 0) {
+            Object.assign(mapped, source);
+        } else {
+            Object.entries(fieldMap).forEach(([targetKey, sourceKey]) => {
+                const value = this.getCmsValueByKey(source, sourceKey);
+                if (value !== undefined) {
+                    mapped[targetKey] = value;
+                }
+            });
+        }
+
+        if (mapped.title === undefined && mapped.heading === undefined && mapped.name !== undefined) {
+            mapped.title = mapped.name;
+        }
+        if (mapped.linkHref === undefined) {
+            const hrefValue = mapped.href ?? mapped.url ?? mapped.detailUrl ?? mapped.detail_url ?? mapped.buttonUrl ?? mapped.button_url;
+            if (hrefValue !== undefined) {
+                mapped.linkHref = hrefValue;
+            }
+        }
+        if (mapped.imageSrc === undefined) {
+            const imageValue = mapped.src ?? mapped.image ?? mapped.image_src;
+            if (imageValue !== undefined) {
+                mapped.imageSrc = imageValue;
+            }
+        }
+        if (mapped.imageAlt === undefined) {
+            const altValue = mapped.alt ?? mapped.image_alt;
+            if (altValue !== undefined) {
+                mapped.imageAlt = altValue;
+            }
+        }
+        if (mapped.title === undefined) {
+            const titleValue = mapped.heading ?? mapped.headline;
+            if (titleValue !== undefined) {
+                mapped.title = titleValue;
+            }
+        }
+        if (mapped.text === undefined) {
+            const textValue = mapped.body ?? mapped.summary ?? mapped.description;
+            if (textValue !== undefined) {
+                mapped.text = textValue;
+            }
+        }
+        if (mapped.linkText === undefined) {
+            const labelValue = mapped.buttonLabel ?? mapped.button_label ?? mapped.label;
+            if (labelValue !== undefined) {
+                mapped.linkText = labelValue;
+            }
+        }
+
+        return this.normalizeCmsMappedRecord(mapped, {
+            index: String(index + 1).padStart(2, '0'),
+            sortOrder: entry?.sortOrder ?? index,
+            status: entry?.status || '',
+            entryKey: entry?.entryKey || ''
+        });
+    }
+
+    resolveCmsBinding(item) {
+        const binding = item?.props?.cmsBinding;
+        if (!binding || binding.source !== 'cms' || !binding.collection) {
+            return null;
+        }
+
+        const entries = this.getCachedCmsEntries(binding.collection);
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return null;
+        }
+
+        const filter = binding?.selection?.filter && typeof binding.selection.filter === 'object'
+            ? binding.selection.filter
+            : {};
+        const filtered = entries.filter((entry) => {
+            return Object.entries(filter).every(([key, expected]) => {
+                const actual = this.getCmsEntryComparableValue(entry, key);
+                return actual === expected;
+            });
+        });
+
+        const sortSpec = String(binding?.selection?.sort || 'sort_order:asc').trim();
+        const [rawSortKey, rawSortDir] = sortSpec.split(':');
+        const sortKey = rawSortKey || 'sort_order';
+        const sortDir = String(rawSortDir || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc';
+        filtered.sort((a, b) => {
+            const left = this.getCmsEntryComparableValue(a, sortKey);
+            const right = this.getCmsEntryComparableValue(b, sortKey);
+            if (left === right) return Number(a?.id || 0) - Number(b?.id || 0);
+            if (left === undefined || left === null) return sortDir === 'asc' ? 1 : -1;
+            if (right === undefined || right === null) return sortDir === 'asc' ? -1 : 1;
+            if (typeof left === 'number' && typeof right === 'number') {
+                return sortDir === 'asc' ? left - right : right - left;
+            }
+            const cmp = String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+
+        const limitValue = Number(binding?.selection?.limit);
+        const limited = Number.isFinite(limitValue) && limitValue > 0
+            ? filtered.slice(0, limitValue)
+            : filtered;
+        const mode = binding.mode === 'collection' ? 'collection' : 'record';
+        const groups = Array.isArray(binding?.selection?.groups) ? binding.selection.groups : [];
+        const mapped = limited.map((entry, index) => this.mapCmsEntryData(entry, binding, index));
+        const mappedGroups = groups.map((group) => {
+            const groupFilter = group?.filter && typeof group.filter === 'object' ? group.filter : {};
+            const groupEntries = filtered
+                .filter((entry) => Object.entries(groupFilter).every(([key, expected]) => this.getCmsEntryComparableValue(entry, key) === expected))
+                .map((entry, index) => this.mapCmsEntryData(entry, binding, index));
+            return {
+                ...group,
+                items: groupEntries
+            };
+        });
+        if (mapped.length === 0 && mappedGroups.every((group) => !Array.isArray(group.items) || group.items.length === 0)) {
+            return null;
+        }
+
+        return {
+            mode,
+            items: mapped,
+            record: mapped[0],
+            groups: mappedGroups
+        };
+    }
+
+    findCmsEyebrowTarget(root) {
+        if (!root) {
+            return null;
+        }
+        const heading = root.querySelector('h1,h2,h3,h4,h5,h6');
+        const spans = Array.from(root.querySelectorAll('span'));
+        if (heading && spans.length > 0) {
+            const preceding = spans.filter((el) => {
+                const pos = el.compareDocumentPosition(heading);
+                return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+            });
+            if (preceding.length > 0) {
+                return preceding[preceding.length - 1];
+            }
+        }
+        return spans[0] || null;
+    }
+
+    applyCmsDataToElement(root, data = {}) {
+        if (!root || !data || typeof data !== 'object') {
+            return;
+        }
+
+        const heading = root.querySelector('h1,h2,h3,h4,h5,h6');
+        const paragraph = root.querySelector('p');
+        const image = root.querySelector('img');
+        const link = root.matches('a') ? root : root.querySelector('a');
+        const spanTargets = Array.from(root.querySelectorAll('span'));
+        const eyebrowTarget = this.findCmsEyebrowTarget(root);
+
+        const titleValue = data.title ?? data.heading ?? data.headline ?? data.name;
+        const textValue = data.text ?? data.body ?? data.summary ?? data.description;
+        const hrefValue = data.linkHref ?? data.href ?? data.url ?? data.detailUrl ?? data.detail_url ?? data.buttonUrl ?? data.button_url;
+        const linkTextValue = data.linkText ?? data.buttonLabel ?? data.button_label ?? data.label;
+        const imageSrcValue = data.imageSrc ?? data.src ?? data.image ?? data.image_src;
+        const imageAltValue = data.imageAlt ?? data.alt ?? data.image_alt;
+        const eyebrowValue = data.eyebrow ?? data.category ?? data.label ?? data.tier;
+        const indexValue = data.index ?? data.orderLabel ?? data.order_label;
+        const yearValue = data.year;
+
+        if (heading && titleValue !== undefined) heading.textContent = titleValue;
+        if (paragraph && textValue !== undefined) paragraph.textContent = textValue;
+        if (link && hrefValue !== undefined) link.setAttribute('href', hrefValue);
+        if (link && linkTextValue !== undefined && !link.querySelector('h1,h2,h3,h4,h5,h6,p,div,section,article')) {
+            link.textContent = linkTextValue;
+        }
+        if (image && imageSrcValue !== undefined) image.setAttribute('src', imageSrcValue);
+        if (image && imageAltValue !== undefined) image.setAttribute('alt', imageAltValue);
+        if (eyebrowTarget && eyebrowValue !== undefined) eyebrowTarget.textContent = eyebrowValue;
+
+        if (indexValue !== undefined && heading && spanTargets.length > 1) {
+            const preceding = spanTargets.filter((el) => {
+                const pos = el.compareDocumentPosition(heading);
+                return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+            });
+            if (preceding.length > 1) {
+                preceding[0].textContent = indexValue;
+            }
+        }
+
+        if (yearValue !== undefined && heading && spanTargets.length > 0) {
+            const following = spanTargets.filter((el) => {
+                const pos = el.compareDocumentPosition(heading);
+                return Boolean(pos & Node.DOCUMENT_POSITION_PRECEDING);
+            });
+            if (following.length > 0) {
+                following[following.length - 1].textContent = yearValue;
+            }
+        }
+    }
+
+    findCmsRepeaterTemplate(root) {
+        if (!root) {
+            return null;
+        }
+
+        const parents = [root].concat(Array.from(root.querySelectorAll('*')));
+        let best = null;
+
+        const scoreCandidate = (template, count) => {
+            const className = template.className || '';
+            let score = count;
+            if (/(card|item|post|project|blog|supporter)/i.test(className)) score += 10;
+            if (template.querySelector('img')) score += 5;
+            if (template.querySelector('h1,h2,h3,h4,h5,h6')) score += 4;
+            if (template.querySelector('p')) score += 2;
+            if (template.matches('a,article,li')) score += 2;
+            return score;
+        };
+
+        parents.forEach((parent) => {
+            const children = Array.from(parent.children);
+            if (children.length < 2) {
+                return;
+            }
+
+            const groups = new Map();
+            children.forEach((child) => {
+                const signature = `${child.tagName.toLowerCase()}::${Array.from(child.classList).sort().join('.')}`;
+                if (!groups.has(signature)) {
+                    groups.set(signature, []);
+                }
+                groups.get(signature).push(child);
+            });
+
+            groups.forEach((group) => {
+                if (group.length < 2) {
+                    return;
+                }
+                const candidate = {
+                    parent,
+                    template: group[0],
+                    siblings: group,
+                    score: scoreCandidate(group[0], group.length)
+                };
+                if (!best || candidate.score > best.score) {
+                    best = candidate;
+                }
+            });
+        });
+
+        return best;
+    }
+
+    applyCmsCollectionRendering(wrapper, records = []) {
+        if (!Array.isArray(records) || records.length === 0) {
+            return false;
+        }
+
+        const root = wrapper.firstElementChild || wrapper;
+        const repeater = this.findCmsRepeaterTemplate(root);
+        if (!repeater) {
+            return false;
+        }
+
+        const { parent, template, siblings } = repeater;
+        const insertionPoint = siblings[0];
+        siblings.forEach((node) => node.remove());
+
+        records.forEach((record) => {
+            const clone = template.cloneNode(true);
+            this.applyCmsDataToElement(clone, record);
+            parent.insertBefore(clone, insertionPoint);
+        });
+
+        return true;
+    }
+
+    findCmsTemplateSequence(root) {
+        if (!root) {
+            return null;
+        }
+
+        const parents = [root].concat(Array.from(root.querySelectorAll('*')));
+        let best = null;
+
+        const isCardNode = (node) => {
+            if (!node || node.tagName !== 'DIV') {
+                return false;
+            }
+            const hasLink = Boolean(node.querySelector('a'));
+            const hasHeading = Boolean(node.querySelector('h1,h2,h3,h4,h5,h6'));
+            const hasImage = Boolean(node.querySelector('img'));
+            return hasLink && (hasHeading || hasImage);
+        };
+
+        parents.forEach((parent) => {
+            const candidates = Array.from(parent.children).filter((child) => isCardNode(child));
+            if (candidates.length < 2) {
+                return;
+            }
+            const score = candidates.length * 10;
+            if (!best || score > best.score) {
+                best = { parent, templates: candidates, score };
+            }
+        });
+
+        return best;
+    }
+
+    applyCmsTemplateSequenceRendering(wrapper, records = []) {
+        if (!Array.isArray(records) || records.length === 0) {
+            return false;
+        }
+
+        const root = wrapper.firstElementChild || wrapper;
+        const sequence = this.findCmsTemplateSequence(root);
+        if (!sequence) {
+            return false;
+        }
+
+        const { parent, templates } = sequence;
+        const insertionPoint = templates[0];
+        templates.forEach((node) => node.remove());
+
+        records.forEach((record, index) => {
+            const template = templates[index % templates.length];
+            const clone = template.cloneNode(true);
+            this.applyCmsDataToElement(clone, record);
+            parent.insertBefore(clone, insertionPoint);
+        });
+
+        return true;
+    }
+
+    applyCmsGroupedCollectionRendering(wrapper, groups = []) {
+        if (!Array.isArray(groups) || groups.length === 0) {
+            return false;
+        }
+
+        const root = wrapper.firstElementChild || wrapper;
+        const outer = root?.firstElementChild;
+        if (!outer) {
+            return false;
+        }
+
+        const groupBlocks = Array.from(outer.children).filter((block) => {
+            const directChildren = Array.from(block.children);
+            const directSpan = directChildren.find((child) => child.tagName === 'SPAN');
+            const directContainer = directChildren.find((child) => child.tagName === 'DIV');
+            return Boolean(directSpan && directContainer);
+        });
+
+        if (groupBlocks.length === 0) {
+            return false;
+        }
+
+        groups.slice(0, groupBlocks.length).forEach((group, index) => {
+            const block = groupBlocks[index];
+            const directChildren = Array.from(block.children);
+            const titleNode = directChildren.find((child) => child.tagName === 'SPAN');
+            const listNode = directChildren.find((child) => child.tagName === 'DIV');
+            if (!titleNode || !listNode) {
+                return;
+            }
+
+            if (group.title) {
+                titleNode.textContent = group.title;
+            }
+
+            listNode.innerHTML = '';
+            (group.items || []).forEach((record) => {
+                const text = record.label ?? record.title ?? record.name ?? '';
+                if (!text) {
+                    return;
+                }
+                const tagName = group.itemTag || (record.linkHref ? 'a' : 'span');
+                const el = document.createElement(tagName);
+                if (group.itemClassName) {
+                    el.className = group.itemClassName;
+                }
+                if (tagName === 'a' && record.linkHref) {
+                    el.setAttribute('href', record.linkHref);
+                }
+                el.textContent = text;
+                listNode.appendChild(el);
+            });
+        });
+
+        return true;
+    }
+
+    async loadCmsCollections() {
+        try {
+            const result = await this.apiClient.listCmsCollections();
+            this.cmsCollections = Array.isArray(result?.data) ? result.data : [];
+            if (this.selectedItem) {
+                this.showPropertiesPanel(this.selectedItem, this.selectedElement?.key || null);
+            }
+        } catch (error) {
+            console.error('Failed to load CMS collections:', error);
+        }
+    }
+
     showPropertiesPanel(instanceId, elementKey = null) {
         const item = this.findComponentById(instanceId);
         if (!item || !this.propertiesPanel || !this.propertiesContent) return;
@@ -3043,6 +3754,14 @@ class VisualBuilder {
         const props = { ...defaults, ...(item.props || {}) };
         const layoutMeta = this.getLayoutMeta(item.content);
         const elementState = elementKey ? this.getSelectedElementState(instanceId, elementKey) : null;
+        const cmsBinding = props.cmsBinding || {};
+        const cmsCollectionOptions = ['<option value="">No CMS binding</option>']
+            .concat(this.cmsCollections.map((collection) => {
+                const selected = collection.slug === (cmsBinding.collection || '') ? ' selected' : '';
+                return `<option value="${this.escapeAttribute(collection.slug)}"${selected}>${this.escapeHtml(collection.name || collection.slug)}</option>`;
+            }))
+            .join('');
+        const cmsMode = cmsBinding.mode || 'record';
 
         this.propertiesPanel.classList.add('active');
 
@@ -3207,7 +3926,39 @@ class VisualBuilder {
             </div>
         ` : '';
 
-        this.propertiesContent.innerHTML = `${componentSection}${elementSection}${legacySection}${layoutSection}`;
+        const cmsSection = !elementState ? `
+            <div class="properties-section">
+                <div class="properties-title">CMS Binding</div>
+                <div class="cms-binding-grid">
+                    <div class="form-group">
+                        <label>Collection</label>
+                        <select id="propCmsCollection">${cmsCollectionOptions}</select>
+                    </div>
+                    <div class="form-group">
+                        <label>Mode</label>
+                        <select id="propCmsMode">
+                            <option value="record"${cmsMode === 'record' ? ' selected' : ''}>Record</option>
+                            <option value="collection"${cmsMode === 'collection' ? ' selected' : ''}>Collection</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Filter JSON</label>
+                        <textarea id="propCmsFilter" rows="4" placeholder='{"active":true}'>${this.escapeHtml(JSON.stringify(cmsBinding?.selection?.filter || {}, null, 2))}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Field Map JSON</label>
+                        <textarea id="propCmsFieldMap" rows="4" placeholder='{"title":"name"}'>${this.escapeHtml(JSON.stringify(cmsBinding.fieldMap || {}, null, 2))}</textarea>
+                    </div>
+                </div>
+                <div class="cms-binding-actions">
+                    <button type="button" class="btn btn-secondary" id="propCmsOpenManager">Open CMS</button>
+                    <button type="button" class="btn btn-secondary" id="propCmsClear">Clear Binding</button>
+                </div>
+                <p class="project-note">Collections and entries are now managed in the standalone CMS admin. The builder only stores binding metadata.</p>
+            </div>
+        ` : '';
+
+        this.propertiesContent.innerHTML = `${componentSection}${elementSection}${legacySection}${layoutSection}${cmsSection}`;
 
         const bindProp = (id, fn, eventName = 'input') => {
             const el = document.getElementById(id);
@@ -3284,6 +4035,74 @@ class VisualBuilder {
             bindProp('propLayoutGap', (value) => this.updateComponentProps(instanceId, { props: { layoutGap: value } }));
             bindProp('propLayoutPadding', (value) => this.updateComponentProps(instanceId, { props: { layoutPadding: value } }));
             bindProp('propLayoutBg', (value) => this.updateComponentProps(instanceId, { props: { layoutBg: value } }));
+        }
+
+        if (!elementState) {
+            const updateCmsBinding = () => {
+                const collectionValue = document.getElementById('propCmsCollection')?.value || '';
+                if (!collectionValue) {
+                    this.updateComponentProps(instanceId, { props: { cmsBinding: null } });
+                    return;
+                }
+
+                let filter = {};
+                let fieldMap = {};
+                try {
+                    filter = this.parseJsonInput(document.getElementById('propCmsFilter')?.value, {}) || {};
+                    fieldMap = this.parseJsonInput(document.getElementById('propCmsFieldMap')?.value, {}) || {};
+                } catch (error) {
+                    this.showToast(`Invalid CMS binding JSON: ${error.message}`, 'error');
+                    return;
+                }
+
+                this.updateComponentProps(instanceId, {
+                    props: {
+                        cmsBinding: {
+                            source: 'cms',
+                            mode: document.getElementById('propCmsMode')?.value || 'record',
+                            collection: collectionValue,
+                            selection: {
+                                filter
+                            },
+                            fieldMap,
+                            fallback: 'static'
+                        }
+                    }
+                });
+
+                this.ensureCmsEntriesLoaded(collectionValue).then(() => {
+                    this.updateComponentProps(instanceId, { props: {} });
+                });
+            };
+
+            const cmsCollectionSelect = document.getElementById('propCmsCollection');
+            const cmsModeSelect = document.getElementById('propCmsMode');
+            const cmsFilterInput = document.getElementById('propCmsFilter');
+            const cmsFieldMapInput = document.getElementById('propCmsFieldMap');
+            const cmsOpenButton = document.getElementById('propCmsOpenManager');
+            const cmsClearButton = document.getElementById('propCmsClear');
+
+            if (cmsCollectionSelect) {
+                cmsCollectionSelect.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsModeSelect) {
+                cmsModeSelect.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsFilterInput) {
+                cmsFilterInput.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsFieldMapInput) {
+                cmsFieldMapInput.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsOpenButton) {
+                cmsOpenButton.addEventListener('click', () => this.openCmsModal());
+            }
+            if (cmsClearButton) {
+                cmsClearButton.addEventListener('click', () => {
+                    this.updateComponentProps(instanceId, { props: { cmsBinding: null } });
+                    this.showPropertiesPanel(instanceId);
+                });
+            }
         }
     }
 
@@ -3604,6 +4423,7 @@ class VisualBuilder {
         const wrapper = document.createElement('div');
         wrapper.innerHTML = item.content || '';
         const props = item.props || {};
+        const cmsBinding = this.resolveCmsBinding(item);
         const heading = wrapper.querySelector('h1,h2,h3,h4,h5,h6');
         const paragraph = wrapper.querySelector('p');
         const link = wrapper.querySelector('a');
@@ -3619,6 +4439,10 @@ class VisualBuilder {
         this.applyInlineTextOverrides(wrapper, props);
         this.applyInlineImageOverrides(wrapper, props);
         this.applyInlineAttributeOverrides(wrapper, props);
+        if (cmsBinding?.mode === 'record' && cmsBinding.record) {
+            const root = wrapper.firstElementChild || wrapper;
+            this.applyCmsDataToElement(root, cmsBinding.record);
+        }
 
         const root = wrapper.firstElementChild;
         if (root) {
@@ -3651,6 +4475,18 @@ class VisualBuilder {
 
             if (typeof props.layoutReverse === 'boolean') {
                 root.style.flexDirection = props.layoutReverse ? 'row-reverse' : '';
+            }
+        }
+
+        if (cmsBinding?.mode === 'collection') {
+            const groupedApplied = Array.isArray(cmsBinding.groups) && cmsBinding.groups.length > 0
+                ? this.applyCmsGroupedCollectionRendering(wrapper, cmsBinding.groups)
+                : false;
+            if (!groupedApplied && Array.isArray(cmsBinding.items) && cmsBinding.items.length > 0) {
+                const repeatedApplied = this.applyCmsCollectionRendering(wrapper, cmsBinding.items);
+                if (!repeatedApplied) {
+                    this.applyCmsTemplateSequenceRendering(wrapper, cmsBinding.items);
+                }
             }
         }
 
@@ -3833,7 +4669,15 @@ class VisualBuilder {
             item.name = patch.name;
         }
         if (patch.props && typeof patch.props === 'object') {
-            item.props = { ...(item.props || {}), ...patch.props };
+            const nextProps = { ...(item.props || {}), ...patch.props };
+            Object.keys(nextProps).forEach((key) => {
+                if (nextProps[key] === null || nextProps[key] === undefined || nextProps[key] === '') {
+                    if (key === 'cmsBinding' || key === 'layoutBg' || key === 'layoutGap' || key === 'layoutPadding') {
+                        delete nextProps[key];
+                    }
+                }
+            });
+            item.props = nextProps;
         }
 
         const element = document.querySelector(`.canvas-item[data-instance-id="${instanceId}"]`);
@@ -3962,6 +4806,8 @@ class VisualBuilder {
               return;
           }
 
+          await this.ensureCmsBindingsLoadedForComponents(components);
+
           if (this.builderMode === 'partial' || this.canvasLayoutMode === 'freeform') {
               this.setPreviewMode(this.previewFrameWrap?.dataset?.size || 'desktop');
               this.setPreviewContentMode(this.previewContentMode || 'render');
@@ -4058,7 +4904,7 @@ class VisualBuilder {
         return this.renderComponentsForCurrentCanvas(this.getActiveComponents()).trim();
     }
 
-    showExportModal() {
+    async showExportModal() {
         if (this.builderMode === 'page' && !this.project) {
             this.openProjectModal();
             this.showToast('Create or open a page first', 'warning');
@@ -4070,6 +4916,7 @@ class VisualBuilder {
             return;
         }
 
+        await this.ensureCmsBindingsLoadedForComponents(this.getActiveComponents());
         this.updateExportPreview();
         this.exportModal.classList.add('active');
     }
@@ -4214,6 +5061,8 @@ class VisualBuilder {
             this.showToast(`Failed to sync partials: ${error.message}`, 'error');
             return;
         }
+
+        await this.ensureCmsBindingsLoadedForComponents(this.pageComponents);
         
         const layoutData = this.getLayoutData();
         

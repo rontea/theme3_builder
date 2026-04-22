@@ -1,0 +1,71 @@
+{
+  "id": 2,
+  "slug": "projects",
+  "name": "Projects",
+  "schema": {
+    "fields": [
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "text"
+      },
+      {
+        "name": "slug",
+        "label": "Slug",
+        "type": "text"
+      },
+      {
+        "name": "category",
+        "label": "Category",
+        "type": "text"
+      },
+      {
+        "name": "summary",
+        "label": "Summary",
+        "type": "text"
+      },
+      {
+        "name": "image_src",
+        "label": "Image Source",
+        "type": "text"
+      },
+      {
+        "name": "image_alt",
+        "label": "Image Alt",
+        "type": "text"
+      },
+      {
+        "name": "detail_url",
+        "label": "Detail URL",
+        "type": "text"
+      },
+      {
+        "name": "year",
+        "label": "Year",
+        "type": "text"
+      },
+      {
+        "name": "featured",
+        "label": "Featured",
+        "type": "boolean"
+      },
+      {
+        "name": "active",
+        "label": "Active",
+        "type": "boolean"
+      },
+      {
+        "name": "sort_order",
+        "label": "Sort Order",
+        "type": "number"
+      }
+    ]
+  },
+  "createdAt": "2026-04-22T10:46:19.718Z",
+  "updatedAt": "2026-04-22T10:59:44.827Z",
+  "entryCount": 4,
+  "files": {
+    "collection": "collections/projects.json",
+    "entries": "entries/projects.json"
+  }
+}

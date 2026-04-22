@@ -127,6 +127,60 @@ This document freezes the current request/response contracts for builder endpoin
 - Success data:
   - `{ layout, layoutFile }`
 
+### `GET /api/cms/collections`
+- Request:
+  - No body.
+- Success data:
+  - `Array<{ id, slug, name, schema, createdAt, updatedAt }>`
+
+### `POST /api/cms/collections`
+- Request body:
+  - `{ slug: string, name: string, schema?: { fields?: Array<{ name, label, type }> } }`
+- Success data:
+  - `{ id, slug, name, schema, createdAt, updatedAt }`
+
+### `PUT /api/cms/collections/:slug`
+- Request body:
+  - `{ name?: string, schema?: { fields?: Array<{ name, label, type }> } }`
+- Success data:
+  - `{ id, slug, name, schema, createdAt, updatedAt }`
+
+### `DELETE /api/cms/collections/:slug`
+- Request:
+  - No body.
+- Success data:
+  - `{ slug: string, deleted: true }`
+
+### `GET /api/cms/entries?collection=<slug>`
+- Query params:
+  - `collection` (required)
+- Success data:
+  - `Array<{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }>`
+
+### `POST /api/cms/entries`
+- Request body:
+  - `{ collection: string, entryKey: string, status?: "draft" | "published" | "archived", sortOrder?: number, data: object }`
+- Success data:
+  - `{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }`
+
+### `PUT /api/cms/entries/:id`
+- Request body:
+  - `{ collection?: string, entryKey?: string, status?: "draft" | "published" | "archived", sortOrder?: number, data?: object }`
+- Success data:
+  - `{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }`
+
+### `DELETE /api/cms/entries/:id`
+- Request:
+  - No body.
+- Success data:
+  - `{ id, collection, entryKey, deleted: true }`
+
+### `POST /api/cms/export`
+- Request body:
+  - `{ includeDrafts?: boolean, includeArchived?: boolean, outputPath?: string, previewOutputPath?: string }`
+- Success data:
+  - `{ generatedAt, totals: { collections: number, entries: number }, statusFilter: string[], targets: Array<{ type: string, outputPath: string }>, manifestPath: string }`
+
 ## Guardrails
 
 - Path traversal is rejected for read/write endpoints using path sanitization.

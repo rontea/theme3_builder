@@ -40,16 +40,21 @@ function createLayoutsService(builderTask, layoutsRepository) {
                     );
                 }
 
-                const partialName = path.basename(sourcePath, ".html");
+                const cmsRenderedMarkup = await builderTask.renderCmsBoundComponent(item);
+                const renderedMarkup = typeof cmsRenderedMarkup === "string" && cmsRenderedMarkup.trim().length > 0
+                    ? cmsRenderedMarkup
+                    : (typeof item?.renderedContent === "string" && item.renderedContent.trim().length > 0
+                        ? item.renderedContent
+                        : `{{> ${path.basename(sourcePath, ".html")}}}`);
                 if (isFreeform) {
                     const x = Math.max(0, Number(item?.canvas?.x) || 0);
                     const y = Math.max(0, Number(item?.canvas?.y) || 0);
                     const width = Math.max(220, Number(item?.canvas?.width) || 320);
                     sections.push(
-                        `<div class="builder-freeform-node" style="position:absolute; left:${x}px; top:${y}px; width:${width}px; max-width:calc(100% - ${x}px);">{{> ${partialName}}}</div>`
+                        `<div class="builder-freeform-node" style="position:absolute; left:${x}px; top:${y}px; width:${width}px; max-width:calc(100% - ${x}px);}">${renderedMarkup}</div>`
                     );
                 } else {
-                    sections.push(`{{> ${partialName}}}`);
+                    sections.push(renderedMarkup);
                 }
             }
 

@@ -31,7 +31,8 @@ const commands = [
     { name: 'icons-fontawesome', desc: 'Compile icons fontawesome' },
     { name: 'icons-bootstrap', desc: 'Compile icons bootstrap' },
     { name: 'move-res', desc: 'Move resources folder or file to build based on dest' },
-    { name: 'builder', desc: 'Launch Visual Drag-and-Drop Builder (use --port to specify port, --open to auto-open browser)' }
+    { name: 'builder', desc: 'Launch Visual Drag-and-Drop Builder (use --port to specify port, --open to auto-open browser)' },
+    { name: 'cms', desc: 'Run Theme CMS commands (serve, export, migrate-content)' }
 ];
 
 function showHelp() {
@@ -46,6 +47,8 @@ function showHelp() {
     console.log('\nExample:');
     console.log('  th3 builder              Launch visual builder');
     console.log('  th3 builder --port 8080  Launch builder on port 8080');
+    console.log('  th3 cms export           Publish CMS JSON bridge files');
+    console.log('  th3 cms migrate-content  Seed Phase 5 CMS collections/entries');
     console.log('  th3 build-init           Build all assets\n');
 }
 
@@ -280,6 +283,212 @@ yargs(hideBin(process.argv))
         console.error('Failed to start builder:', err);
         logErr.writeLog(err, { customKey: 'BUILDER_START_ERROR' });
         process.exit(1);
+    }
+})
+.command('cms <action>', "Run Theme CMS commands", (yargs) => {
+    return yargs
+        .positional('action', {
+            describe: "CMS action to run",
+            choices: ["serve", "export", "migrate-content"]
+        })
+        .option('port', {
+            alias: 'p',
+            type: 'number',
+            default: 3100,
+            description: "Port for `cms serve`"
+        })
+        .option('project-root', {
+            type: 'string',
+            default: process.cwd(),
+            description: "Project root used to resolve theme-cms and html/data/cms paths"
+        })
+        .option('open', {
+            alias: 'o',
+            type: 'boolean',
+            default: false,
+            description: "Open CMS admin URL automatically (serve only)"
+        })
+        .option('output', {
+            type: 'string',
+            description: "Output folder for exported bridge files (export only)"
+        })
+        .option('preview', {
+            type: 'boolean',
+            default: false,
+            description: "Also write export files under theme-cms/preview/data/cms (export only)"
+        })
+        .option('include-drafts', {
+            type: 'boolean',
+            default: false,
+            description: "Include draft entries in export output"
+        })
+        .option('include-archived', {
+            type: 'boolean',
+            default: false,
+            description: "Include archived entries in export output"
+        })
+        .option('skip-export', {
+            type: 'boolean',
+            default: false,
+            description: "Skip export after migration (migrate-content only)"
+        });
+}, async (argv) => {
+    const { startThemeCmsServer, createThemeCmsConfig, createCmsRepository, createCmsService } = require('../theme-cms/server');
+    const projectRoot = path.resolve(String(argv.projectRoot || process.cwd()));
+
+    if (argv.action === "serve") {
+        try {
+            const runtime = await startThemeCmsServer({
+                port: argv.port,
+                projectRoot
+            });
+            const cmsUrl = `http://localhost:${argv.port}/cms`;
+            console.log(`Theme CMS server started on ${cmsUrl}`);
+
+            if (argv.open) {
+                const openModule = await import('open');
+                const open = openModule.default || openModule.open;
+                if (typeof open === 'function') {
+                    await open(cmsUrl);
+                }
+            }
+
+            process.on('SIGINT', async () => {
+                console.log('\n\nShutting down CMS server...');
+                await runtime.repository.close();
+                await new Promise((resolve) => runtime.server.close(resolve));
+                process.exit(0);
+            });
+            return;
+        } catch (err) {
+            console.error('Failed to start CMS server:', err);
+            logErr.writeLog(err, { customKey: 'CMS_START_ERROR' });
+            process.exit(1);
+        }
+    }
+
+    if (argv.action === "export") {
+        const config = createThemeCmsConfig({
+            projectRoot,
+            exportDir: argv.output || undefined
+        });
+        const repository = createCmsRepository(config);
+        const service = createCmsService(repository, { config });
+
+        try {
+            await repository.initSchema();
+            const previewOutputPath = argv.preview
+                ? path.join(config.previewPath, "data", "cms")
+                : undefined;
+
+            const result = await service.exportContent({
+                includeDrafts: Boolean(argv.includeDrafts),
+                includeArchived: Boolean(argv.includeArchived),
+                outputPath: config.exportPath,
+                previewOutputPath
+            });
+
+            console.log(`CMS export completed at ${result.generatedAt}`);
+            console.log(`Primary output: ${result.targets[0].outputPath}`);
+            console.log(`Manifest: ${result.manifestPath}`);
+            if (result.targets.length > 1) {
+                console.log(`Preview output: ${result.targets[1].outputPath}`);
+            }
+            console.log(`Exported collections: ${result.totals.collections}`);
+            console.log(`Exported entries: ${result.totals.entries}`);
+        } catch (err) {
+            console.error('CMS export failed:', err);
+            logErr.writeLog(err, { customKey: 'CMS_EXPORT_ERROR' });
+            process.exitCode = 1;
+        } finally {
+            await repository.close();
+        }
+    }
+
+    if (argv.action === "migrate-content") {
+        const { phase5ContentSeed } = require('../theme-cms/seeds/phase5.content');
+        const config = createThemeCmsConfig({
+            projectRoot,
+            exportDir: argv.output || undefined
+        });
+        const repository = createCmsRepository(config);
+        const service = createCmsService(repository, { config });
+
+        try {
+            await repository.initSchema();
+            const currentCollections = await service.listCollections();
+            const collectionMap = new Map(currentCollections.map((item) => [item.slug, item]));
+            const summary = {
+                collectionsCreated: 0,
+                collectionsUpdated: 0,
+                entriesCreated: 0,
+                entriesUpdated: 0
+            };
+
+            for (const collection of phase5ContentSeed.collections) {
+                const existingCollection = collectionMap.get(collection.slug);
+                if (existingCollection) {
+                    await service.updateCollection(collection.slug, {
+                        name: collection.name,
+                        schema: collection.schema
+                    });
+                    summary.collectionsUpdated += 1;
+                } else {
+                    await service.createCollection({
+                        slug: collection.slug,
+                        name: collection.name,
+                        schema: collection.schema
+                    });
+                    summary.collectionsCreated += 1;
+                }
+
+                const existingEntries = await service.listEntries(collection.slug);
+                const entryMap = new Map(existingEntries.map((item) => [item.entryKey, item]));
+
+                for (const entry of collection.entries) {
+                    const payload = {
+                        collection: collection.slug,
+                        entryKey: entry.entryKey,
+                        status: entry.status || "published",
+                        sortOrder: Number.isFinite(Number(entry.sortOrder)) ? Number(entry.sortOrder) : 0,
+                        data: entry.data || {}
+                    };
+                    const existingEntry = entryMap.get(entry.entryKey);
+                    if (existingEntry) {
+                        await service.updateEntry(existingEntry.id, payload);
+                        summary.entriesUpdated += 1;
+                    } else {
+                        await service.createEntry(payload);
+                        summary.entriesCreated += 1;
+                    }
+                }
+            }
+
+            console.log("Phase 5 content migration complete.");
+            console.log(`Collections created: ${summary.collectionsCreated}`);
+            console.log(`Collections updated: ${summary.collectionsUpdated}`);
+            console.log(`Entries created: ${summary.entriesCreated}`);
+            console.log(`Entries updated: ${summary.entriesUpdated}`);
+
+            if (!argv.skipExport) {
+                const previewOutputPath = argv.preview
+                    ? path.join(config.previewPath, "data", "cms")
+                    : undefined;
+                const result = await service.exportContent({
+                    includeDrafts: Boolean(argv.includeDrafts),
+                    includeArchived: Boolean(argv.includeArchived),
+                    outputPath: config.exportPath,
+                    previewOutputPath
+                });
+                console.log(`Exported CMS bridge manifest: ${result.manifestPath}`);
+            }
+        } catch (err) {
+            console.error('CMS content migration failed:', err);
+            logErr.writeLog(err, { customKey: 'CMS_MIGRATION_ERROR' });
+            process.exitCode = 1;
+        } finally {
+            await repository.close();
+        }
     }
 })
 .fail((msg, err, yargs) => {
