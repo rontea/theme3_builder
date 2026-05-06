@@ -145,56 +145,16 @@
             return this.requestJson("/api/uploads/images");
         }
 
+        getBuilderConfig() {
+            return this.requestJson("/api/builder/config");
+        }
+
         listCmsCollections() {
-            return this.requestJson("/api/cms/collections");
-        }
-
-        createCmsCollection(payload) {
-            return this.requestJson("/api/cms/collections", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload || {})
-            });
-        }
-
-        updateCmsCollection(slug, payload) {
-            return this.requestJson(`/api/cms/collections/${encodeURIComponent(slug)}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload || {})
-            });
-        }
-
-        deleteCmsCollection(slug) {
-            return this.requestJson(`/api/cms/collections/${encodeURIComponent(slug)}`, {
-                method: "DELETE"
-            });
+            return this.requestJson("/api/builder/cms/collections");
         }
 
         listCmsEntries(collection) {
-            return this.requestJson(`/api/cms/entries?collection=${encodeURIComponent(collection)}`);
-        }
-
-        createCmsEntry(payload) {
-            return this.requestJson("/api/cms/entries", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload || {})
-            });
-        }
-
-        updateCmsEntry(id, payload) {
-            return this.requestJson(`/api/cms/entries/${encodeURIComponent(id)}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload || {})
-            });
-        }
-
-        deleteCmsEntry(id) {
-            return this.requestJson(`/api/cms/entries/${encodeURIComponent(id)}`, {
-                method: "DELETE"
-            });
+            return this.requestJson(`/api/builder/cms/entries?collection=${encodeURIComponent(collection)}`);
         }
 
         async getPreviewStyles() {

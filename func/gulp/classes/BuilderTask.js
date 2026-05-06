@@ -16,20 +16,16 @@ const { sanitizeName, sanitizePageName } = require("./builder-backend/utils/sani
 const { registerLayoutsRoutes } = require("./builder-backend/routes/layouts.routes");
 const { registerPartialsRoutes } = require("./builder-backend/routes/partials.routes");
 const { registerPagesRoutes } = require("./builder-backend/routes/pages.routes");
-const { registerCmsRoutes } = require("./builder-backend/routes/cms.routes");
+const cmsBinding = require("../../../_builder/client/modules/cms-binding");
 const { createLayoutsController } = require("./builder-backend/controllers/layouts.controller");
 const { createPartialsController } = require("./builder-backend/controllers/partials.controller");
 const { createPagesController } = require("./builder-backend/controllers/pages.controller");
-const { createCmsController } = require("./builder-backend/controllers/cms.controller");
 const { createLayoutsService } = require("./builder-backend/services/layouts.service");
 const { createPartialsService } = require("./builder-backend/services/partials.service");
 const { createPagesService } = require("./builder-backend/services/pages.service");
-const { createCmsService } = require("./builder-backend/services/cms.service");
-const { createCmsService: createThemeCmsService } = require("../../../theme-cms/server/services/cms.service");
 const { createLayoutsRepository } = require("./builder-backend/repositories/layouts.repository");
 const { createPartialsRepository } = require("./builder-backend/repositories/partials.repository");
 const { createPagesRepository } = require("./builder-backend/repositories/pages.repository");
-const { createCmsRepository } = require("./builder-backend/repositories/cms.repository");
 const GulpHTMLTasks = require("./GulpHTMLTasks");
 
 /**
@@ -48,8 +44,10 @@ class BuilderTask {
         this.layoutsOutputPath = path.resolve(this.projectRoot, options.layoutsOutputPath || "./_builder/layouts");
         this.databasePath = path.resolve(this.projectRoot, options.databasePath || "./_builder/layouts/builder.sqlite");
         this.cmsProjectRoot = path.resolve(options.cmsProjectRoot || this.projectRoot);
-        this.cmsAdminPath = path.resolve(this.projectRoot, "./theme-cms/admin");
         this.cmsExportPath = path.resolve(this.cmsProjectRoot, options.cmsExportPath || "./html/data/cms");
+        this.cmsReadMode = options.cmsReadMode || process.env.TH3_BUILDER_CMS_READ_MODE || "export";
+        this.cmsBaseUrl = options.cmsBaseUrl || process.env.TH3_CMS_BASE_URL || "";
+        this.cmsAdminUrl = options.cmsAdminUrl || process.env.TH3_CMS_ADMIN_URL || "http://localhost:3100/cms";
         this.pagesOutputPath = path.resolve(this.projectRoot, options.pagesOutputPath || "./html/pages");
         this.imagesPath = path.resolve(this.projectRoot, options.imagesPath || "./src/images");
         this.bodyLimit = options.bodyLimit || "512kb";
@@ -68,10 +66,6 @@ class BuilderTask {
         this.pagesRepository = null;
         this.pagesService = null;
         this.pagesController = null;
-        this.cmsAuthoringRepository = null;
-        this.cmsAuthoringService = null;
-        this.cmsService = null;
-        this.cmsController = null;
     }
 
     logBoundary(layer, action, details = {}) {
@@ -111,6 +105,17 @@ class BuilderTask {
         err.code = code;
         err.details = details;
         return err;
+    }
+
+    getPublicRuntimeConfig() {
+        return {
+            cms: {
+                readMode: this.cmsReadMode,
+                baseUrl: this.cmsBaseUrl,
+                adminUrl: this.cmsAdminUrl,
+                exportPath: path.relative(this.projectRoot, this.cmsExportPath).replace(/\\/g, "/")
+            }
+        };
     }
 
     async initDatabase() {
@@ -321,134 +326,31 @@ class BuilderTask {
     }
 
     toCamelCase(value) {
-        return String(value || "").replace(/[-_]+([a-zA-Z0-9])/g, (_, char) => char.toUpperCase());
+        return cmsBinding.toCamelCase(value);
     }
 
     toSnakeCase(value) {
-        return String(value || "")
-            .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-            .replace(/[-\s]+/g, "_")
-            .toLowerCase();
+        return cmsBinding.toSnakeCase(value);
     }
 
     buildCmsDataAliases(data = {}) {
-        const aliases = {};
-        if (!data || typeof data !== "object" || Array.isArray(data)) {
-            return aliases;
-        }
-
-        Object.entries(data).forEach(([key, value]) => {
-            aliases[key] = value;
-            aliases[this.toCamelCase(key)] = value;
-            aliases[this.toSnakeCase(key)] = value;
-        });
-        return aliases;
+        return cmsBinding.buildDataAliases(data);
     }
 
     getCmsValueByKey(source, key) {
-        if (!source || typeof source !== "object" || !key) {
-            return undefined;
-        }
-
-        const candidates = [key, this.toCamelCase(key), this.toSnakeCase(key)];
-        for (const candidate of candidates) {
-            if (Object.prototype.hasOwnProperty.call(source, candidate)) {
-                return source[candidate];
-            }
-        }
-        return undefined;
+        return cmsBinding.getValueByKey(source, key);
     }
 
     getCmsEntryComparableValue(entry, key) {
-        if (!entry || !key) {
-            return undefined;
-        }
-        if (key === "status") {
-            return entry.status;
-        }
-        if (key === "entryKey" || key === "entry_key") {
-            return entry.entryKey;
-        }
-        if (key === "sortOrder" || key === "sort_order") {
-            return entry.sortOrder;
-        }
-        return this.getCmsValueByKey(this.buildCmsDataAliases(entry.data || {}), key);
+        return cmsBinding.getEntryComparableValue(entry, key);
     }
 
     normalizeCmsMappedRecord(data = {}, meta = {}) {
-        const aliases = this.buildCmsDataAliases(data);
-        if (meta && typeof meta === "object" && !Array.isArray(meta)) {
-            Object.entries(meta).forEach(([key, value]) => {
-                aliases[key] = value;
-                aliases[this.toCamelCase(key)] = value;
-                aliases[this.toSnakeCase(key)] = value;
-            });
-        }
-        return aliases;
+        return cmsBinding.normalizeMappedRecord(data, meta);
     }
 
     mapCmsEntryData(entry, binding, index = 0) {
-        const fieldMap = binding?.fieldMap && typeof binding.fieldMap === "object" ? binding.fieldMap : {};
-        const source = this.buildCmsDataAliases(entry?.data || {});
-        const mapped = {};
-
-        if (Object.keys(fieldMap).length === 0) {
-            Object.assign(mapped, source);
-        } else {
-            Object.entries(fieldMap).forEach(([targetKey, sourceKey]) => {
-                const value = this.getCmsValueByKey(source, sourceKey);
-                if (value !== undefined) {
-                    mapped[targetKey] = value;
-                }
-            });
-        }
-
-        if (mapped.title === undefined && mapped.heading === undefined && mapped.name !== undefined) {
-            mapped.title = mapped.name;
-        }
-        if (mapped.linkHref === undefined) {
-            const hrefValue = mapped.href ?? mapped.url ?? mapped.detailUrl ?? mapped.detail_url ?? mapped.buttonUrl ?? mapped.button_url;
-            if (hrefValue !== undefined) {
-                mapped.linkHref = hrefValue;
-            }
-        }
-        if (mapped.imageSrc === undefined) {
-            const imageValue = mapped.src ?? mapped.image ?? mapped.image_src;
-            if (imageValue !== undefined) {
-                mapped.imageSrc = imageValue;
-            }
-        }
-        if (mapped.imageAlt === undefined) {
-            const altValue = mapped.alt ?? mapped.image_alt;
-            if (altValue !== undefined) {
-                mapped.imageAlt = altValue;
-            }
-        }
-        if (mapped.title === undefined) {
-            const titleValue = mapped.heading ?? mapped.headline;
-            if (titleValue !== undefined) {
-                mapped.title = titleValue;
-            }
-        }
-        if (mapped.text === undefined) {
-            const textValue = mapped.body ?? mapped.summary ?? mapped.description;
-            if (textValue !== undefined) {
-                mapped.text = textValue;
-            }
-        }
-        if (mapped.linkText === undefined) {
-            const labelValue = mapped.buttonLabel ?? mapped.button_label ?? mapped.label;
-            if (labelValue !== undefined) {
-                mapped.linkText = labelValue;
-            }
-        }
-
-        return this.normalizeCmsMappedRecord(mapped, {
-            index: String(index + 1).padStart(2, "0"),
-            sortOrder: entry?.sortOrder ?? index,
-            status: entry?.status || "",
-            entryKey: entry?.entryKey || ""
-        });
+        return cmsBinding.mapEntryData(entry, binding, index);
     }
 
     async resolveCmsBindingData(binding) {
@@ -461,60 +363,7 @@ class BuilderTask {
             return null;
         }
 
-        const filter = binding?.selection?.filter && typeof binding.selection.filter === "object"
-            ? binding.selection.filter
-            : {};
-        const filtered = entries.filter((entry) => {
-            return Object.entries(filter).every(([key, expected]) => {
-                const actual = this.getCmsEntryComparableValue(entry, key);
-                return actual === expected;
-            });
-        });
-
-        const sortSpec = String(binding?.selection?.sort || "sort_order:asc").trim();
-        const [rawSortKey, rawSortDir] = sortSpec.split(":");
-        const sortKey = rawSortKey || "sort_order";
-        const sortDir = String(rawSortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
-        filtered.sort((a, b) => {
-            const left = this.getCmsEntryComparableValue(a, sortKey);
-            const right = this.getCmsEntryComparableValue(b, sortKey);
-            if (left === right) return Number(a?.id || 0) - Number(b?.id || 0);
-            if (left === undefined || left === null) return sortDir === "asc" ? 1 : -1;
-            if (right === undefined || right === null) return sortDir === "asc" ? -1 : 1;
-            if (typeof left === "number" && typeof right === "number") {
-                return sortDir === "asc" ? left - right : right - left;
-            }
-            const cmp = String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
-            return sortDir === "asc" ? cmp : -cmp;
-        });
-
-        const limitValue = Number(binding?.selection?.limit);
-        const limited = Number.isFinite(limitValue) && limitValue > 0
-            ? filtered.slice(0, limitValue)
-            : filtered;
-        const mode = binding.mode === "collection" ? "collection" : "record";
-        const groups = Array.isArray(binding?.selection?.groups) ? binding.selection.groups : [];
-        const mapped = limited.map((entry, index) => this.mapCmsEntryData(entry, binding, index));
-        const mappedGroups = groups.map((group) => {
-            const groupFilter = group?.filter && typeof group.filter === "object" ? group.filter : {};
-            const groupEntries = filtered
-                .filter((entry) => Object.entries(groupFilter).every(([key, expected]) => this.getCmsEntryComparableValue(entry, key) === expected))
-                .map((entry, index) => this.mapCmsEntryData(entry, binding, index));
-            return {
-                ...group,
-                items: groupEntries
-            };
-        });
-        if (mapped.length === 0 && mappedGroups.every((group) => !Array.isArray(group.items) || group.items.length === 0)) {
-            return null;
-        }
-
-        return {
-            mode,
-            items: mapped,
-            record: mapped[0],
-            groups: mappedGroups
-        };
+        return cmsBinding.resolveBindingEntries(binding, entries);
     }
 
     isElementNode(node) {
@@ -1524,23 +1373,12 @@ class BuilderTask {
             return items;
         }
 
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.listCollections();
-    }
+        if (this.cmsReadMode === "live" && this.cmsBaseUrl) {
+            const result = await this.fetchLiveCmsJson("/api/cms/collections");
+            return Array.isArray(result?.data) ? result.data : [];
+        }
 
-    async createCmsCollection({ slug, name, schema }) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.createCollection({ slug, name, schema });
-    }
-
-    async updateCmsCollection(slug, { name, schema }) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.updateCollection(slug, { name, schema });
-    }
-
-    async deleteCmsCollection(slug) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.deleteCollection(slug);
+        return [];
     }
 
     async listCmsEntries(collectionSlug) {
@@ -1561,28 +1399,29 @@ class BuilderTask {
             }));
         }
 
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.listEntries(collectionSlug);
+        if (this.cmsReadMode === "live" && this.cmsBaseUrl && safeCollectionSlug) {
+            const result = await this.fetchLiveCmsJson(`/api/cms/entries?collection=${encodeURIComponent(safeCollectionSlug)}`);
+            return Array.isArray(result?.data) ? result.data : [];
+        }
+
+        return [];
     }
 
-    async createCmsEntry({ collection, entryKey, status = "draft", sortOrder = 0, data }) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.createEntry({ collection, entryKey, status, sortOrder, data });
-    }
+    async fetchLiveCmsJson(endpoint) {
+        const baseUrl = String(this.cmsBaseUrl || "").replace(/\/+$/, "");
+        if (!baseUrl || typeof fetch !== "function") {
+            return null;
+        }
 
-    async updateCmsEntry(id, payload = {}) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.updateEntry(id, payload);
-    }
-
-    async deleteCmsEntry(id) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.deleteEntry(id);
-    }
-
-    async exportCmsContent(options = {}) {
-        await this.initCmsAuthoringSlice();
-        return this.cmsAuthoringService.exportContent(options);
+        const response = await fetch(`${baseUrl}${endpoint}`);
+        const result = await response.json();
+        if (!response.ok || !result?.success) {
+            const err = new Error(result?.error || `CMS request failed: ${endpoint}`);
+            err.statusCode = response.status || 502;
+            err.code = "CMS_LIVE_READ_FAILED";
+            throw err;
+        }
+        return result;
     }
 
     async getSavedLayout(fileName) {
@@ -2045,25 +1884,6 @@ class BuilderTask {
         this.pagesController = createPagesController(this, this.pagesService);
     }
 
-    async initCmsAuthoringSlice() {
-        if (this.cmsAuthoringRepository && this.cmsAuthoringService) {
-            return;
-        }
-        this.cmsAuthoringRepository = createCmsRepository(this);
-        await this.cmsAuthoringRepository.initSchema();
-        this.cmsAuthoringService = createThemeCmsService(this.cmsAuthoringRepository, {
-            config: this.cmsAuthoringRepository.config || null
-        });
-    }
-
-    initCmsSlice() {
-        if (this.cmsService && this.cmsController) {
-            return;
-        }
-        this.cmsService = createCmsService(this);
-        this.cmsController = createCmsController(this, this.cmsService);
-    }
-
     /**
      * Initialize and start the Express server
      */
@@ -2074,9 +1894,28 @@ class BuilderTask {
             this.app.use(cors());
             this.app.use(express.json({ limit: this.bodyLimit }));
             this.app.use(express.static(path.resolve(this.builderPath)));
-            this.app.use("/cms", express.static(this.cmsAdminPath));
-            this.app.get("/cms", (req, res) => {
-                res.sendFile(path.resolve(this.cmsAdminPath, "index.html"));
+            this.app.get("/api/builder/config", (req, res) => {
+                res.json({ success: true, data: this.getPublicRuntimeConfig() });
+            });
+            this.app.get("/api/builder/cms/collections", async (req, res) => {
+                try {
+                    const items = await this.listCmsCollections();
+                    res.json({ success: true, data: items });
+                } catch (err) {
+                    this.sendError(res, err, "BUILDER_CMS_COLLECTIONS_READ_FAILED");
+                }
+            });
+            this.app.get("/api/builder/cms/entries", async (req, res) => {
+                try {
+                    const collection = req.query?.collection;
+                    if (!collection) {
+                        return res.status(400).json({ success: false, error: "Missing collection parameter" });
+                    }
+                    const items = await this.listCmsEntries(collection);
+                    res.json({ success: true, data: items });
+                } catch (err) {
+                    this.sendError(res, err, "BUILDER_CMS_ENTRIES_READ_FAILED");
+                }
             });
             this.app.use("/src/images", express.static(this.imagesPath));
 
@@ -2173,9 +2012,6 @@ class BuilderTask {
 
             this.initPagesSlice();
             registerPagesRoutes(this.app, this.pagesController);
-
-            this.initCmsSlice();
-            registerCmsRoutes(this.app, this.cmsController);
 
             // API: Upload image to src/images
             this.app.post("/api/uploads/image", express.raw({ type: "application/octet-stream", limit: "10mb" }), async (req, res) => {
@@ -2295,9 +2131,6 @@ class BuilderTask {
      */
     async stopServer() {
         await this.closeDatabase();
-        if (this.cmsAuthoringRepository && typeof this.cmsAuthoringRepository.close === "function") {
-            await this.cmsAuthoringRepository.close();
-        }
         if (this.watchProcess && !this.watchProcess.killed) {
             try {
                 this.watchProcess.kill();

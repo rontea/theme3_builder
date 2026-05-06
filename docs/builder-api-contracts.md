@@ -1,6 +1,6 @@
-# Builder API Contracts (Phase 0 Baseline)
+# Builder API Contracts
 
-This document freezes the current request/response contracts for builder endpoints before modular refactor work.
+This document describes the current request/response contracts for builder endpoints. The standalone CMS has its own `/api/cms/*` contract under `theme-cms/server`; those authoring endpoints are not mounted by `th3 builder`.
 
 ## Common Response Shape
 
@@ -40,6 +40,32 @@ This document freezes the current request/response contracts for builder endpoin
   - none required
 - Success data:
   - `{ alreadyRunning: boolean, pid: number }`
+
+### `GET /api/builder/config`
+- Request:
+  - No body.
+- Success data:
+  - `{ cms: { readMode, baseUrl, adminUrl, exportPath } }`
+
+### `GET /api/builder/cms/collections`
+- Request:
+  - No body.
+- Success data:
+  - `Array<{ slug, name, schema, createdAt, updatedAt, ... }>`
+- Notes:
+  - Read-only builder endpoint.
+  - Defaults to `html/data/cms/collections/index.json`.
+  - Falls back to `cmsBaseUrl` only when builder read mode is `live`.
+
+### `GET /api/builder/cms/entries?collection=<slug>`
+- Query params:
+  - `collection` (required)
+- Success data:
+  - `Array<{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }>`
+- Notes:
+  - Read-only builder endpoint.
+  - Defaults to `html/data/cms/entries/<collection>.json`.
+  - Falls back to `cmsBaseUrl` only when builder read mode is `live`.
 
 ### `POST /api/projects`
 - Request body:
@@ -121,68 +147,31 @@ This document freezes the current request/response contracts for builder endpoin
 - Success data:
   - `{ fileName, pageName, layoutDeleted, pageDeleted }`
 
+### `POST /api/uploads/image`
+- Request:
+  - Raw binary body with `Content-Type: application/octet-stream`
+  - Headers:
+    - `X-Filename`
+    - `X-Filetype`
+- Success data:
+  - `{ fileName, path }`
+
+### `GET /api/uploads/images`
+- Request:
+  - No body.
+- Success data:
+  - `Array<{ name, path, size, updatedAt }>`
+
 ### `POST /api/build`
 - Request body:
   - `{ layout, layoutFile }`
 - Success data:
   - `{ layout, layoutFile }`
 
-### `GET /api/cms/collections`
-- Request:
-  - No body.
-- Success data:
-  - `Array<{ id, slug, name, schema, createdAt, updatedAt }>`
-
-### `POST /api/cms/collections`
-- Request body:
-  - `{ slug: string, name: string, schema?: { fields?: Array<{ name, label, type }> } }`
-- Success data:
-  - `{ id, slug, name, schema, createdAt, updatedAt }`
-
-### `PUT /api/cms/collections/:slug`
-- Request body:
-  - `{ name?: string, schema?: { fields?: Array<{ name, label, type }> } }`
-- Success data:
-  - `{ id, slug, name, schema, createdAt, updatedAt }`
-
-### `DELETE /api/cms/collections/:slug`
-- Request:
-  - No body.
-- Success data:
-  - `{ slug: string, deleted: true }`
-
-### `GET /api/cms/entries?collection=<slug>`
-- Query params:
-  - `collection` (required)
-- Success data:
-  - `Array<{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }>`
-
-### `POST /api/cms/entries`
-- Request body:
-  - `{ collection: string, entryKey: string, status?: "draft" | "published" | "archived", sortOrder?: number, data: object }`
-- Success data:
-  - `{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }`
-
-### `PUT /api/cms/entries/:id`
-- Request body:
-  - `{ collection?: string, entryKey?: string, status?: "draft" | "published" | "archived", sortOrder?: number, data?: object }`
-- Success data:
-  - `{ id, collection, entryKey, status, sortOrder, data, createdAt, updatedAt }`
-
-### `DELETE /api/cms/entries/:id`
-- Request:
-  - No body.
-- Success data:
-  - `{ id, collection, entryKey, deleted: true }`
-
-### `POST /api/cms/export`
-- Request body:
-  - `{ includeDrafts?: boolean, includeArchived?: boolean, outputPath?: string, previewOutputPath?: string }`
-- Success data:
-  - `{ generatedAt, totals: { collections: number, entries: number }, statusFilter: string[], targets: Array<{ type: string, outputPath: string }>, manifestPath: string }`
-
 ## Guardrails
 
 - Path traversal is rejected for read/write endpoints using path sanitization.
 - Layout payload is validated (shape, item count, text lengths, byte size limit).
 - Page composition only accepts component sources inside `html/partials`.
+- `th3 builder` must return `404` for CMS authoring routes such as `/api/cms/collections`.
+- CMS authoring must go through `th3 cms serve` and the standalone CMS `/api/cms/*` routes.

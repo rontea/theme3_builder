@@ -19,7 +19,15 @@ const config = {
                 projectfolder: [ 'html' , 'src']
             } ,
 
-            mainbuild : "build", 
+            mainbuild : "build",
+
+            builder: {
+                port: 3000
+            },
+
+            cms: {
+                port: 3100
+            },
             
             csspaths : {
 
@@ -121,7 +129,15 @@ const config = {
                 projectfolder: [ 'html' , 'src']
             } ,
 
-            mainbuild : "build", 
+            mainbuild : "build",
+
+            builder: {
+                port: 3000
+            },
+
+            cms: {
+                port: 3100
+            },
             
             csspaths : {
 

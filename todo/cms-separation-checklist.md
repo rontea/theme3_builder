@@ -1,71 +1,106 @@
-# CMS Separation Checklist
+# CMS Separation Update TODO
 
-This checklist maps the current codebase against [cms-separation-plan.md](/c:/Design/theme_3-main/todo/cms-separation-plan.md:1) so extraction work can happen in a controlled order.
+This checklist tracks the remaining work needed to separate the standalone CMS from the visual builder.
 
-## Current State Snapshot
+## Current State
 
-- Builder currently owns CMS storage in `_builder/layouts/builder.sqlite`.
-- Builder currently mounts CMS routes in the same Express app used by the visual builder.
-- Builder currently renders CMS-bound content during page generation and preview.
-- Builder client currently owns CMS collection CRUD, entry CRUD, and component binding editing.
-- No standalone `theme-cms/` app exists yet.
-- No CMS export bridge exists yet under `html/data/cms/`.
+- [x] `theme-cms/` exists with its own admin UI, server app, service, repository, config, seed data, and SQLite storage.
+- [x] `th3 cms serve`, `th3 cms export`, and `th3 cms migrate-content` exist.
+- [x] CMS export writes normalized bridge JSON into `html/data/cms/`.
+- [x] Builder layout JSON stores `cmsBinding` metadata.
+- [x] Builder no longer serves `theme-cms/admin` at `/cms`.
+- [x] Builder no longer registers CMS authoring routes at `/api/cms/*`.
+- [x] Builder no longer exposes CMS create/update/delete methods through `_builder/client/modules/api-client.js`.
+- [ ] `BuilderTask` still owns CMS binding render logic.
+- [x] CMS binding data resolution is shared between `BuilderTask.js` and `_builder/client/app.js`; HTML rendering adapters remain separate.
 
-## Phase 0 - Freeze The Prototype
+## Phase 1 - Define The Runtime Boundary
 
-- [x] Confirm the current in-builder CMS is a prototype, not the target architecture.
-- [x] Keep the `cmsBinding` contract as the builder-side source of truth for saved layouts.
-- [ ] Decide whether the builder should read from CMS API, exported manifest, or both during migration.
-- [ ] Stop adding new major CMS authoring features inside `_builder/client/app.js`.
+- [x] Decide the builder CMS read mode:
+  - exported JSON only from `html/data/cms/`, or
+  - live CMS API for preview plus exported JSON fallback.
+- [x] Add a builder config option for `cmsBaseUrl` if live CMS API access is needed.
+- [x] Add a builder config option for `cmsAdminUrl`, defaulting to `http://localhost:3100/cms`.
+- [x] Document that `th3 builder` and `th3 cms serve` are separate processes.
+- [x] Update `docs/cms-builder-workflow.md` and `docs/cms-runbook.md` with the final runtime model.
 
-## Phase 1 - Extract CMS Backend
+## Phase 2 - Stop Builder Hosting CMS
 
-- [x] Create `theme-cms/server/` with its own app entrypoint.
-- [x] Move CMS table creation out of `func/gulp/classes/BuilderTask.js`.
-- [x] Move CMS CRUD logic out of `BuilderTask` methods into CMS-owned services/repositories.
-- [x] Move CMS storage from `_builder/layouts/builder.sqlite` to `theme-cms/data/cms.sqlite`.
-- [x] Add CMS config for storage, uploads, preview, and export paths.
+- [x] Remove `this.cmsAdminPath` from `func/gulp/classes/BuilderTask.js`.
+- [x] Remove `this.app.use("/cms", express.static(...))` from builder startup.
+- [x] Remove the builder `/cms` route.
+- [x] Change `_builder/client/app.js` `openCmsModal()` to open configured `cmsAdminUrl` instead of `/cms/`.
+- [x] Make the builder show a useful message when the CMS admin URL is unavailable.
+- [x] Verify `th3 builder` no longer serves the CMS admin shell.
 
-## Phase 2 - Extract CMS Admin UI
+## Phase 3 - Remove Builder-Owned CMS Authoring API
 
-- [x] Create `theme-cms/admin/`.
-- [x] Move collection and entry management UI out of `_builder/client/app.js`.
-- [x] Replace builder-owned CMS management with an `Open CMS` handoff.
-- [x] Keep only lightweight binding controls in the builder properties panel.
+- [x] Remove `registerCmsRoutes(this.app, this.cmsController)` from builder startup.
+- [x] Remove `initCmsSlice()` from `BuilderTask`.
+- [x] Remove `func/gulp/classes/builder-backend/routes/cms.routes.js` if nothing else imports it.
+- [x] Remove `func/gulp/classes/builder-backend/controllers/cms.controller.js` if nothing else imports it.
+- [x] Remove `func/gulp/classes/builder-backend/services/cms.service.js` if nothing else imports it.
+- [x] Remove `func/gulp/classes/builder-backend/repositories/cms.repository.js` if nothing else imports it.
+- [x] Remove CMS exports from `func/gulp/classes/builder-backend/index.js`.
+- [x] Verify `/api/cms/*` exists only in `theme-cms/server`.
 
-## Phase 3 - Publish / Export Bridge
+## Phase 4 - Trim Builder Client CMS Mutations
 
-- [x] Add a CMS export command such as `th3 cms export`.
-- [x] Publish normalized JSON into `html/data/cms/`.
-- [x] Generate a manifest that both builder and theme build can read.
-- [x] Add optional preview output under `theme-cms/preview/` if needed.
+- [x] Remove `createCmsCollection()` from `_builder/client/modules/api-client.js`.
+- [x] Remove `updateCmsCollection()` from `_builder/client/modules/api-client.js`.
+- [x] Remove `deleteCmsCollection()` from `_builder/client/modules/api-client.js`.
+- [x] Remove `createCmsEntry()` from `_builder/client/modules/api-client.js`.
+- [x] Remove `updateCmsEntry()` from `_builder/client/modules/api-client.js`.
+- [x] Remove `deleteCmsEntry()` from `_builder/client/modules/api-client.js`.
+- [x] Keep only read methods needed for binding selection and preview.
+- [x] Confirm all CMS authoring mutations live in `theme-cms/admin/app.js`.
 
-## Phase 4 - Rewire Builder As CMS Client
+## Phase 5 - Replace BuilderTask CMS Authoring Methods
 
-- [x] Make builder read CMS data through the CMS boundary instead of builder tables.
-- [x] Keep builder layout JSON storing only `cmsBinding` metadata.
-- [x] Remove direct CMS CRUD ownership from builder startup/runtime.
-- [x] Keep static fallback rendering when CMS data is unavailable.
+- [x] Remove `createCmsCollection()`, `updateCmsCollection()`, and `deleteCmsCollection()` from `BuilderTask`.
+- [x] Remove `createCmsEntry()`, `updateCmsEntry()`, and `deleteCmsEntry()` from `BuilderTask`.
+- [x] Remove `exportCmsContent()` from `BuilderTask`.
+- [x] Replace `listCmsCollections()` with a read-only adapter that reads exported JSON or calls `cmsBaseUrl`.
+- [x] Replace `listCmsEntries()` with a read-only adapter that reads exported JSON or calls `cmsBaseUrl`.
+- [x] Remove `initCmsAuthoringSlice()` once builder no longer needs direct CMS repository/service access.
+- [x] Remove direct imports from `BuilderTask` to `theme-cms/server/services/cms.service`.
 
-## Phase 5 - Content Migration
+## Phase 6 - Consolidate CMS Binding Rendering
 
-- [x] Migrate `supporters`.
-- [x] Migrate `projects`.
-- [x] Migrate `insights`.
-- [x] Migrate `cta_blocks`.
-- [ ] Add site settings/navigation only after core collections are stable.
+- [x] Extract CMS binding data mapping into one shared module, or clearly designate one authoritative renderer.
+- [x] Remove duplicated alias, filter, sort, field-map, group, and collection rendering logic where possible.
+- [x] Decide whether final CMS HTML is produced by:
+  - builder page generation,
+  - CMS export,
+  - or the final Panini/theme build layer.
+  - Decision: final CMS-bound page HTML is still produced by builder page generation for now; CMS export only publishes data, and Panini/theme build remains outside this contract.
+- [x] If builder keeps preview rendering, mark it as preview-only and keep static partial fallback behavior.
+  - Browser rendering is preview-only and consumes the same resolved binding payload as final page generation.
+- [x] Add tests proving preview output and final output use the same binding contract.
 
-## Immediate Code Hotspots
+## Phase 7 - Tests And Verification
 
-- `func/gulp/classes/BuilderTask.js`
-  Still creates CMS tables, owns CMS CRUD, and resolves CMS rendering.
-- `func/gulp/classes/builder-backend/controllers/cms.controller.js`
-  Mounted inside the builder app instead of a standalone CMS server.
-- `func/gulp/classes/builder-backend/services/cms.service.js`
-  Still delegates back into `BuilderTask`.
-- `func/gulp/classes/builder-backend/repositories/cms.repository.js`
-  Still uses builder DB helpers directly.
-- `_builder/client/app.js`
-  Still owns CMS management UI and binding editing.
-- `_builder/client/index.html`
-  Should remain builder-focused; any richer CMS admin should move out during extraction.
+- [x] Add a test that `th3 builder` does not mount `/api/cms/*`.
+- [x] Add a test that `th3 cms serve` mounts `/api/cms/*`.
+- [x] Add a test that builder can load CMS collections from `html/data/cms/collections/index.json`.
+- [x] Add a test that builder can load CMS entries from `html/data/cms/entries/<collection>.json`.
+- [x] Add a test for missing or stale CMS export fallback behavior.
+- [x] Add a test for `cmsBinding` compatibility with existing saved layouts.
+- [x] Run the existing builder tests after removing embedded CMS routes.
+
+## Phase 8 - Documentation Cleanup
+
+- [x] Update `todo/cms-separation-plan.md` so completed items match the actual code.
+- [x] Remove claims that CMS CRUD has already been fully removed from builder runtime until it is true.
+- [x] Update `docs/builder-architecture.md` to describe builder as a CMS client.
+- [x] Update `docs/builder-api-contracts.md` to remove builder-hosted CMS endpoints.
+- [x] Add a short migration note for developers currently opening CMS through `th3 builder`.
+
+## Completion Criteria
+
+- [ ] Running `th3 builder` serves only builder UI and builder APIs.
+- [ ] Running `th3 cms serve` serves CMS admin and CMS APIs.
+- [ ] Builder stores only `cmsBinding` metadata, not CMS authoring data.
+- [ ] Builder cannot create, update, delete, or export CMS content.
+- [ ] Builder can preview CMS-bound components through the agreed read-only contract.
+- [ ] Final build/export flow is documented and covered by tests.

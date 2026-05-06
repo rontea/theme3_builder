@@ -81,9 +81,46 @@ const { moveBootstrapIcons, moveFontawesomeIcons
     , compileIcons} = require('./tasks/iconTasks');
 const { moveResources } = require('./tasks/resourcesTasks');
 const BuilderTask = require('../func/gulp/classes/BuilderTask');
+const configLoader = require('../func/config/configLoader');
 //const { createGulpSymlink , unlinkGulpSymlink } = require('./tasks/symlinkGulpFile');
 const {fileLister , checkEnv ,  checkConfigSync
     , checkDirCurrentSync, compareDir} = require('./tasks/projectHelper');
+
+const DEFAULT_BUILDER_PORT = 3000;
+const DEFAULT_CMS_PORT = 3100;
+
+function parsePort(value, source, strict = false) {
+    if (value === undefined || value === null || value === "") {
+        return undefined;
+    }
+
+    const port = Number(value);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) {
+        return port;
+    }
+
+    const message = `${source} must be a whole number between 1 and 65535`;
+    if (strict) {
+        throw new Error(message);
+    }
+
+    console.warn(`[th3] Ignoring invalid builder port: ${message}`);
+    return undefined;
+}
+
+function resolveBuilderPort(cliPort) {
+    return parsePort(cliPort, "--port", cliPort !== undefined)
+        ?? parsePort(configLoader.builder?.port, "config.builder.port")
+        ?? parsePort(process.env.TH3_BUILDER_PORT, "TH3_BUILDER_PORT")
+        ?? DEFAULT_BUILDER_PORT;
+}
+
+function resolveCmsPort(cliPort) {
+    return parsePort(cliPort, "--port", cliPort !== undefined)
+        ?? parsePort(configLoader.cms?.port, "config.cms.port")
+        ?? parsePort(process.env.TH3_CMS_PORT, "TH3_CMS_PORT")
+        ?? DEFAULT_CMS_PORT;
+}
 
 yargs(hideBin(process.argv))
 .scriptName("th3")
@@ -239,8 +276,7 @@ yargs(hideBin(process.argv))
         .option('port' , {
             alias: 'p',
             type: 'number',
-            description: "Port for builder server",
-            default: 3000
+            description: "Port for builder server"
         })
         .option('open' , {
             alias: 'o',
@@ -248,15 +284,35 @@ yargs(hideBin(process.argv))
             description: "Open browser automatically",
             default: true
         })
+        .option('cms-read-mode', {
+            type: 'string',
+            choices: ['export', 'live'],
+            default: 'export',
+            description: "How builder reads CMS data: exported bridge files or live CMS API"
+        })
+        .option('cms-base-url', {
+            type: 'string',
+            default: '',
+            description: "Base URL for live CMS API reads, for example http://localhost:3100"
+        })
+        .option('cms-admin-url', {
+            type: 'string',
+            default: 'http://localhost:3100/cms',
+            description: "URL opened by the builder CMS button"
+        })
 }, async (argv) => {
     try {
         console.log("\n🎨 Starting Theme_3 Visual Builder...\n");
+        const builderPort = resolveBuilderPort(argv.port);
 
         const builder = new BuilderTask({
-            port: argv.port,
+            port: builderPort,
             partialsPath: path.resolve(process.cwd(), 'html/partials'),
             layoutsPath: path.resolve(process.cwd(), 'html/layouts'),
-            builderPath: path.resolve(__dirname, '../_builder/client')
+            builderPath: path.resolve(__dirname, '../_builder/client'),
+            cmsReadMode: argv.cmsReadMode,
+            cmsBaseUrl: argv.cmsBaseUrl,
+            cmsAdminUrl: argv.cmsAdminUrl
         });
 
         // Start the server
@@ -269,7 +325,7 @@ yargs(hideBin(process.argv))
             if (typeof open !== 'function') {
                 throw new TypeError('open is not a function');
             }
-            await open(`http://localhost:${argv.port}`);
+            await open(`http://localhost:${builderPort}`);
         }
 
         // Handle graceful shutdown
@@ -294,7 +350,6 @@ yargs(hideBin(process.argv))
         .option('port', {
             alias: 'p',
             type: 'number',
-            default: 3100,
             description: "Port for `cms serve`"
         })
         .option('project-root', {
@@ -338,11 +393,12 @@ yargs(hideBin(process.argv))
 
     if (argv.action === "serve") {
         try {
+            const cmsPort = resolveCmsPort(argv.port);
             const runtime = await startThemeCmsServer({
-                port: argv.port,
+                port: cmsPort,
                 projectRoot
             });
-            const cmsUrl = `http://localhost:${argv.port}/cms`;
+            const cmsUrl = `http://localhost:${cmsPort}/cms`;
             console.log(`Theme CMS server started on ${cmsUrl}`);
 
             if (argv.open) {
@@ -501,5 +557,7 @@ yargs(hideBin(process.argv))
 .argv;
 
 }catch(err){
+    console.error('CLI failed:', err);
     logErr.writeLog(err , {customKey: 'CLI Issue detected'});
+    process.exit(1);
 }

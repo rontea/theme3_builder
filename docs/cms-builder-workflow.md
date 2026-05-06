@@ -1,6 +1,6 @@
-# CMS User Guide
+# CMS Builder Workflow
 
-This guide explains how to use the built-in CMS in the builder to manage reusable content without hand-editing partial HTML.
+This guide explains how the standalone Theme CMS works with the visual builder.
 
 ## What The CMS Does
 
@@ -21,7 +21,23 @@ Run:
 th3 builder
 ```
 
-Then open the builder UI and click `CMS` in the top bar to open the CMS Manager.
+The builder owns page layout, partial placement, component props, and `cmsBinding` metadata. It does not own long-term CMS authoring data.
+
+Builder CMS runtime defaults:
+
+- CMS read mode: `export`
+- CMS bridge data: `html/data/cms/`
+- CMS admin URL: `http://localhost:3100/cms`
+
+Useful builder CMS options:
+
+```bash
+th3 builder --cms-admin-url http://localhost:3100/cms
+th3 builder --cms-read-mode export
+th3 builder --cms-read-mode live --cms-base-url http://localhost:3100
+```
+
+Use `export` mode as the default workflow. `live` mode is reserved for later live-preview integration.
 
 ## Run The CMS Server
 
@@ -35,7 +51,19 @@ Then open:
 
 - `http://localhost:3100/cms`
 
+The CMS owns collection definitions, entries, publish status, exports, and CMS storage in `theme-cms/data/cms.sqlite`.
+
 For detailed run/verify options, see `docs/cms-runbook.md`.
+
+## Migration Note
+
+If you previously opened the CMS through `th3 builder` at `/cms`, switch to the standalone process:
+
+```bash
+th3 cms serve
+```
+
+Then open `http://localhost:3100/cms`, or use the builder `Open CMS` button after setting `cmsAdminUrl`. The builder no longer hosts CMS admin files or `/api/cms/*`; it only reads exported CMS data through `/api/builder/cms/*`.
 
 ## Publish CMS Bridge Data
 
@@ -78,17 +106,18 @@ Then publishes bridge output to `html/data/cms/`.
 
 Use this order when setting up CMS content for a page:
 
-1. Create a collection.
-2. Define the fields for that collection.
-3. Add entries to the collection.
-4. Drag a CMS-ready partial onto the canvas.
-5. Check or adjust the component's CMS binding in the Properties panel.
-6. Preview the page.
-7. Save the layout to generate final HTML.
+1. Start the CMS with `th3 cms serve`.
+2. Create collections and entries in the CMS admin.
+3. Publish bridge data with `th3 cms export`.
+4. Start or refresh the builder with `th3 builder`.
+5. Drag a CMS-ready partial onto the canvas.
+6. Check or adjust the component's CMS binding in the Properties panel.
+7. Preview the page.
+8. Save the layout to generate final HTML.
 
 ## Create A Collection
 
-Inside `CMS Manager`:
+Inside the standalone CMS admin:
 
 1. In `Create Collection`, enter a slug such as `supporters`.
 2. Enter a display name such as `Supporters`.
@@ -111,7 +140,7 @@ Example schema:
 
 ## Create An Entry
 
-Inside `Content Entry`:
+Inside the standalone CMS admin:
 
 1. Select a collection from the left column first.
 2. Enter an `Entry Key`.
@@ -406,7 +435,8 @@ Recommended key for the migrated About CTA:
 - Preview uses CMS resolution.
 - Final page generation also uses CMS resolution.
 - Saving the layout generates final HTML in `html/pages`.
-- Builder resolves CMS from published bridge data in `html/data/cms/` first, then falls back to direct CMS data if no bridge file exists yet.
+- Builder defaults to the published bridge data in `html/data/cms/`.
+- Direct/live CMS API reads are a configurable preview path and should not replace `th3 cms export` for publish-ready output yet.
 
 ## Troubleshooting
 

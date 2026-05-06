@@ -16,7 +16,15 @@ const config = {
                 projectfolder: "theme_3",
             } ,
 
-            mainbuild : "build", 
+            mainbuild : "build",
+
+            builder: {
+                port: 3000
+            },
+
+            cms: {
+                port: 3100
+            },
             
             csspaths : {
 

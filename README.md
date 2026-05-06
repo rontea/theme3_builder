@@ -96,6 +96,20 @@ th3 builder --port 8080
 th3 builder --open false
 ```
 
+Set a default builder port in `config/config.js`:
+```js
+builder: {
+    port: 8080
+}
+```
+
+Set a default CMS port in `config/config.js`:
+```js
+cms: {
+    port: 3200
+}
+```
+
 Builder endpoints:
 - `GET /api/partials`
 - `GET /api/layouts`
@@ -105,6 +119,8 @@ Builder endpoints:
 - `GET /api/saved-layouts`
 - `GET /api/saved-layout?fileName=<name.json>`
 - Full contract reference: `docs/builder-api-contracts.md`
+- CMS system design: `docs/cms-design-system-workflow.md`
+- CMS UI design: `docs/cms-ui-design.md`
 - CMS usage guide: `docs/cms-builder-workflow.md`
 - CMS runbook: `docs/cms-runbook.md`
 
