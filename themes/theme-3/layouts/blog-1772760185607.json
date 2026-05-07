@@ -1,0 +1,56 @@
+{
+  "project": {
+    "name": "theme_3",
+    "createdAt": "2026-03-12T10:35:30.857Z"
+  },
+  "pageName": "blog",
+  "pageTitle": "blog",
+  "createdAt": "2026-03-12T10:35:57.860Z",
+  "meta": {
+    "version": 1,
+    "createdAt": "2026-03-12T10:35:59.472Z",
+    "updatedAt": "2026-03-12T10:35:59.472Z"
+  },
+  "layout": [
+    {
+      "id": "instance-1772760179772-ce6qtef6t",
+      "order": 1,
+      "type": "partial",
+      "partial": "blog/blog_header.html",
+      "componentPath": "blog/blog_header.html",
+      "name": "blog_header",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 py-20 md:py-32\">\n    <div class=\"max-w-3xl mb-24 reveal\">\n        <span class=\"text-[10px] font-bold tracking-widest-xl uppercase text-gray-400 mb-6 block\">Perspectives</span>\n        <h1 class=\"font-heading text-6xl md:text-9xl font-bold tracking-ultra-tight leading-tight-08 mb-8 uppercase\">JOURNAL</h1>\n        <p class=\"text-xl md:text-2xl text-gray-500 dark:text-gray-400 leading-relaxed font-light\">Thoughts on design, technology, and the future of human-machine collaboration. Updated weekly.</p>\n    </div>\n</div>\n"
+    },
+    {
+      "id": "instance-1772760179782-1653lv8yo",
+      "order": 2,
+      "type": "partial",
+      "partial": "blog/blog_featured.html",
+      "componentPath": "blog/blog_featured.html",
+      "name": "blog_featured",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 mb-32 md:mb-48 reveal\">\n    <a href=\"blogDetails.html\" class=\"group block relative aspect-[21/9] rounded-[2rem] md:rounded-[3rem] overflow-hidden bg-gray-100 dark:bg-zinc-900 shadow-2xl\">\n        <img src=\"https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&amp;fit=crop&amp;q=80&amp;w=2400\" alt=\"Featured Post\" class=\"w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105\">\n        <div class=\"absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-8 md:p-16 lg:p-24\">\n            <div class=\"flex items-center space-x-6 mb-6\">\n                <span class=\"px-4 py-1.5 bg-white/20 backdrop-blur-xl rounded-full text-[10px] font-bold tracking-widest uppercase text-white border border-white/10\">Featured</span>\n                <span class=\"text-[10px] font-bold tracking-widest uppercase text-gray-300\">MAY 24, 2024</span>\n            </div>\n            <h2 class=\"font-heading text-3xl md:text-5xl lg:text-7xl font-bold text-white max-w-5xl tracking-ultra-tight uppercase leading-none group-hover:underline decoration-2 underline-offset-[12px] transition-all\">The Architecture of Intelligence: Redesigning for the AI Era</h2>\n        </div>\n    </a>\n</div>\n"
+    },
+    {
+      "id": "instance-1772760179794-ilwr26s2z",
+      "order": 3,
+      "type": "partial",
+      "partial": "blog/blog_grid.html",
+      "componentPath": "blog/blog_grid.html",
+      "name": "blog_grid",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20\">\n    <div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-12 lg:gap-x-20 gap-y-32 mb-32\">\n        <a href=\"blogDetails.html\" class=\"blog-card reveal group cursor-pointer block no-underline text-inherit\">\n            <article>\n                <div class=\"aspect-[3/4] rounded-[2.5rem] overflow-hidden mb-10 relative bg-gray-100 dark:bg-zinc-900 shadow-xl\">\n                    <img src=\"https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&amp;fit=crop&amp;q=80&amp;w=800\" alt=\"The Future of AI Design\" class=\"w-full h-full object-cover transition-transform duration-[1.5s] group-hover:scale-110\">\n                    <div class=\"absolute top-8 left-8 bg-white/90 dark:bg-black/90 backdrop-blur-md px-5 py-2 rounded-full text-[10px] font-bold tracking-widest uppercase shadow-sm\">Tech</div>\n                </div>\n                <div class=\"space-y-6\">\n                    <div class=\"text-[10px] font-bold text-gray-400 tracking-widest uppercase\">MAY 12, 2024</div>\n                    <h3 class=\"font-heading text-3xl lg:text-4xl font-bold leading-tight uppercase group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors\">The Future of AI Design: Beyond the Prompt</h3>\n                    <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed line-clamp-2\">Exploring how generative tools are shifting the role of the designer from creator to curator of aesthetic systems.</p>\n                </div>\n            </article>\n        </a>\n\n        <a href=\"blogDetails.html\" class=\"blog-card reveal group cursor-pointer block no-underline text-inherit\">\n            <article>\n                <div class=\"aspect-[3/4] rounded-[2.5rem] overflow-hidden mb-10 relative bg-gray-100 dark:bg-zinc-900 shadow-xl\">\n                    <img src=\"https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&amp;fit=crop&amp;q=80&amp;w=800\" alt=\"Minimalist Portfolios\" class=\"w-full h-full object-cover transition-transform duration-[1.5s] group-hover:scale-110\">\n                    <div class=\"absolute top-8 left-8 bg-white/90 dark:bg-black/90 backdrop-blur-md px-5 py-2 rounded-full text-[10px] font-bold tracking-widest uppercase shadow-sm\">Design</div>\n                </div>\n                <div class=\"space-y-6\">\n                    <div class=\"text-[10px] font-bold text-gray-400 tracking-widest uppercase\">APR 28, 2024</div>\n                    <h3 class=\"font-heading text-3xl lg:text-4xl font-bold leading-tight uppercase group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors\">Minimalist Portfolios in 2024</h3>\n                    <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed line-clamp-2\">Why less is still more, and how to make digital simplicity feel premium through motion and typography.</p>\n                </div>\n            </article>\n        </a>\n\n        <a href=\"blogDetails.html\" class=\"blog-card reveal group cursor-pointer block no-underline text-inherit\">\n            <article>\n                <div class=\"aspect-[3/4] rounded-[2.5rem] overflow-hidden mb-10 relative bg-gray-100 dark:bg-zinc-900 shadow-xl\">\n                    <img src=\"https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&amp;fit=crop&amp;q=80&amp;w=800\" alt=\"Mastering TypeScript\" class=\"w-full h-full object-cover transition-transform duration-[1.5s] group-hover:scale-110\">\n                    <div class=\"absolute top-8 left-8 bg-white/90 dark:bg-black/90 backdrop-blur-md px-5 py-2 rounded-full text-[10px] font-bold tracking-widest uppercase shadow-sm\">Code</div>\n                </div>\n                <div class=\"space-y-6\">\n                    <div class=\"text-[10px] font-bold text-gray-400 tracking-widest uppercase\">MAR 15, 2024</div>\n                    <h3 class=\"font-heading text-3xl lg:text-4xl font-bold leading-tight uppercase group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors\">Mastering TypeScript: Pro Tips</h3>\n                    <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed line-clamp-2\">Deep dive into advanced types and building scalable architectures with vanilla foundations for modern apps.</p>\n                </div>\n            </article>\n        </a>\n    </div>\n</div>\n"
+    },
+    {
+      "id": "instance-1772760179808-1e0fsc4kk",
+      "order": 4,
+      "type": "partial",
+      "partial": "blog/blog_newsletter.html",
+      "componentPath": "blog/blog_newsletter.html",
+      "name": "blog_newsletter",
+      "props": {},
+      "renderedContent": "<section class=\"py-40 bg-black text-white overflow-hidden mt-24\">\n    <div class=\"max-w-[1440px] mx-auto px-8 text-center space-y-16\">\n        <div class=\"reveal\">\n            <p class=\"text-[10px] font-bold tracking-[0.4em] opacity-40 uppercase mb-8\">Stay in the loop</p>\n            <h2 class=\"font-heading text-6xl md:text-9xl font-bold tracking-ultra-tight uppercase leading-none\">SUBSCRIBE.</h2>\n            <p class=\"text-gray-400 max-w-xl mx-auto mt-8 font-light text-lg\">Join a community of 5,000+ creators receiving weekly insights on digital craftsmanship.</p>\n        </div>\n        \n        <div class=\"max-w-2xl mx-auto reveal\">\n            <form class=\"flex flex-col md:flex-row gap-6 p-2 bg-white/5 border border-white/10 rounded-full focus-within:border-white/30 transition-all\">\n                <input type=\"email\" placeholder=\"YOUR EMAIL ADDRESS\" class=\"flex-1 bg-transparent px-8 py-5 text-white outline-none placeholder:text-gray-600 font-heading font-bold text-sm tracking-widest\">\n                <button type=\"submit\" class=\"bg-white text-black px-12 py-5 rounded-full font-heading font-bold text-sm tracking-widest uppercase hover:scale-105 transition-transform active:scale-95 shadow-xl\">\n                    Join\n                </button>\n            </form>\n        </div>\n    </div>\n</section>\n"
+    }
+  ]
+}

@@ -7,215 +7,1386 @@
     <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-    <header class="topbar">
-        <div class="brand">
-            <span class="brand-dot"></span>
-            <div>
-                <p class="eyebrow">Theme CMS</p>
-                <h1>Content Hub</h1>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button id="menuToggle" class="icon-button menu-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">
+                    <span aria-hidden="true">☰</span>
+                </button>
+                <div class="brand-mark" aria-hidden="true">T3</div>
+                <div class="brand-copy">
+                    <h1>Theme3 CMS</h1>
+                    <span class="env-badge">Local</span>
+                </div>
             </div>
-        </div>
-        <nav class="topnav">
-            <button class="nav-item is-active" type="button" data-view="content">Content</button>
-            <button class="nav-item" type="button" data-view="structure">Structure</button>
-            <button class="nav-item" type="button" data-view="configuration">Configuration</button>
-            <button class="nav-item" type="button" data-view="publish">Publish</button>
-        </nav>
-        <div class="topbar-actions">
-            <button id="viewSite" class="btn btn-secondary" type="button">View Site</button>
-            <button id="refreshCollections" class="btn btn-secondary" type="button">Refresh</button>
-        </div>
-    </header>
 
-    <main class="workspace">
-        <section class="view is-active" data-view-panel="content">
-            <aside class="rail panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Content Types</p>
-                        <h2>Site Models</h2>
-                    </div>
+            <label class="global-search" for="globalSearch">
+                <span class="sr-only">Global search</span>
+                <span aria-hidden="true">⌕</span>
+                <input id="globalSearch" type="search" placeholder="Global search...">
+            </label>
+
+            <div class="topbar-actions">
+                <div class="sync-status" aria-label="CMS status">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    <span>Ready</span>
                 </div>
-                <div id="sectionsList" class="item-list">
-                    <p class="empty">Loading content types...</p>
-                </div>
+                <button class="icon-button" type="button" aria-label="Notifications">
+                    <span aria-hidden="true">!</span>
+                </button>
+                <button class="user-button" type="button" aria-label="User menu">CM</button>
+            </div>
+        </header>
+
+        <div id="sidebarOverlay" class="sidebar-overlay" hidden></div>
+
+        <div class="app-body">
+            <aside id="sidebar" class="sidebar" aria-label="Primary navigation">
+                <nav class="sidebar-nav">
+                    <button class="nav-item is-active" type="button" data-view="dashboard">
+                        <span class="nav-icon" aria-hidden="true">▦</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="content">
+                        <span class="nav-icon" aria-hidden="true">▤</span>
+                        <span>Content</span>
+                    </button>
+                    <button class="nav-item nav-subitem" type="button" data-view="structure">
+                        <span class="nav-icon" aria-hidden="true">⌘</span>
+                        <span>Collections</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="media">
+                        <span class="nav-icon" aria-hidden="true">▧</span>
+                        <span>Media</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="forms">
+                        <span class="nav-icon" aria-hidden="true">☷</span>
+                        <span>Forms</span>
+                    </button>
+                    <button id="openBuilder" class="nav-item" type="button" data-view="builder">
+                        <span class="nav-icon" aria-hidden="true">◇</span>
+                        <span>Builder</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="templates">
+                        <span class="nav-icon" aria-hidden="true">▥</span>
+                        <span>Templates</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="views">
+                        <span class="nav-icon" aria-hidden="true">V</span>
+                        <span>Views</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="themes">
+                        <span class="nav-icon" aria-hidden="true">◈</span>
+                        <span>Themes</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="api">
+                        <span class="nav-icon" aria-hidden="true">{ }</span>
+                        <span>API</span>
+                    </button>
+                </nav>
+                <nav class="sidebar-nav sidebar-nav-bottom">
+                    <button class="nav-item" type="button" data-view="publish">
+                        <span class="nav-icon" aria-hidden="true">↑</span>
+                        <span>Publish</span>
+                    </button>
+                    <button class="nav-item" type="button" data-view="settings">
+                        <span class="nav-icon" aria-hidden="true">⚙</span>
+                        <span>Settings</span>
+                    </button>
+                </nav>
             </aside>
 
-            <section class="canvas">
-                <article class="panel">
-                    <div class="panel-header">
+            <main class="workspace">
+                <section class="view is-active" data-view-panel="dashboard">
+                    <div class="page-header">
                         <div>
-                            <p class="eyebrow">Entries</p>
-                            <h2 id="entriesTitle">Content Entries</h2>
-                            <p id="entriesSubtitle" class="subtle">Select a content type to manage entries.</p>
+                            <p class="eyebrow">Dashboard</p>
+                            <h2>CMS Overview</h2>
+                            <p class="subtle">What needs attention across content, exports, and theme readiness.</p>
                         </div>
                         <div class="actions-inline">
-                            <input id="entriesSearch" class="search-input" type="search" placeholder="Search entries...">
-                            <button id="refreshEntries" class="btn btn-secondary" type="button">Refresh Entries</button>
-                            <button id="newEntry" class="btn btn-primary" type="button">New Entry</button>
+                            <button id="dashboardExportTheme" class="btn btn-secondary" type="button">Export Theme</button>
+                            <button id="dashboardCreateEntry" class="btn btn-primary" type="button">Create Entry</button>
+                            <button id="viewSite" class="btn btn-secondary" type="button">View Site</button>
+                            <button id="refreshCollections" class="btn btn-secondary" type="button">Refresh</button>
                         </div>
                     </div>
-                    <div id="entriesList" class="item-list item-list-large">
-                        <p class="empty">Select a content type to manage entries.</p>
-                    </div>
-                </article>
 
-                <article class="panel">
-                    <div class="panel-header">
+                    <div id="dashboardState" class="state-banner is-loading" role="status" aria-live="polite">
+                        <span class="spinner" aria-hidden="true"></span>
+                        <span id="dashboardStateMessage">Loading dashboard data...</span>
+                    </div>
+
+                    <div class="dashboard-grid dashboard-metrics" aria-label="CMS metrics">
+                        <article class="metric-card metric-card-warning">
+                            <div class="metric-topline">
+                                <span class="metric-label">Draft Entries</span>
+                                <span class="metric-dot metric-dot-warning" aria-hidden="true"></span>
+                            </div>
+                            <strong id="dashboardDraftCount">-</strong>
+                            <button class="metric-link" type="button" data-dashboard-action="view-drafts">View draft contents</button>
+                        </article>
+                        <article class="metric-card metric-card-success">
+                            <div class="metric-topline">
+                                <span class="metric-label">Published Entries</span>
+                                <span class="metric-dot metric-dot-success" aria-hidden="true"></span>
+                            </div>
+                            <strong id="dashboardPublishedCount">-</strong>
+                            <span id="dashboardLastPublished" class="metric-note">No published entries yet</span>
+                        </article>
+                        <article class="metric-card">
+                            <div class="metric-topline">
+                                <span class="metric-label">Active Theme</span>
+                                <span id="dashboardThemeBadge" class="status-badge">Local</span>
+                            </div>
+                            <strong id="dashboardActiveTheme">Theme 3</strong>
+                            <span id="dashboardThemeStatus" class="metric-note">Theme export pending</span>
+                        </article>
+                        <article class="metric-card metric-card-danger">
+                            <div class="metric-topline">
+                                <span class="metric-label">Validation Warnings</span>
+                                <span class="metric-dot metric-dot-danger" aria-hidden="true"></span>
+                            </div>
+                            <strong id="dashboardWarningCount">-</strong>
+                            <button class="metric-link" type="button" data-dashboard-action="view-warnings">Review warnings</button>
+                        </article>
+                    </div>
+
+                    <div class="dashboard-main-grid">
+                        <article class="panel dashboard-activity-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Activity</p>
+                                    <h3>Recent Activity</h3>
+                                </div>
+                            </div>
+                            <div id="dashboardActivityState" class="panel-body state-region">
+                                <div class="loading-state">
+                                    <span class="spinner" aria-hidden="true"></span>
+                                    <span>Loading recent activity...</span>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="data-table" aria-label="Recent CMS activity">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Entry Title</th>
+                                            <th scope="col">Collection</th>
+                                            <th scope="col">Updated</th>
+                                            <th scope="col">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dashboardActivityRows"></tbody>
+                                </table>
+                            </div>
+                        </article>
+
+                        <aside class="dashboard-side-stack">
+                            <article class="panel warning-panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Validation</p>
+                                        <h3>Warnings</h3>
+                                    </div>
+                                </div>
+                                <div id="dashboardWarnings" class="warning-list">
+                                    <p class="empty">Loading validation warnings...</p>
+                                </div>
+                            </article>
+
+                            <article class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Shortcuts</p>
+                                        <h3>Quick Actions</h3>
+                                    </div>
+                                </div>
+                                <div class="quick-actions-grid">
+                                    <button class="quick-action" type="button" data-dashboard-action="create-collection">
+                                        <span aria-hidden="true">+</span>
+                                        <strong>Create Collection</strong>
+                                    </button>
+                                    <button class="quick-action" type="button" data-dashboard-action="create-entry">
+                                        <span aria-hidden="true">E</span>
+                                        <strong>Create Entry</strong>
+                                    </button>
+                                    <button class="quick-action" type="button" data-dashboard-action="upload-media">
+                                        <span aria-hidden="true">^</span>
+                                        <strong>Upload Media</strong>
+                                    </button>
+                                    <button class="quick-action" type="button" data-dashboard-action="open-builder">
+                                        <span aria-hidden="true">B</span>
+                                        <strong>Open Builder</strong>
+                                    </button>
+                                    <button class="quick-action" type="button" data-dashboard-action="export-content">
+                                        <span aria-hidden="true">C</span>
+                                        <strong>Export Content</strong>
+                                    </button>
+                                    <button class="quick-action" type="button" data-dashboard-action="export-theme">
+                                        <span aria-hidden="true">T</span>
+                                        <strong>Export Theme</strong>
+                                    </button>
+                                </div>
+                                <div id="dashboardActionState" class="inline-state" role="status" aria-live="polite" hidden></div>
+                            </article>
+                        </aside>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="builder">
+                    <div class="cms-builder-shell">
+                        <aside class="cms-builder-library">
+                            <div class="cms-builder-pane-header">
+                                <div>
+                                    <p class="eyebrow">Builder</p>
+                                    <h3>Blocks</h3>
+                                </div>
+                                <input id="cmsBuilderSearch" class="search-input" type="search" placeholder="Search blocks..." aria-label="Search blocks">
+                            </div>
+                            <div id="cmsBuilderLibrary" class="cms-builder-library-list"></div>
+                        </aside>
+
+                        <section class="cms-builder-canvas">
+                            <div class="cms-builder-toolbar">
+                                <div>
+                                    <p class="eyebrow">Site Block Layout</p>
+                                    <h2 id="cmsBuilderTitle">Block Layout</h2>
+                                </div>
+                                <div class="actions-inline">
+                                    <select id="cmsBuilderTemplateSelect" aria-label="Select template"></select>
+                                    <button id="cmsBuilderNew" class="btn btn-secondary" type="button">New Layout</button>
+                                    <button id="cmsBuilderSave" class="btn btn-primary" type="button">Save Layout</button>
+                                </div>
+                            </div>
+                            <div id="cmsBuilderState" class="state-region"></div>
+                            <div id="cmsBuilderRegions" class="cms-builder-regions"></div>
+                        </section>
+
+                        <aside class="cms-builder-properties">
+                            <div class="cms-builder-pane-header">
+                                <div>
+                                    <p class="eyebrow">Properties</p>
+                                    <h3 id="cmsBuilderPropertiesTitle">Select a block</h3>
+                                </div>
+                            </div>
+                            <div id="cmsBuilderProperties" class="cms-builder-properties-body"></div>
+                        </aside>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="content">
+                    <div class="page-header">
                         <div>
-                            <p class="eyebrow">Editor</p>
-                            <h2 id="editorTitle">Entry Editor</h2>
+                            <p class="eyebrow">Content</p>
+                            <h2>Entries</h2>
+                            <p class="subtle">Manage content records owned by the standalone CMS.</p>
                         </div>
                         <div class="actions-inline">
-                            <button id="saveEntry" class="btn btn-primary" type="button">Save Entry</button>
-                            <button id="deleteEntry" class="btn btn-danger" type="button">Delete Entry</button>
+                            <button class="btn btn-secondary" type="button" data-view="structure">Manage Collections</button>
                         </div>
                     </div>
-                    <div class="panel-body">
-                        <div class="field-grid">
-                            <label class="field">
-                                <span>Collection</span>
-                                <input id="entryCollection" type="text" readonly>
-                            </label>
-                            <label class="field">
-                                <span>Entry Key</span>
-                                <input id="entryKey" type="text" placeholder="entry-key">
-                            </label>
-                        </div>
-                        <div class="field-grid">
-                            <label class="field">
-                                <span>Status</span>
-                                <select id="entryStatus">
-                                    <option value="draft">Draft</option>
-                                    <option value="published">Published</option>
-                                    <option value="archived">Archived</option>
-                                </select>
-                            </label>
-                            <label class="field">
-                                <span>Sort Order</span>
-                                <input id="entrySortOrder" type="number" value="0">
-                            </label>
-                        </div>
-                        <div id="entryFormFields" class="dynamic-fields"></div>
-                        <details class="raw-json">
-                            <summary>Advanced JSON</summary>
-                            <label class="field">
-                                <span>Data JSON</span>
-                                <textarea id="entryData" rows="12" spellcheck="false"></textarea>
-                            </label>
-                        </details>
-                    </div>
-                </article>
-            </section>
-        </section>
+                    <div class="content-grid">
+                        <aside class="rail panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Content Types</p>
+                                    <h3>Site Models</h3>
+                                </div>
+                            </div>
+                            <div id="sectionsList" class="item-list">
+                                <p class="empty">Loading content types...</p>
+                            </div>
+                        </aside>
 
-        <section class="view" data-view-panel="structure">
-            <article class="panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Structure</p>
-                        <h2>Collection Manager</h2>
+                        <section class="canvas">
+                            <article class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Entries</p>
+                                        <h3 id="entriesTitle">Content Entries</h3>
+                                        <p id="entriesSubtitle" class="subtle">Select a content type to manage entries.</p>
+                                    </div>
+                                    <div class="actions-inline">
+                                        <select id="entriesCollectionFilter" class="compact-select" aria-label="Collection filter"></select>
+                                        <input id="entriesSearch" class="search-input" type="search" placeholder="Search entries..." aria-label="Search entries">
+                                        <select id="entriesStatusFilter" class="compact-select" aria-label="Status filter">
+                                            <option value="all">All Statuses</option>
+                                            <option value="draft">Draft</option>
+                                            <option value="published">Published</option>
+                                            <option value="archived">Archived</option>
+                                        </select>
+                                        <select id="entriesSort" class="compact-select" aria-label="Sort entries">
+                                            <option value="sortOrder">Sort Order</option>
+                                            <option value="newest">Newest</option>
+                                            <option value="oldest">Oldest</option>
+                                            <option value="title">Title</option>
+                                        </select>
+                                        <button id="refreshEntries" class="btn btn-secondary" type="button">Refresh Entries</button>
+                                        <button id="newEntry" class="btn btn-primary" type="button">New Entry</button>
+                                    </div>
+                                </div>
+                                <div id="entriesBulkBar" class="bulk-bar" hidden>
+                                    <span id="entriesBulkCount">0 entries selected</span>
+                                    <div class="actions-inline">
+                                        <button class="btn btn-secondary" type="button" data-bulk-entry-action="published">Publish</button>
+                                        <button class="btn btn-secondary" type="button" data-bulk-entry-action="archived">Archive</button>
+                                        <button class="btn btn-danger" type="button" data-bulk-entry-action="delete">Delete</button>
+                                    </div>
+                                </div>
+                                <div id="entriesList" class="item-list item-list-large">
+                                    <p class="empty">Select a content type to manage entries.</p>
+                                </div>
+                            </article>
+
+                            <article class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Editor</p>
+                                        <h3 id="editorTitle">Entry Editor</h3>
+                                    </div>
+                                    <div class="actions-inline">
+                                        <button id="saveEntry" class="btn btn-primary" type="button">Save Entry</button>
+                                        <button id="deleteEntry" class="btn btn-danger" type="button">Delete Entry</button>
+                                    </div>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="field-grid">
+                                        <label class="field">
+                                            <span>Collection</span>
+                                            <input id="entryCollection" type="text" readonly>
+                                        </label>
+                                        <label class="field">
+                                            <span>Entry Key</span>
+                                            <input id="entryKey" type="text" placeholder="entry-key" aria-describedby="entryKeyError">
+                                            <span id="entryKeyError" class="field-error" hidden></span>
+                                        </label>
+                                    </div>
+                                    <div class="field-grid">
+                                        <label class="field">
+                                            <span>Status</span>
+                                            <select id="entryStatus">
+                                                <option value="draft">Draft</option>
+                                                <option value="published">Published</option>
+                                                <option value="archived">Archived</option>
+                                            </select>
+                                        </label>
+                                        <label class="field">
+                                            <span>Sort Order</span>
+                                            <input id="entrySortOrder" type="number" value="0">
+                                        </label>
+                                    </div>
+                                    <div id="entryFormFields" class="dynamic-fields"></div>
+                                    <details class="raw-json">
+                                        <summary>Advanced JSON</summary>
+                                        <label class="field">
+                                            <span>Data JSON</span>
+                                            <textarea id="entryData" rows="12" spellcheck="false"></textarea>
+                                        </label>
+                                    </details>
+                                </div>
+                            </article>
+                        </section>
                     </div>
-                    <div class="actions-inline">
-                        <button id="newCollection" class="btn btn-secondary" type="button">New Collection</button>
-                        <button id="saveCollection" class="btn btn-primary" type="button">Save Collection</button>
-                        <button id="deleteCollection" class="btn btn-danger" type="button">Delete Collection</button>
-                    </div>
-                </div>
-                <div class="panel-body">
-                        <div class="field-grid">
-                            <label class="field">
-                                <span>Slug</span>
-                                <input id="collectionSlug" type="text" placeholder="projects">
-                            </label>
-                        <label class="field">
-                            <span>Name</span>
-                            <input id="collectionName" type="text" placeholder="Projects">
-                            </label>
+                </section>
+
+                <section class="view" data-view-panel="structure">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Content</p>
+                            <h2>Collections</h2>
+                            <p class="subtle">Define content schemas for entries and CMS bindings.</p>
                         </div>
-                        <div class="field-grid">
-                            <label class="field">
-                                <span>Template</span>
-                                <select id="collectionTemplate">
-                                    <option value="custom">Custom</option>
-                                    <option value="blog">Blog</option>
-                                    <option value="news">News</option>
-                                    <option value="projects">Projects</option>
-                                    <option value="navigation">Navigation</option>
-                                </select>
-                            </label>
-                            <label class="field field-toggle">
-                                <span>Singleton Type</span>
-                                <span class="field-checkbox">
-                                    <input id="collectionSingleton" type="checkbox">
-                                    <span>Single record only</span>
-                                </span>
-                            </label>
+                    </div>
+                    <article class="panel collections-table-panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="eyebrow">Models</p>
+                                <h3>Collections</h3>
+                            </div>
+                            <div class="actions-inline">
+                                <input id="collectionsSearch" class="search-input" type="search" placeholder="Search collections..." aria-label="Search collections">
+                                <button id="collectionsRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="collectionsTableState" class="state-region panel-body">
+                            <div class="loading-state">
+                                <span class="spinner" aria-hidden="true"></span>
+                                <span>Loading collections...</span>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="data-table" aria-label="CMS collections">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Slug</th>
+                                        <th scope="col">Entries</th>
+                                        <th scope="col">Required By Theme</th>
+                                        <th scope="col">Last Updated</th>
+                                        <th scope="col">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="collectionsTableRows"></tbody>
+                            </table>
+                        </div>
+                    </article>
+                    <article class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="eyebrow">Structure</p>
+                                <h3>Collection Manager</h3>
+                            </div>
+                            <div class="actions-inline">
+                                <button id="newCollection" class="btn btn-secondary" type="button">New Collection</button>
+                                <button id="saveCollection" class="btn btn-primary" type="button">Save Collection</button>
+                                <button id="deleteCollection" class="btn btn-danger" type="button">Delete Collection</button>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="field-grid">
+                                <label class="field">
+                                    <span>Slug</span>
+                                    <input id="collectionSlug" type="text" placeholder="projects" aria-describedby="collectionSlugError">
+                                    <span id="collectionSlugError" class="field-error" hidden></span>
+                                </label>
+                                <label class="field">
+                                    <span>Name</span>
+                                    <input id="collectionName" type="text" placeholder="Projects" aria-describedby="collectionNameError">
+                                    <span id="collectionNameError" class="field-error" hidden></span>
+                                </label>
+                            </div>
+                            <div class="field-grid">
+                                <label class="field">
+                                    <span>Template</span>
+                                    <select id="collectionTemplate">
+                                        <option value="custom">Custom</option>
+                                        <option value="blog">Blog</option>
+                                        <option value="news">News</option>
+                                        <option value="projects">Projects</option>
+                                        <option value="navigation">Navigation</option>
+                                    </select>
+                                </label>
+                                <label class="field field-toggle">
+                                    <span>Singleton Type</span>
+                                    <span class="field-checkbox">
+                                        <input id="collectionSingleton" type="checkbox">
+                                        <span>Single record only</span>
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="actions-inline">
+                                <button id="applyTemplate" class="btn btn-secondary" type="button">Apply Template</button>
+                            </div>
+                            <section class="schema-builder" aria-label="Collection field builder">
+                                <div class="schema-fields-panel">
+                                    <div class="section-toolbar">
+                                        <div>
+                                            <p class="eyebrow">Fields</p>
+                                            <h4>Schema Fields</h4>
+                                        </div>
+                                        <button id="addField" class="btn btn-secondary" type="button">Add Field</button>
+                                    </div>
+                                    <div id="collectionFieldsList" class="schema-fields-list">
+                                        <p class="empty">No fields yet. Add a field to start modeling content.</p>
+                                    </div>
+                                </div>
+                                <div class="field-settings-panel">
+                                    <div class="section-toolbar">
+                                        <div>
+                                            <p class="eyebrow">Settings</p>
+                                            <h4>Selected Field</h4>
+                                        </div>
+                                    </div>
+                                    <div id="fieldSettings" class="field-settings">
+                                        <p class="empty">Select a field to edit its settings.</p>
+                                    </div>
+                                </div>
+                            </section>
+                            <details class="raw-json">
+                                <summary>Advanced Schema JSON</summary>
+                                <label class="field">
+                                    <span>Schema JSON</span>
+                                    <textarea id="collectionSchema" rows="14" spellcheck="false"></textarea>
+                                </label>
+                            </details>
+                        </div>
+                    </article>
+                </section>
+
+                <section class="view" data-view-panel="media">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Media</p>
+                            <h2>Media Library</h2>
+                            <p class="subtle">Upload, inspect, and reuse CMS assets.</p>
                         </div>
                         <div class="actions-inline">
-                            <button id="applyTemplate" class="btn btn-secondary" type="button">Apply Template</button>
+                            <input id="mediaUploadInput" class="sr-only" type="file" multiple>
+                            <button id="mediaGridView" class="btn btn-secondary" type="button" aria-pressed="true">Grid</button>
+                            <button id="mediaListView" class="btn btn-secondary" type="button" aria-pressed="false">List</button>
+                            <button id="mediaRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            <button id="mediaUpload" class="btn btn-primary" type="button">Upload</button>
                         </div>
-                        <label class="field">
-                            <span>Schema JSON</span>
-                            <textarea id="collectionSchema" rows="14" spellcheck="false"></textarea>
-                        </label>
                     </div>
-            </article>
-        </section>
+                    <div class="media-layout">
+                        <article class="panel media-library-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Assets</p>
+                                    <h3>Files</h3>
+                                </div>
+                                <input id="mediaSearch" class="search-input" type="search" placeholder="Search media..." aria-label="Search media">
+                            </div>
+                            <div id="mediaState" class="state-region panel-body">
+                                <div class="loading-state">
+                                    <span class="spinner" aria-hidden="true"></span>
+                                    <span>Loading media...</span>
+                                </div>
+                            </div>
+                            <div id="mediaItems" class="media-grid" aria-label="Media assets"></div>
+                        </article>
 
-        <section class="view" data-view-panel="configuration">
-            <article class="panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Configuration</p>
-                        <h2>CMS Settings</h2>
+                        <aside id="mediaDetail" class="panel media-detail-panel" aria-labelledby="mediaDetailTitle" tabindex="-1" hidden>
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Details</p>
+                                    <h3 id="mediaDetailTitle">File Details</h3>
+                                </div>
+                                <button id="mediaDetailClose" class="icon-button" type="button" aria-label="Close file details">×</button>
+                            </div>
+                            <div id="mediaDetailBody" class="panel-body"></div>
+                        </aside>
                     </div>
-                </div>
-                <div class="panel-body">
-                    <p class="subtle">
-                        Configuration presets are intentionally lightweight right now.
-                        Use collections plus schema fields to model navigation, site settings,
-                        and reusable blocks. Dedicated settings screens can be added next.
-                    </p>
-                    <div class="field-grid">
-                        <label class="field">
-                            <span>Site Preview URL</span>
-                            <input id="sitePreviewUrl" type="url" placeholder="http://localhost:3000">
-                        </label>
-                    </div>
-                    <div class="actions-inline">
-                        <button id="saveSitePreviewUrl" class="btn btn-primary" type="button">Save Preview URL</button>
-                    </div>
-                </div>
-            </article>
-        </section>
+                </section>
 
-        <section class="view" data-view-panel="publish">
-            <article class="panel">
-                <div class="panel-header">
-                    <div>
-                        <p class="eyebrow">Publish</p>
-                        <h2>Export Bridge Data</h2>
-                        <p class="subtle">Write normalized CMS JSON to <code>html/data/cms</code>.</p>
+                <section class="view" data-view-panel="forms">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Forms</p>
+                            <h2>Forms</h2>
+                            <p class="subtle">Manage website forms, field settings, and submission inboxes.</p>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="formsRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            <button id="newForm" class="btn btn-primary" type="button">Create Form</button>
+                        </div>
                     </div>
-                    <button id="publishExport" class="btn btn-primary" type="button">Export Now</button>
+
+                    <article class="panel forms-list-panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="eyebrow">Forms</p>
+                                <h3>Definitions</h3>
+                            </div>
+                            <input id="formsSearch" class="search-input" type="search" placeholder="Search forms..." aria-label="Search forms">
+                        </div>
+                        <div id="formsState" class="state-region panel-body">
+                            <div class="loading-state">
+                                <span class="spinner" aria-hidden="true"></span>
+                                <span>Loading forms...</span>
+                            </div>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="data-table" aria-label="Forms">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Form Name</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Submissions</th>
+                                        <th scope="col">Last Activity</th>
+                                        <th scope="col">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="formsRows"></tbody>
+                            </table>
+                        </div>
+                    </article>
+
+                    <div class="forms-workspace">
+                        <article class="panel form-builder-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Builder</p>
+                                    <h3 id="formBuilderTitle">New Form</h3>
+                                </div>
+                                <div class="actions-inline">
+                                    <button id="deleteForm" class="btn btn-danger" type="button">Delete</button>
+                                    <button id="saveForm" class="btn btn-primary" type="button">Save Form</button>
+                                </div>
+                            </div>
+                            <div class="panel-body">
+                                <div class="field-grid">
+                                    <label class="field">
+                                        <span>Name</span>
+                                        <input id="formName" type="text" placeholder="Contact Form" aria-describedby="formNameError">
+                                        <span id="formNameError" class="field-error" hidden></span>
+                                    </label>
+                                    <label class="field">
+                                        <span>Slug</span>
+                                        <input id="formSlug" type="text" placeholder="contact" aria-describedby="formSlugError">
+                                        <span id="formSlugError" class="field-error" hidden></span>
+                                    </label>
+                                    <label class="field">
+                                        <span>Status</span>
+                                        <select id="formStatus">
+                                            <option value="draft">Draft</option>
+                                            <option value="active">Active</option>
+                                            <option value="archived">Archived</option>
+                                        </select>
+                                    </label>
+                                </div>
+
+                                <div class="form-builder-grid">
+                                    <section class="form-preview-panel">
+                                        <div class="section-toolbar">
+                                            <h4>Fields</h4>
+                                            <button id="addFormField" class="btn btn-secondary btn-small" type="button">Add Field</button>
+                                        </div>
+                                        <div id="formFieldsList" class="form-fields-list"></div>
+                                    </section>
+                                    <aside class="form-settings-panel">
+                                        <div class="section-toolbar">
+                                            <h4>Field Settings</h4>
+                                        </div>
+                                        <div id="formFieldSettings" class="field-settings"></div>
+                                    </aside>
+                                </div>
+
+                                <section class="form-settings-block">
+                                    <div class="section-toolbar">
+                                        <h4>Form Settings</h4>
+                                    </div>
+                                    <div class="field-grid">
+                                        <label class="field full">
+                                            <span>Success Message</span>
+                                            <textarea id="formSuccessMessage" rows="3"></textarea>
+                                        </label>
+                                        <label class="field-inline">
+                                            <input id="formStoreSubmissions" type="checkbox">
+                                            <span>Store submissions</span>
+                                        </label>
+                                        <label class="field">
+                                            <span>Notification Email</span>
+                                            <input id="formNotificationEmail" type="email" placeholder="admin@example.com">
+                                        </label>
+                                        <label class="field">
+                                            <span>Submit Button Label</span>
+                                            <input id="formSubmitLabel" type="text" placeholder="Submit">
+                                        </label>
+                                    </div>
+                                </section>
+                            </div>
+                        </article>
+
+                        <article class="panel submissions-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Inbox</p>
+                                    <h3 id="submissionFormTitle">Submissions</h3>
+                                </div>
+                                <input id="formSubmissionSearch" class="search-input" type="search" placeholder="Search submissions..." aria-label="Search submissions">
+                            </div>
+                            <div id="formSubmissionFilters" class="segmented-control" aria-label="Submission status filters">
+                                <button type="button" data-submission-filter="all" aria-pressed="true">All</button>
+                                <button type="button" data-submission-filter="new" aria-pressed="false">New</button>
+                                <button type="button" data-submission-filter="reviewed" aria-pressed="false">Reviewed</button>
+                                <button type="button" data-submission-filter="archived" aria-pressed="false">Archived</button>
+                            </div>
+                            <div id="submissionsState" class="state-region panel-body"></div>
+                            <div id="submissionsRows" class="submissions-list"></div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="views">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Views</p>
+                            <h2>Listings And Displays</h2>
+                            <p class="subtle">Define reusable collection queries with block and page displays.</p>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="viewsRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            <button id="viewNew" class="btn btn-primary" type="button">New View</button>
+                        </div>
+                    </div>
+                    <div id="viewsState" class="state-region"></div>
+                    <div class="views-layout">
+                        <article class="panel views-list-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Definitions</p>
+                                    <h3>View List</h3>
+                                </div>
+                                <input id="viewsSearch" class="search-input" type="search" placeholder="Search views..." aria-label="Search views">
+                            </div>
+                            <div class="table-wrap">
+                                <table class="data-table" aria-label="CMS Views">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Collection</th>
+                                            <th scope="col">Displays</th>
+                                            <th scope="col">Validation</th>
+                                            <th scope="col">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="viewsTableRows"></tbody>
+                                </table>
+                            </div>
+                        </article>
+                        <article class="panel view-editor-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Editor</p>
+                                    <h3 id="viewEditorTitle">Select a View</h3>
+                                </div>
+                                <span id="viewEditorBadge" class="status-badge is-muted">Idle</span>
+                            </div>
+                            <div class="view-editor-grid">
+                                <section class="view-editor-main">
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>View ID</span>
+                                            <input id="viewId" type="text" placeholder="latest-news">
+                                        </label>
+                                        <label class="field">
+                                            <span>Label</span>
+                                            <input id="viewLabel" type="text" placeholder="Latest News">
+                                        </label>
+                                        <label class="field">
+                                            <span>Collection</span>
+                                            <select id="viewCollection"></select>
+                                        </label>
+                                        <label class="field">
+                                            <span>Status Filter</span>
+                                            <select id="viewStatus">
+                                                <option value="published">Published</option>
+                                                <option value="draft">Draft</option>
+                                                <option value="archived">Archived</option>
+                                                <option value="any">Any</option>
+                                            </select>
+                                        </label>
+                                        <label class="field">
+                                            <span>Limit</span>
+                                            <input id="viewLimit" type="number" min="0" step="1" value="10">
+                                        </label>
+                                        <label class="field">
+                                            <span>Sort Field</span>
+                                            <select id="viewSortField"></select>
+                                        </label>
+                                        <label class="field">
+                                            <span>Sort Direction</span>
+                                            <select id="viewSortDirection">
+                                                <option value="asc">Ascending</option>
+                                                <option value="desc">Descending</option>
+                                            </select>
+                                        </label>
+                                        <label class="field">
+                                            <span>Field Filters</span>
+                                            <input id="viewFilters" type="text" placeholder="active=true, featured=true">
+                                        </label>
+                                        <label class="field-inline">
+                                            <input id="viewPager" type="checkbox">
+                                            <span>Enable Pagination</span>
+                                        </label>
+                                        <label class="field field-span">
+                                            <span>Description</span>
+                                            <textarea id="viewDescription" rows="3" placeholder="Where this View is used"></textarea>
+                                        </label>
+                                    </div>
+                                    <div class="view-display-toolbar">
+                                        <strong>Displays</strong>
+                                        <button id="viewAddDisplay" class="btn btn-secondary btn-small" type="button">Add Display</button>
+                                    </div>
+                                    <div id="viewDisplays" class="view-displays"></div>
+                                    <div class="editor-actions">
+                                        <button id="viewSave" class="btn btn-primary" type="button">Save View</button>
+                                        <button id="viewDelete" class="btn btn-danger" type="button">Delete</button>
+                                    </div>
+                                </section>
+                                <aside class="view-editor-side">
+                                    <div class="template-box">
+                                        <div class="template-box-header">
+                                            <strong>Preview</strong>
+                                            <span>Runs the selected display against CMS entries</span>
+                                        </div>
+                                        <label class="field">
+                                            <span>Display</span>
+                                            <select id="viewPreviewDisplay"></select>
+                                        </label>
+                                        <button id="viewPreview" class="btn btn-secondary" type="button">Preview View</button>
+                                        <div id="viewPreviewState" class="state-region panel-body"></div>
+                                        <div id="viewPreviewResults" class="view-preview-results"></div>
+                                    </div>
+                                    <div id="viewValidation" class="template-validation-list"></div>
+                                </aside>
+                            </div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="templates">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Templates</p>
+                            <h2>Page Templates</h2>
+                            <p class="subtle">Map routes and content types to theme layouts, regions, and default blocks.</p>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="templatesRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            <button id="templateNew" class="btn btn-primary" type="button">New Template</button>
+                        </div>
+                    </div>
+                    <div id="templatesState" class="state-region"></div>
+                    <div class="templates-layout">
+                        <article class="panel templates-list-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Routes</p>
+                                    <h3>Template List</h3>
+                                </div>
+                                <input id="templatesSearch" class="search-input" type="search" placeholder="Search templates..." aria-label="Search templates">
+                            </div>
+                            <div class="table-wrap">
+                                <table class="data-table" aria-label="Page templates">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Route</th>
+                                            <th scope="col">Content Type</th>
+                                            <th scope="col">Layout</th>
+                                            <th scope="col">Regions</th>
+                                            <th scope="col">Validation</th>
+                                            <th scope="col">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="templatesTableRows"></tbody>
+                                </table>
+                            </div>
+                        </article>
+                        <article class="panel template-editor-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Editor</p>
+                                    <h3 id="templateEditorTitle">Select a template</h3>
+                                </div>
+                                <span id="templateEditorBadge" class="status-badge is-muted">Idle</span>
+                            </div>
+                            <div class="template-editor-grid">
+                                <section class="template-editor-main">
+                                    <div class="form-grid">
+                                        <label class="field">
+                                            <span>Template ID</span>
+                                            <input id="templateId" type="text" placeholder="article-detail">
+                                        </label>
+                                        <label class="field">
+                                            <span>Label</span>
+                                            <input id="templateLabel" type="text" placeholder="Article Detail">
+                                        </label>
+                                        <label class="field">
+                                            <span>Route Pattern</span>
+                                            <input id="templateRoutePattern" type="text" placeholder="/news/{slug}">
+                                        </label>
+                                        <label class="field">
+                                            <span>Content Type</span>
+                                            <select id="templateContentType"></select>
+                                        </label>
+                                        <label class="field field-span">
+                                            <span>Layout</span>
+                                            <select id="templateLayoutId"></select>
+                                        </label>
+                                        <label class="field field-span">
+                                            <span>Description</span>
+                                            <textarea id="templateDescription" rows="3" placeholder="How this template is used"></textarea>
+                                        </label>
+                                    </div>
+                                    <div class="editor-actions">
+                                        <button id="templateSave" class="btn btn-primary" type="button">Save Template</button>
+                                        <button id="templateDelete" class="btn btn-danger" type="button">Delete</button>
+                                    </div>
+                                </section>
+                                <aside class="template-editor-side">
+                                    <div class="template-box">
+                                        <div class="template-box-header">
+                                            <strong>Region Defaults</strong>
+                                            <span>Locks and default blocks</span>
+                                        </div>
+                                        <div id="templateRegions" class="template-regions"></div>
+                                    </div>
+                                    <div class="template-box">
+                                        <div class="template-box-header">
+                                            <strong>Preview Entry</strong>
+                                            <span>For content-type routes</span>
+                                        </div>
+                                        <label class="field">
+                                            <span>Entry</span>
+                                            <select id="templatePreviewEntry"></select>
+                                        </label>
+                                        <button id="templatePreview" class="btn btn-secondary" type="button">Preview Mapping</button>
+                                        <pre id="templatePreviewResult" class="code-output compact-output">Select a template to preview route data.</pre>
+                                    </div>
+                                    <div id="templateValidation" class="template-validation-list"></div>
+                                </aside>
+                            </div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="themes">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Themes</p>
+                            <h2>Theme Manager</h2>
+                            <p class="subtle">Manage active theme requirements, validation, and portable exports.</p>
+                        </div>
+                        <div class="actions-inline">
+                            <button id="themesRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                            <button id="themeExportOpen" class="btn btn-primary" type="button">Export Theme Package</button>
+                        </div>
+                    </div>
+                    <div id="themesState" class="state-region"></div>
+                    <div class="themes-layout">
+                        <article class="panel themes-list-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Installed</p>
+                                    <h3>Themes</h3>
+                                </div>
+                            </div>
+                            <div class="table-wrap">
+                                <table class="data-table" aria-label="Themes">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Theme Name</th>
+                                            <th scope="col">Version</th>
+                                            <th scope="col">Active</th>
+                                            <th scope="col">Required Collections</th>
+                                            <th scope="col">Validation</th>
+                                            <th scope="col">Last Exported</th>
+                                            <th scope="col">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="themesTableRows"></tbody>
+                                </table>
+                            </div>
+                        </article>
+                        <article class="panel theme-detail-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Details</p>
+                                    <h3 id="themeDetailTitle">Select a theme</h3>
+                                </div>
+                                <span id="themeDetailBadge" class="status-badge is-muted">Idle</span>
+                            </div>
+                            <div class="theme-tabs" role="tablist" aria-label="Theme details">
+                                <button type="button" role="tab" data-theme-tab="overview" aria-selected="true" aria-pressed="true">Overview</button>
+                                <button type="button" role="tab" data-theme-tab="collections" aria-selected="false" aria-pressed="false" tabindex="-1">Collections</button>
+                                <button type="button" role="tab" data-theme-tab="regions" aria-selected="false" aria-pressed="false" tabindex="-1">Regions</button>
+                                <button type="button" role="tab" data-theme-tab="templates" aria-selected="false" aria-pressed="false" tabindex="-1">Templates</button>
+                                <button type="button" role="tab" data-theme-tab="assets" aria-selected="false" aria-pressed="false" tabindex="-1">Assets</button>
+                                <button type="button" role="tab" data-theme-tab="bindings" aria-selected="false" aria-pressed="false" tabindex="-1">Bindings</button>
+                                <button type="button" role="tab" data-theme-tab="warnings" aria-selected="false" aria-pressed="false" tabindex="-1">Warnings</button>
+                                <button type="button" role="tab" data-theme-tab="history" aria-selected="false" aria-pressed="false" tabindex="-1">History</button>
+                            </div>
+                            <div id="themeDetailContent" class="theme-detail-content"></div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="api">
+                    <div class="api-console">
+                        <aside class="api-sidebar" role="tablist" aria-orientation="vertical" aria-label="API console sections">
+                            <div class="api-sidebar-header">
+                                <p class="eyebrow">Developer</p>
+                                <h2>API Console</h2>
+                                <p class="subtle">Public endpoints, tokens, CORS, and integration notes.</p>
+                            </div>
+                            <button class="api-tab is-active" type="button" data-api-tab="tokens" role="tab" aria-selected="true">API Tokens</button>
+                            <button class="api-tab" type="button" data-api-tab="content" role="tab" aria-selected="false" tabindex="-1">Content Endpoints</button>
+                            <button class="api-tab" type="button" data-api-tab="forms" role="tab" aria-selected="false" tabindex="-1">Form Endpoints</button>
+                            <button class="api-tab" type="button" data-api-tab="settings" role="tab" aria-selected="false" tabindex="-1">CORS Settings</button>
+                            <button class="api-tab" type="button" data-api-tab="webhooks" role="tab" aria-selected="false" tabindex="-1">Webhooks</button>
+                        </aside>
+
+                        <article class="panel api-main-panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">API</p>
+                                    <h3 id="apiPanelTitle">API Tokens</h3>
+                                    <p id="apiPanelSubtitle" class="subtle">Manage bearer tokens for external API consumers.</p>
+                                </div>
+                                <div class="actions-inline">
+                                    <button id="apiRefresh" class="btn btn-secondary" type="button">Refresh</button>
+                                    <button id="apiGenerateToken" class="btn btn-primary" type="button">Generate Token</button>
+                                </div>
+                            </div>
+                            <div id="apiState" class="state-region panel-body" hidden></div>
+                            <div id="apiPanelContent" class="api-panel-content"></div>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="publish">
+                    <div class="publish-workflow">
+                        <aside class="publish-sidebar">
+                            <article class="panel publish-action-panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Publish</p>
+                                        <h3>Generate Build</h3>
+                                        <p class="subtle">Export content, build the active theme, and generate static output.</p>
+                                    </div>
+                                </div>
+                                <div class="panel-body">
+                                    <div id="publishSteps" class="publish-steps">
+                                        <div class="publish-step" data-publish-step="content"><span></span>Content exported</div>
+                                        <div class="publish-step" data-publish-step="theme"><span></span>Theme built</div>
+                                        <div class="publish-step" data-publish-step="static"><span></span>Static output generated</div>
+                                    </div>
+                                    <div id="publishStatusMessage" class="inline-state" hidden></div>
+                                    <div class="actions-stack">
+                                        <button id="publishRun" class="btn btn-primary" type="button">Generate Build</button>
+                                        <button id="publishOpenBuild" class="btn btn-secondary" type="button">Open Build Folder</button>
+                                    </div>
+                                    <p id="publishLastBuild" class="subtle">No build generated yet.</p>
+                                </div>
+                            </article>
+
+                            <article class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Preflight</p>
+                                        <h3>Publish Checklist</h3>
+                                    </div>
+                                    <span id="publishChecklistBadge" class="status-badge is-muted">Checking</span>
+                                </div>
+                                <div id="publishChecklist" class="checklist-list panel-body"></div>
+                            </article>
+
+                            <article class="panel">
+                                <div class="panel-header">
+                                    <div>
+                                        <p class="eyebrow">Preview</p>
+                                        <h3>Controls</h3>
+                                    </div>
+                                </div>
+                                <div class="panel-body preview-controls">
+                                    <label class="field">
+                                        <span>Content Source</span>
+                                        <select id="previewContentSource">
+                                            <option value="live">Live CMS Database</option>
+                                            <option value="exported">Exported CMS JSON</option>
+                                            <option value="fallback">Theme Fallback Data</option>
+                                        </select>
+                                    </label>
+                                    <label class="field">
+                                        <span>Content Status</span>
+                                        <select id="previewContentStatus">
+                                            <option value="draft">Drafts</option>
+                                            <option value="published">Published Only</option>
+                                        </select>
+                                    </label>
+                                    <label class="field">
+                                        <span>Active Theme</span>
+                                        <select id="previewActiveTheme"></select>
+                                    </label>
+                                    <label class="field-inline">
+                                        <input id="publishIncludeDrafts" type="checkbox">
+                                        <span>Include Draft Entries In Export</span>
+                                    </label>
+                                    <label class="field-inline">
+                                        <input id="publishIncludeArchived" type="checkbox">
+                                        <span>Include Archived Entries In Export</span>
+                                    </label>
+                                    <button id="previewRefresh" class="btn btn-secondary" type="button">Refresh Preview</button>
+                                </div>
+                            </article>
+                        </aside>
+
+                        <article class="panel preview-panel">
+                            <div class="preview-toolbar">
+                                <div class="viewport-buttons" aria-label="Preview device size">
+                                    <button class="icon-button is-active" type="button" data-preview-device="desktop" aria-label="Desktop preview" aria-pressed="true">D</button>
+                                    <button class="icon-button" type="button" data-preview-device="tablet" aria-label="Tablet preview" aria-pressed="false">T</button>
+                                    <button class="icon-button" type="button" data-preview-device="mobile" aria-label="Mobile preview" aria-pressed="false">M</button>
+                                </div>
+                                <div id="previewAddress" class="preview-address">/site/</div>
+                                <button id="previewOpenWindow" class="icon-button" type="button" aria-label="Open preview in new window">Open</button>
+                            </div>
+                            <div class="preview-stage">
+                                <div id="previewFrameShell" class="preview-frame-shell is-desktop">
+                                    <iframe id="previewFrame" title="Site preview" src="/site/"></iframe>
+                                    <div id="previewLoading" class="preview-loading" hidden>Refreshing preview...</div>
+                                </div>
+                            </div>
+                            <pre id="publishResult" class="publish-result publish-result-log">No publish run yet.</pre>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="view" data-view-panel="settings">
+                    <div class="page-header">
+                        <div>
+                            <p class="eyebrow">Settings</p>
+                            <h2>CMS Settings</h2>
+                            <p class="subtle">Workspace URLs, storage paths, API preferences, and CMS import/export.</p>
+                        </div>
+                        <button id="settingsSave" class="btn btn-primary" type="button">Save Changes</button>
+                    </div>
+                    <div id="settingsState" class="state-region" hidden></div>
+                    <div class="settings-stack">
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">General</p>
+                                    <h3>Workspace</h3>
+                                </div>
+                            </div>
+                            <div class="panel-body field-grid">
+                                <label class="field">
+                                    <span>Project Name</span>
+                                    <input id="settingsProjectName" type="text" placeholder="Theme 3 CMS">
+                                </label>
+                                <label class="field">
+                                    <span>Active Theme</span>
+                                    <select id="settingsActiveTheme"></select>
+                                </label>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">CMS Storage</p>
+                                    <h3>Local Paths</h3>
+                                </div>
+                            </div>
+                            <div class="panel-body field-grid">
+                                <label class="field full">
+                                    <span>Local Storage Path</span>
+                                    <input id="settingsLocalStoragePath" type="text">
+                                </label>
+                                <label class="field full">
+                                    <span>Database Path</span>
+                                    <input id="settingsDatabasePath" type="text" readonly>
+                                </label>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Builder URLs</p>
+                                    <h3>Runtime Links</h3>
+                                </div>
+                            </div>
+                            <div class="panel-body field-grid">
+                                <label class="field">
+                                    <span>CMS Base URL</span>
+                                    <input id="settingsCmsBaseUrl" type="url" placeholder="http://localhost:3100">
+                                </label>
+                                <label class="field">
+                                    <span>CMS Admin URL</span>
+                                    <input id="settingsCmsAdminUrl" type="url" placeholder="http://localhost:3100/cms">
+                                </label>
+                                <label class="field">
+                                    <span>Site Preview URL</span>
+                                    <input id="sitePreviewUrl" type="url" placeholder="http://localhost:8100/site/">
+                                </label>
+                                <label class="field">
+                                    <span>Builder URL</span>
+                                    <input id="builderUrl" type="url" placeholder="http://localhost:8000">
+                                </label>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Theme Paths</p>
+                                    <h3>Export Defaults</h3>
+                                </div>
+                            </div>
+                            <div class="panel-body field-grid">
+                                <label class="field">
+                                    <span>Default Content Export Path</span>
+                                    <input id="settingsContentExportPath" type="text">
+                                </label>
+                                <label class="field">
+                                    <span>Default Theme Export Path</span>
+                                    <input id="settingsThemeExportPath" type="text">
+                                </label>
+                                <label class="field full">
+                                    <span>Active Theme Path</span>
+                                    <input id="settingsActiveThemePath" type="text">
+                                </label>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">API</p>
+                                    <h3>Integration Defaults</h3>
+                                </div>
+                            </div>
+                            <div class="panel-body field-grid">
+                                <label class="field">
+                                    <span>API Endpoint</span>
+                                    <input id="settingsApiEndpoint" type="url" placeholder="http://localhost:3100/api">
+                                </label>
+                                <label class="field">
+                                    <span>API Token</span>
+                                    <input id="settingsApiToken" type="password" placeholder="Optional local token">
+                                </label>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Users</p>
+                                    <h3>Users And Roles</h3>
+                                </div>
+                                <span class="status-badge is-muted">Placeholder</span>
+                            </div>
+                            <div class="panel-body">
+                                <div class="empty-state compact-empty">
+                                    <strong>User management is not enabled.</strong>
+                                    <span>Role-based access and invitations remain reserved for a future authentication pass.</span>
+                                </div>
+                            </div>
+                        </article>
+
+                        <article class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="eyebrow">Import / Export</p>
+                                    <h3>CMS Data</h3>
+                                </div>
+                            </div>
+                            <div class="settings-action-list">
+                                <div class="settings-action-row">
+                                    <div>
+                                        <strong>Export CMS Data</strong>
+                                        <span>Generate a snapshot of collections, entries, and forms.</span>
+                                    </div>
+                                    <button id="settingsExportData" class="btn btn-secondary" type="button">Export Data</button>
+                                </div>
+                                <div class="settings-action-row">
+                                    <div>
+                                        <strong>Import CMS Seed</strong>
+                                        <span>Load a previously exported CMS snapshot JSON file.</span>
+                                    </div>
+                                    <button id="settingsImportPick" class="btn btn-secondary" type="button">Choose File</button>
+                                    <input id="settingsImportFile" type="file" accept="application/json,.json" hidden>
+                                </div>
+                                <div class="settings-action-row">
+                                    <div>
+                                        <strong>Validate Imported Schema</strong>
+                                        <span>Check the selected snapshot before applying it.</span>
+                                    </div>
+                                    <button id="settingsValidateImport" class="btn btn-secondary" type="button">Validate</button>
+                                    <button id="settingsRunImport" class="btn btn-primary" type="button">Import</button>
+                                </div>
+                            </div>
+                            <pre id="settingsImportResult" class="publish-result">No import/export action run yet.</pre>
+                        </article>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <div id="confirmDialog" class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogDescription" hidden>
+        <div class="modal-backdrop" data-confirm-cancel></div>
+        <div class="modal-card confirm-dialog-card" role="document">
+            <div class="confirm-dialog-body">
+                <div id="confirmDialogIcon" class="confirm-dialog-icon" aria-hidden="true">!</div>
+                <div>
+                    <h2 id="confirmDialogTitle">Confirm Action</h2>
+                    <p id="confirmDialogDescription" class="subtle">This action needs confirmation.</p>
                 </div>
-                <div class="panel-body">
+            </div>
+            <div class="modal-actions">
+                <button id="confirmDialogCancel" class="btn btn-secondary" type="button" data-confirm-cancel>Cancel</button>
+                <button id="confirmDialogConfirm" class="btn btn-danger" type="button">Confirm</button>
+            </div>
+        </div>
+    </div>
+    <div id="themeExportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="themeExportTitle" aria-describedby="themeExportDescription" hidden>
+        <div class="modal-backdrop" data-theme-export-close></div>
+        <div class="modal-card theme-export-card">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow">Export</p>
+                    <h2 id="themeExportTitle">Export Theme Package</h2>
+                    <p id="themeExportDescription" class="sr-only">Configure theme package export options and run the export.</p>
+                </div>
+                <button class="icon-button" type="button" aria-label="Close theme export dialog" data-theme-export-close>×</button>
+            </div>
+            <div class="modal-body">
+                <div class="field-grid">
+                    <label class="field">
+                        <span>Theme Name</span>
+                        <input id="themeExportName" type="text" value="Theme 3">
+                    </label>
+                    <label class="field">
+                        <span>Output Folder</span>
+                        <input id="themeExportOutput" type="text" placeholder="./themes/theme-3">
+                    </label>
+                </div>
+                <div class="option-list">
                     <label class="field-inline">
-                        <input id="publishIncludeDrafts" type="checkbox">
-                        <span>Include Draft Entries</span>
+                        <input id="themeExportAssets" type="checkbox" checked>
+                        <span>Include Compiled Assets</span>
                     </label>
                     <label class="field-inline">
-                        <input id="publishIncludeArchived" type="checkbox">
-                        <span>Include Archived Entries</span>
+                        <input id="themeExportFallback" type="checkbox" checked>
+                        <span>Include Fallback Data</span>
                     </label>
-                    <pre id="publishResult" class="publish-result">No export run yet.</pre>
+                    <label class="field-inline">
+                        <input id="themeExportDraftBindings" type="checkbox">
+                        <span>Include Draft Bindings</span>
+                    </label>
+                    <label class="field-inline">
+                        <input id="themeExportOverwrite" type="checkbox">
+                        <span>Overwrite Existing Export</span>
+                    </label>
                 </div>
-            </article>
-        </section>
-    </main>
-
-    <div id="status" class="status" hidden></div>
+                <pre id="themeExportResult" class="publish-result">Configure export options, then run export.</pre>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" type="button" data-theme-export-close>Cancel</button>
+                <button id="themeExportRun" class="btn btn-primary" type="button">Run Export</button>
+            </div>
+        </div>
+    </div>
+    <div id="mediaPickerModal" class="modal media-picker-modal" role="dialog" aria-modal="true" aria-labelledby="mediaPickerTitle" aria-describedby="mediaPickerDescription" hidden>
+        <div class="modal-backdrop" data-media-picker-close></div>
+        <div class="modal-panel media-picker-panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Media</p>
+                    <h2 id="mediaPickerTitle">Select Media</h2>
+                    <p id="mediaPickerDescription" class="sr-only">Search, upload, and choose a media asset.</p>
+                </div>
+                <button class="icon-button" type="button" aria-label="Close media picker" data-media-picker-close>×</button>
+            </div>
+            <div class="media-picker-toolbar">
+                <input id="mediaPickerSearch" class="search-input" type="search" placeholder="Search media..." aria-label="Search media">
+                <button id="mediaPickerUpload" class="btn btn-secondary" type="button">Upload New</button>
+            </div>
+            <div id="mediaPickerState" class="state-region panel-body"></div>
+            <div id="mediaPickerItems" class="media-grid media-picker-grid"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" type="button" data-media-picker-close>Cancel</button>
+                <button id="mediaPickerInsert" class="btn btn-primary" type="button" disabled>Insert Asset</button>
+            </div>
+        </div>
+    </div>
     <script src="./app.js"></script>
 </body>
 </html>

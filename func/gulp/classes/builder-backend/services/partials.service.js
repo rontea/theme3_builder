@@ -2,11 +2,47 @@
 
 const path = require("path");
 const { buildPartialPreview, formatCategory } = require("../utils/formatting");
-const { resolveSafePath } = require("../utils/pathSafety");
+const { resolveSafePath, isPathInside } = require("../utils/pathSafety");
 const logErr = require("../../../../utils/TimeLogger");
 
 function createPartialsService(builderTask, partialsRepository) {
     const normalizePath = (value) => String(value || "").replace(/\\/g, "/");
+
+    const resolveScanRoots = (kind = "partials") => {
+        const roots = kind === "components"
+            ? [
+                { root: builderTask.activeThemeComponentsPath, source: "active-theme" },
+                { root: path.join(builderTask.activeThemePartialsPath || "", "micro"), source: "active-theme-partials" },
+                { root: path.join(builderTask.partialsPath, "micro"), source: "legacy-html" }
+            ]
+            : [
+                { root: builderTask.activeThemePartialsPath, source: "active-theme" },
+                { root: builderTask.partialsPath, source: "legacy-html" }
+            ];
+        const seen = new Set();
+        return roots
+            .filter((item) => item.root)
+            .map((item) => ({ ...item, root: path.resolve(item.root) }))
+            .filter((item) => {
+                const key = item.root.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+    };
+
+    const scanHtmlFiles = async (roots) => {
+        const files = [];
+        for (const item of roots) {
+            if (!await partialsRepository.exists(item.root)) {
+                continue;
+            }
+            const pattern = path.join(item.root, "**/*.html").replace(/\\/g, "/");
+            const matches = await partialsRepository.findFiles(pattern);
+            matches.forEach((file) => files.push({ ...item, file }));
+        }
+        return files;
+    };
 
     const resolveMicroCategory = (name, folder) => {
         const key = String(name || "").toLowerCase();
@@ -31,15 +67,19 @@ function createPartialsService(builderTask, partialsRepository) {
     return {
         async scanPartials() {
             try {
-                const pattern = path.join(builderTask.partialsPath, "**/*.html").replace(/\\/g, "/");
-                const files = await partialsRepository.findFiles(pattern);
+                const files = await scanHtmlFiles(resolveScanRoots("partials"));
+                const seen = new Set();
 
-                const items = await Promise.all(files.map(async (file) => {
-                    const relativePath = path.relative(builderTask.partialsPath, file);
+                const items = await Promise.all(files.map(async ({ root, source, file }) => {
+                    const relativePath = path.relative(root, file);
                     const normalizedPath = normalizePath(relativePath);
                     if (normalizedPath.startsWith("micro/")) {
                         return null;
                     }
+                    if (seen.has(normalizedPath)) {
+                        return null;
+                    }
+                    seen.add(normalizedPath);
                     const folder = path.dirname(relativePath);
                     const name = path.basename(file, ".html");
                     const componentKey = relativePath.replace(/\\/g, "/").replace(/\.html$/i, "");
@@ -53,6 +93,7 @@ function createPartialsService(builderTask, partialsRepository) {
                         name: name,
                         path: relativePath,
                         fullPath: file,
+                        source,
                         folder: folder === "." ? "root" : folder,
                         category,
                         type: "partial",
@@ -64,16 +105,15 @@ function createPartialsService(builderTask, partialsRepository) {
             } catch (err) {
                 logErr.writeLog(err, {
                     customKey: "BUILDER_SCAN_PARTIALS_ERROR",
-                    context: { partialsPath: builderTask.partialsPath }
+                    context: { activeThemePartialsPath: builderTask.activeThemePartialsPath, partialsPath: builderTask.partialsPath }
                 });
                 throw err;
             }
         },
         async scanMicroComponents() {
             try {
-                const microRoot = path.join(builderTask.partialsPath, "micro");
-                const pattern = path.join(microRoot, "**/*.html").replace(/\\/g, "/");
-                const files = await partialsRepository.findFiles(pattern);
+                const files = await scanHtmlFiles(resolveScanRoots("components"));
+                const seen = new Set();
 
                 const nameOverrides = new Map([
                     ["grid-2col", "Grid 2-Column"],
@@ -85,9 +125,13 @@ function createPartialsService(builderTask, partialsRepository) {
                     ["free-layout", "Free Layout"]
                 ]);
 
-                const items = await Promise.all(files.map(async (file) => {
-                    const relativePath = path.relative(microRoot, file);
+                const items = await Promise.all(files.map(async ({ root, source, file }) => {
+                    const relativePath = path.relative(root, file);
                     const normalized = normalizePath(relativePath);
+                    if (seen.has(normalized)) {
+                        return null;
+                    }
+                    seen.add(normalized);
                     const folder = path.dirname(normalized);
                     const baseName = path.basename(normalized, ".html");
                     const componentKey = normalized.replace(/\.html$/i, "");
@@ -103,6 +147,7 @@ function createPartialsService(builderTask, partialsRepository) {
                         name: displayName,
                         path: partialPath,
                         fullPath: file,
+                        source,
                         folder: folder === "." ? "root" : folder,
                         category,
                         type: "micro",
@@ -111,20 +156,37 @@ function createPartialsService(builderTask, partialsRepository) {
                     };
                 }));
 
-                return items;
+                return items.filter(Boolean);
             } catch (err) {
                 logErr.writeLog(err, {
                     customKey: "BUILDER_SCAN_MICRO_ERROR",
-                    context: { partialsPath: builderTask.partialsPath }
+                    context: {
+                        activeThemeComponentsPath: builderTask.activeThemeComponentsPath,
+                        activeThemePartialsPath: builderTask.activeThemePartialsPath,
+                        partialsPath: builderTask.partialsPath
+                    }
                 });
                 throw err;
             }
         },
         async getPartialContent(filePath) {
             try {
-                const fullPath = resolveSafePath(builderTask.partialsPath, filePath);
-                const exists = await partialsRepository.exists(fullPath);
-                if (!exists) {
+                const normalized = String(filePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+                const candidates = [
+                    { root: builderTask.activeThemePartialsPath, relativePath: normalized },
+                    { root: builderTask.activeThemeComponentsPath, relativePath: normalized.replace(/^micro\//, "") },
+                    { root: builderTask.partialsPath, relativePath: normalized }
+                ];
+                let fullPath = null;
+                for (const candidate of candidates) {
+                    if (!candidate.root) continue;
+                    const candidatePath = resolveSafePath(candidate.root, candidate.relativePath);
+                    if (isPathInside(candidate.root, candidatePath) && await partialsRepository.exists(candidatePath)) {
+                        fullPath = candidatePath;
+                        break;
+                    }
+                }
+                if (!fullPath) {
                     throw builderTask.createActionableError(
                         `Partial not found: ${filePath}`,
                         404,

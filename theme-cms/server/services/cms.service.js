@@ -2,6 +2,10 @@
 
 const fs = require("fs-extra");
 const path = require("path");
+const sqlite3 = require("sqlite3");
+const { src, dest } = require("gulp");
+const panini = require("panini");
+const sass = require("sass");
 
 const {
     createActionableError,
@@ -9,8 +13,82 @@ const {
     sanitizeCmsEntryKey,
     normalizeCmsSchema,
     normalizeCmsEntryData,
+    normalizeCmsFormDefinition,
+    normalizeCmsViewRecord,
     parseJsonRecord
 } = require("../utils/cms-utils");
+
+function sanitizeFileName(value, fallback = "asset") {
+    const raw = String(value || fallback).trim();
+    const ext = path.extname(raw).toLowerCase().replace(/[^a-z0-9.]/g, "");
+    const base = path.basename(raw, path.extname(raw))
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/(^-+|-+$)/g, "") || fallback;
+    return `${base}${ext}`;
+}
+
+function normalizeMediaRow(row, usedByCount = 0) {
+    return {
+        id: row.id,
+        fileName: row.fileName,
+        fileType: row.mimeType,
+        mimeType: row.mimeType,
+        sizeBytes: row.sizeBytes,
+        url: row.url,
+        thumbnailUrl: String(row.mimeType || "").startsWith("image/") ? row.url : null,
+        dimensions: row.width && row.height ? { width: row.width, height: row.height } : null,
+        usedByCount,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+    };
+}
+
+function normalizeFormStatus(value) {
+    const normalized = String(value || "").toLowerCase();
+    return ["active", "draft", "archived"].includes(normalized) ? normalized : "draft";
+}
+
+function normalizeSubmissionStatus(value) {
+    const normalized = String(value || "").toLowerCase();
+    return ["new", "reviewed", "archived"].includes(normalized) ? normalized : "new";
+}
+
+function normalizeFormRow(row, counts = {}) {
+    const definition = parseJsonRecord(row.definitionJson, { fields: [], settings: {} });
+    return {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        status: row.status,
+        definition,
+        fields: Array.isArray(definition.fields) ? definition.fields : [],
+        settings: definition.settings || {},
+        submissions: Number(counts.total || 0),
+        unread: Number(counts.unread || 0),
+        lastActivity: counts.lastActivity || row.updatedAt,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+    };
+}
+
+function normalizeViewRow(row, validation = null) {
+    const view = normalizeCmsViewRecord({
+        viewId: row.viewId,
+        label: row.label,
+        description: row.description,
+        collection: row.collection,
+        query: parseJsonRecord(row.queryJson, {}),
+        displays: parseJsonRecord(row.displaysJson, []),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt
+    });
+    return {
+        ...view,
+        validation
+    };
+}
 
 function sortEntries(a, b) {
     const leftOrder = Number.isFinite(Number(a?.sortOrder)) ? Number(a.sortOrder) : 0;
@@ -66,6 +144,186 @@ function createCmsService(cmsRepository, options = {}) {
     const serviceConfig = options.config || cmsRepository?.config || {};
 
     return {
+        getDefaultSettings() {
+            return {
+                projectName: "Theme 3 CMS",
+                cmsBaseUrl: serviceConfig.cmsBaseUrl || "http://localhost:3100",
+                cmsAdminUrl: serviceConfig.cmsAdminUrl || "http://localhost:3100/cms",
+                builderPreviewUrl: serviceConfig.builderPreviewUrl || "http://localhost:3000",
+                localStoragePath: serviceConfig.dataRoot || "",
+                activeTheme: serviceConfig.activeTheme || "theme-3",
+                activeThemePath: serviceConfig.activeThemePath || "",
+                contentExportPath: serviceConfig.exportPath || "",
+                themeExportPath: serviceConfig.themeExportPath || "",
+                apiEndpoint: "http://localhost:3100/api",
+                apiToken: ""
+            };
+        },
+
+        async getSettings() {
+            const defaults = this.getDefaultSettings();
+            let stored = {};
+            if (serviceConfig.settingsPath && await fs.pathExists(serviceConfig.settingsPath)) {
+                stored = await fs.readJson(serviceConfig.settingsPath).catch(() => ({}));
+            }
+            const settings = normalizeSettingsPayload(stored, defaults);
+            const validation = validateSettingsPayload(settings);
+            const themes = await this.listThemes().catch(() => []);
+            return {
+                settings,
+                validation,
+                paths: {
+                    projectRoot: serviceConfig.projectRoot,
+                    cmsRoot: serviceConfig.cmsRoot,
+                    dataRoot: serviceConfig.dataRoot,
+                    databasePath: serviceConfig.databasePath,
+                    uploadsPath: serviceConfig.uploadsPath,
+                    exportPath: serviceConfig.exportPath,
+                    themeExportPath: serviceConfig.themeExportPath,
+                    activeThemePath: resolveActiveThemeInfo(serviceConfig, settings).themePath,
+                    buildPath: serviceConfig.buildPath,
+                    settingsPath: serviceConfig.settingsPath
+                },
+                themes
+            };
+        },
+
+        async updateSettings(payload = {}) {
+            const current = await this.getSettings();
+            const settings = normalizeSettingsPayload(payload, current.settings);
+            const validation = validateSettingsPayload(settings);
+            if (!validation.valid) {
+                throw createActionableError("Settings validation failed", 400, "CMS_SETTINGS_INVALID", validation);
+            }
+            await fs.ensureDir(path.dirname(serviceConfig.settingsPath));
+            await fs.writeJson(serviceConfig.settingsPath, {
+                ...settings,
+                updatedAt: new Date().toISOString()
+            }, { spaces: 2 });
+            return {
+                settings,
+                validation
+            };
+        },
+
+        async createContentSnapshot(options = {}) {
+            const collections = await this.listCollections();
+            const entriesByCollection = {};
+            for (const collection of collections) {
+                entriesByCollection[collection.slug] = await this.listEntries(collection.slug);
+            }
+            const forms = await this.listForms().catch(() => []);
+            return {
+                version: 1,
+                generatedAt: new Date().toISOString(),
+                includeDrafts: Boolean(options.includeDrafts),
+                includeArchived: Boolean(options.includeArchived),
+                collections,
+                entriesByCollection,
+                forms
+            };
+        },
+
+        validateContentSnapshot(snapshot = {}) {
+            const errors = [];
+            const warnings = [];
+            const collections = Array.isArray(snapshot.collections) ? snapshot.collections : [];
+            const entriesByCollection = snapshot.entriesByCollection && typeof snapshot.entriesByCollection === "object"
+                ? snapshot.entriesByCollection
+                : {};
+
+            if (collections.length === 0) {
+                errors.push({ code: "IMPORT_COLLECTIONS_EMPTY", message: "Snapshot does not contain any collections." });
+            }
+            collections.forEach((collection) => {
+                const slug = sanitizeCmsSlug(collection.slug);
+                if (!slug) {
+                    errors.push({ code: "IMPORT_COLLECTION_SLUG_INVALID", message: "A collection has an invalid slug." });
+                }
+                const schema = normalizeCmsSchema(collection.schema || {});
+                if (!Array.isArray(schema.fields)) {
+                    errors.push({ code: "IMPORT_COLLECTION_SCHEMA_INVALID", message: `Collection ${slug || "unknown"} has an invalid schema.` });
+                }
+                const entries = Array.isArray(entriesByCollection[collection.slug]) ? entriesByCollection[collection.slug] : [];
+                entries.forEach((entry) => {
+                    if (!sanitizeCmsEntryKey(entry.entryKey)) {
+                        warnings.push({ code: "IMPORT_ENTRY_KEY_INVALID", message: `Collection ${slug} contains an entry with an invalid key.` });
+                    }
+                });
+            });
+
+            return {
+                valid: errors.length === 0,
+                errors,
+                warnings,
+                totals: {
+                    collections: collections.length,
+                    entries: Object.values(entriesByCollection).reduce((sum, entries) => sum + (Array.isArray(entries) ? entries.length : 0), 0)
+                }
+            };
+        },
+
+        async importContentSnapshot(snapshot = {}) {
+            const validation = this.validateContentSnapshot(snapshot);
+            if (!validation.valid) {
+                throw createActionableError("Imported CMS snapshot is invalid", 400, "CMS_IMPORT_INVALID", validation);
+            }
+
+            const currentCollections = await this.listCollections();
+            const collectionMap = new Map(currentCollections.map((collection) => [collection.slug, collection]));
+            const summary = {
+                collectionsCreated: 0,
+                collectionsUpdated: 0,
+                entriesCreated: 0,
+                entriesUpdated: 0
+            };
+
+            for (const collection of snapshot.collections) {
+                const safeSlug = sanitizeCmsSlug(collection.slug);
+                const payload = {
+                    slug: safeSlug,
+                    name: collection.name || safeSlug,
+                    schema: collection.schema || { fields: [] }
+                };
+                if (collectionMap.has(safeSlug)) {
+                    await this.updateCollection(safeSlug, payload);
+                    summary.collectionsUpdated += 1;
+                } else {
+                    await this.createCollection(payload);
+                    summary.collectionsCreated += 1;
+                }
+
+                const existingEntries = await this.listEntries(safeSlug);
+                const entryMap = new Map(existingEntries.map((entry) => [entry.entryKey, entry]));
+                const entries = Array.isArray(snapshot.entriesByCollection?.[collection.slug])
+                    ? snapshot.entriesByCollection[collection.slug]
+                    : [];
+                for (const entry of entries) {
+                    const entryPayload = {
+                        collection: safeSlug,
+                        entryKey: entry.entryKey,
+                        status: entry.status || "draft",
+                        sortOrder: entry.sortOrder || 0,
+                        data: entry.data || {}
+                    };
+                    const existing = entryMap.get(entry.entryKey);
+                    if (existing) {
+                        await this.updateEntry(existing.id, entryPayload);
+                        summary.entriesUpdated += 1;
+                    } else {
+                        await this.createEntry(entryPayload);
+                        summary.entriesCreated += 1;
+                    }
+                }
+            }
+
+            return {
+                importedAt: new Date().toISOString(),
+                validation,
+                summary
+            };
+        },
+
         async listCollections() {
             const rows = await cmsRepository.dbAll(`
                 SELECT
@@ -237,6 +495,347 @@ function createCmsService(cmsRepository, options = {}) {
                 createdAt: row.createdAt,
                 updatedAt: row.updatedAt
             }));
+        },
+
+        async listPublicCollections() {
+            const collections = await this.listCollections();
+            return collections.map((collection) => ({
+                slug: collection.slug,
+                name: collection.name,
+                schema: collection.schema,
+                links: {
+                    entries: `/api/content/${collection.slug}`
+                }
+            }));
+        },
+
+        async listPublicContent(collectionSlug, options = {}) {
+            const collection = await this.listCollections()
+                .then((collections) => collections.find((item) => item.slug === sanitizeCmsSlug(collectionSlug)));
+            if (!collection) {
+                throw createActionableError("CMS collection not found", 404, "CMS_COLLECTION_NOT_FOUND", { collection: collectionSlug });
+            }
+
+            const statusFilter = createStatusFilter({
+                includeDrafts: Boolean(options.includeDrafts),
+                includeArchived: Boolean(options.includeArchived)
+            });
+            const entries = await this.listEntries(collection.slug);
+            const filteredEntries = entries
+                .filter((entry) => statusFilter.has(String(entry.status || "").toLowerCase()))
+                .sort(sortEntries)
+                .map((entry) => ({
+                    entryKey: entry.entryKey,
+                    status: entry.status,
+                    sortOrder: entry.sortOrder,
+                    data: entry.data,
+                    updatedAt: entry.updatedAt,
+                    links: {
+                        self: `/api/content/${collection.slug}/${entry.entryKey}`
+                    }
+                }));
+
+            return {
+                collection: {
+                    slug: collection.slug,
+                    name: collection.name,
+                    schema: collection.schema
+                },
+                count: filteredEntries.length,
+                entries: filteredEntries
+            };
+        },
+
+        async getPublicContentEntry(collectionSlug, entryKey, options = {}) {
+            const collection = sanitizeCmsSlug(collectionSlug);
+            const key = sanitizeCmsEntryKey(entryKey);
+            if (!collection || !key) {
+                throw createActionableError("Invalid content endpoint parameters", 400, "CMS_PUBLIC_CONTENT_INVALID", { collectionSlug, entryKey });
+            }
+
+            const content = await this.listPublicContent(collection, options);
+            const entry = content.entries.find((item) => item.entryKey === key);
+            if (!entry) {
+                throw createActionableError("CMS content entry not found", 404, "CMS_PUBLIC_CONTENT_NOT_FOUND", { collection, entryKey: key });
+            }
+            return {
+                collection: content.collection,
+                entry
+            };
+        },
+
+        async listViews(options = {}) {
+            const rows = await cmsRepository.dbAll(`
+                SELECT
+                    id,
+                    view_id AS viewId,
+                    label,
+                    description,
+                    collection_slug AS collection,
+                    query_json AS queryJson,
+                    displays_json AS displaysJson,
+                    created_at AS createdAt,
+                    updated_at AS updatedAt
+                FROM cms_views
+                ORDER BY label COLLATE NOCASE ASC, view_id ASC
+            `);
+            const views = rows.map((row) => normalizeViewRow(row));
+            if (options.includeValidation === false) {
+                return views;
+            }
+            return Promise.all(views.map((view) => this.enrichViewRecord(view)));
+        },
+
+        async getView(viewId, options = {}) {
+            const safeViewId = sanitizeCmsSlug(viewId);
+            if (!safeViewId) {
+                throw createActionableError("Invalid View ID", 400, "CMS_VIEW_ID_INVALID", { viewId });
+            }
+            const row = await cmsRepository.dbGet(
+                `
+                    SELECT
+                        id,
+                        view_id AS viewId,
+                        label,
+                        description,
+                        collection_slug AS collection,
+                        query_json AS queryJson,
+                        displays_json AS displaysJson,
+                        created_at AS createdAt,
+                        updated_at AS updatedAt
+                    FROM cms_views
+                    WHERE view_id = ?
+                `,
+                [safeViewId]
+            );
+            if (!row) {
+                throw createActionableError("CMS View not found", 404, "CMS_VIEW_NOT_FOUND", { viewId: safeViewId });
+            }
+            const view = normalizeViewRow(row);
+            return options.includeValidation === false ? view : this.enrichViewRecord(view);
+        },
+
+        async createView(input = {}) {
+            const normalized = normalizeCmsViewRecord(input);
+            if (!normalized.viewId) {
+                throw createActionableError("Invalid View ID", 400, "CMS_VIEW_ID_INVALID", { viewId: input.viewId });
+            }
+            const existing = await cmsRepository.dbGet("SELECT view_id AS viewId FROM cms_views WHERE view_id = ?", [normalized.viewId]);
+            if (existing) {
+                throw createActionableError(`CMS View already exists: ${normalized.viewId}`, 409, "CMS_VIEW_EXISTS", { viewId: normalized.viewId });
+            }
+            const validation = await this.validateViewRecord(normalized);
+            if (validation.errors.length > 0) {
+                throw createActionableError("CMS View validation failed", 400, "CMS_VIEW_INVALID", validation);
+            }
+            const now = new Date().toISOString();
+            await cmsRepository.dbRun(
+                `
+                    INSERT INTO cms_views (
+                        view_id, label, description, collection_slug,
+                        query_json, displays_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                    normalized.viewId,
+                    normalized.label,
+                    normalized.description,
+                    normalized.collection,
+                    JSON.stringify(normalized.query),
+                    JSON.stringify(normalized.displays),
+                    now,
+                    now
+                ]
+            );
+            return {
+                ...normalized,
+                createdAt: now,
+                updatedAt: now,
+                validation
+            };
+        },
+
+        async updateView(viewId, input = {}) {
+            const current = await this.getView(viewId, { includeValidation: false });
+            const normalized = normalizeCmsViewRecord({
+                ...current,
+                ...input,
+                viewId: current.viewId
+            });
+            const validation = await this.validateViewRecord(normalized);
+            if (validation.errors.length > 0) {
+                throw createActionableError("CMS View validation failed", 400, "CMS_VIEW_INVALID", validation);
+            }
+            const now = new Date().toISOString();
+            await cmsRepository.dbRun(
+                `
+                    UPDATE cms_views
+                    SET label = ?,
+                        description = ?,
+                        collection_slug = ?,
+                        query_json = ?,
+                        displays_json = ?,
+                        updated_at = ?
+                    WHERE view_id = ?
+                `,
+                [
+                    normalized.label,
+                    normalized.description,
+                    normalized.collection,
+                    JSON.stringify(normalized.query),
+                    JSON.stringify(normalized.displays),
+                    now,
+                    current.viewId
+                ]
+            );
+            return {
+                ...normalized,
+                createdAt: current.createdAt,
+                updatedAt: now,
+                validation
+            };
+        },
+
+        async deleteView(viewId) {
+            const safeViewId = sanitizeCmsSlug(viewId);
+            if (!safeViewId) {
+                throw createActionableError("Invalid View ID", 400, "CMS_VIEW_ID_INVALID", { viewId });
+            }
+            const result = await cmsRepository.dbRun("DELETE FROM cms_views WHERE view_id = ?", [safeViewId]);
+            if (!result || result.changes === 0) {
+                throw createActionableError("CMS View not found", 404, "CMS_VIEW_NOT_FOUND", { viewId: safeViewId });
+            }
+            return { viewId: safeViewId, deleted: true };
+        },
+
+        async previewView(viewId, options = {}) {
+            const view = await this.getView(viewId);
+            if (view.validation?.errors?.length) {
+                throw createActionableError("CMS View is invalid", 400, "CMS_VIEW_INVALID", view.validation);
+            }
+            const content = await this.listPublicContent(view.collection, {
+                includeDrafts: view.query.status === "draft" || view.query.status === "any" || Boolean(options.includeDrafts),
+                includeArchived: view.query.status === "archived" || view.query.status === "any" || Boolean(options.includeArchived)
+            });
+            const displayId = sanitizeCmsSlug(options.displayId || options.display || "");
+            const display = displayId
+                ? view.displays.find((item) => item.displayId === displayId)
+                : view.displays[0] || null;
+            if (displayId && !display) {
+                throw createActionableError("CMS View display not found", 404, "CMS_VIEW_DISPLAY_NOT_FOUND", { viewId: view.viewId, displayId });
+            }
+            const entries = applyViewQuery(content.entries, view.query);
+            return {
+                view,
+                display,
+                collection: content.collection,
+                count: entries.length,
+                entries
+            };
+        },
+
+        async validateViewRecord(view = {}) {
+            const normalized = normalizeCmsViewRecord(view);
+            const errors = [];
+            const warnings = [];
+
+            if (!normalized.viewId) {
+                errors.push({ code: "VIEW_ID_MISSING", message: "View ID is required." });
+            }
+            if (!normalized.label) {
+                errors.push({ code: "VIEW_LABEL_MISSING", message: "View label is required." });
+            }
+            if (!normalized.collection) {
+                errors.push({ code: "VIEW_COLLECTION_MISSING", message: "View collection is required." });
+            }
+
+            const collections = await this.listCollections();
+            const collection = collections.find((item) => item.slug === normalized.collection);
+            const fieldNames = new Set(collection ? getSchemaFields(collection).map((field) => field.name) : []);
+            const activeTheme = resolveActiveThemeInfo(serviceConfig, await readStoredSettingsForTheme(serviceConfig, this.getDefaultSettings()));
+            if (normalized.collection && !collection) {
+                errors.push({ code: "VIEW_COLLECTION_NOT_FOUND", message: `View collection was not found: ${normalized.collection}.` });
+            }
+
+            Object.keys(normalized.query.filters || {}).forEach((fieldName) => {
+                if (collection && !fieldNames.has(fieldName)) {
+                    errors.push({ code: "VIEW_FILTER_FIELD_NOT_FOUND", message: `Filter field was not found: ${normalized.collection}.${fieldName}.` });
+                }
+            });
+            normalized.query.sort.forEach((item) => {
+                if (collection && !["entry-key", "entrykey", "status", "sort-order", "sortorder", "updated-at", "updatedat"].includes(item.field) && !fieldNames.has(item.field)) {
+                    errors.push({ code: "VIEW_SORT_FIELD_NOT_FOUND", message: `Sort field was not found: ${normalized.collection}.${item.field}.` });
+                }
+            });
+
+            if (normalized.displays.length === 0) {
+                errors.push({ code: "VIEW_DISPLAY_MISSING", message: "At least one View display is required." });
+            }
+            const displayIds = new Set();
+            const pageRoutes = [];
+            for (const display of normalized.displays) {
+                if (displayIds.has(display.displayId)) {
+                    errors.push({ code: "VIEW_DISPLAY_ID_DUPLICATE", message: `Display ID is duplicated: ${display.displayId}.` });
+                }
+                displayIds.add(display.displayId);
+                if (display.type === "page") {
+                    if (!display.route) {
+                        errors.push({ code: "VIEW_PAGE_ROUTE_MISSING", message: `Page display needs a route: ${display.displayId}.` });
+                    } else {
+                        pageRoutes.push({ displayId: display.displayId, route: display.route });
+                    }
+                }
+                for (const [field, componentPath] of Object.entries({
+                    rowComponent: display.rowComponent,
+                    emptyComponent: display.emptyComponent
+                })) {
+                    if (!componentPath) {
+                        continue;
+                    }
+                    if (path.isAbsolute(componentPath) || componentPath.includes("..")) {
+                        errors.push({ code: "VIEW_COMPONENT_PATH_INVALID", message: `${field} has an unsafe component path: ${componentPath}.` });
+                    } else if (!await cmsComponentPathExists(componentPath, serviceConfig, activeTheme)) {
+                        warnings.push({ code: "VIEW_COMPONENT_NOT_FOUND", message: `${field} was not found: ${componentPath}.` });
+                    }
+                }
+            }
+
+            const routeOwnerMap = new Map();
+            const templates = await this.listTemplates().catch(() => []);
+            templates.forEach((template) => {
+                if (template.routePattern) {
+                    routeOwnerMap.set(template.routePattern, `template:${template.templateId}`);
+                }
+            });
+            const views = await this.listViews({ includeValidation: false }).catch(() => []);
+            views.forEach((candidate) => {
+                if (candidate.viewId === normalized.viewId) {
+                    return;
+                }
+                candidate.displays
+                    .filter((display) => display.type === "page" && display.route)
+                    .forEach((display) => routeOwnerMap.set(display.route, `view:${candidate.viewId}.${display.displayId}`));
+            });
+            pageRoutes.forEach((item) => {
+                const owner = routeOwnerMap.get(item.route);
+                if (owner) {
+                    errors.push({ code: "VIEW_PAGE_ROUTE_CONFLICT", message: `Page display route conflicts with ${owner}: ${item.route}.` });
+                }
+            });
+
+            return {
+                status: errors.length ? "error" : warnings.length ? "warning" : "valid",
+                errors,
+                warnings
+            };
+        },
+
+        async enrichViewRecord(view = {}) {
+            const validation = await this.validateViewRecord(view);
+            return {
+                ...normalizeCmsViewRecord(view),
+                validation
+            };
         },
 
         async createEntry({ collection, entryKey, status = "draft", sortOrder = 0, data }) {
@@ -502,7 +1101,1960 @@ function createCmsService(cmsRepository, options = {}) {
             };
         },
 
+        async readThemeSource() {
+            const storedSettings = await readStoredSettingsForTheme(serviceConfig, this.getDefaultSettings());
+            const activeTheme = resolveActiveThemeInfo(serviceConfig, storedSettings);
+            const activeThemeManifest = await readActiveThemeManifest(activeTheme);
+            const collections = await this.listCollections();
+            const collectionMap = new Map(collections.map((collection) => [collection.slug, collection]));
+            const entries = {};
+            for (const collection of collections) {
+                entries[collection.slug] = await this.listEntries(collection.slug);
+            }
+            const views = await this.listViews({ includeValidation: false }).catch(() => []);
+
+            let layouts = [];
+            let templates = [];
+            if (serviceConfig.builderDatabasePath && await fs.pathExists(serviceConfig.builderDatabasePath)) {
+                try {
+                    const layoutRows = await readBuilderDbAll(
+                        serviceConfig.builderDatabasePath,
+                        `SELECT file_name AS fileName, page_name AS pageName, page_title AS pageTitle,
+                            project_name AS projectName, layout_json AS layoutJson, updated_at AS updatedAt
+                        FROM builder_layouts ORDER BY updated_at DESC`
+                    );
+                    layouts = layoutRows.map((row) => ({
+                        fileName: row.fileName,
+                        pageName: row.pageName,
+                        pageTitle: row.pageTitle,
+                        projectName: row.projectName,
+                        updatedAt: row.updatedAt,
+                        layout: normalizeThemeLayoutData(safeJsonParse(row.layoutJson, {}))
+                    }));
+                } catch (_error) {
+                    layouts = [];
+                }
+
+                try {
+                    const templateRows = await readBuilderDbAll(
+                        serviceConfig.builderDatabasePath,
+                        "SELECT template_json AS templateJson FROM builder_templates ORDER BY updated_at DESC"
+                    );
+                    templates = templateRows.map((row) => safeJsonParse(row.templateJson, null)).filter(Boolean);
+                } catch (_error) {
+                    templates = [];
+                }
+            }
+
+            const bindingRecords = collectBindingRecords(layouts, templates);
+            const requiredCollections = Array.from(new Set([
+                ...(activeThemeManifest?.requiredCollections || []),
+                ...getBindingCollections(bindingRecords),
+                ...templates.map((template) => template.contentType).filter(Boolean),
+                ...views.map((view) => view.collection).filter(Boolean)
+            ])).sort();
+
+            const regions = sortThemeRegions(Array.from(new Set([
+                ...(activeThemeManifest?.regions || []),
+                ...(!activeThemeManifest?.regions?.length ? ["header", "hero", "main", "side-navigation", "content-above", "content-below", "footer"] : []),
+                ...layouts.flatMap((layout) => Object.keys(layout.layout?.regions || {})),
+                ...templates.flatMap((template) => Object.keys(template.regions || {})),
+                ...templates.flatMap((template) => Object.keys(template.defaultBlocks || {}))
+            ])));
+            const themeTemplates = Array.isArray(activeThemeManifest?.templates) && activeThemeManifest.templates.length
+                ? activeThemeManifest.templates
+                : createThemeTemplateManifest(regions);
+            const generatedRegionDefinitions = createThemeRegionDefinitions(regions);
+            const manifestRegionDefinitions = Array.isArray(activeThemeManifest?.regionDefinitions)
+                ? activeThemeManifest.regionDefinitions.map((region) => ({
+                    ...region,
+                    id: normalizeThemeRegionId(region.id || region.regionId || region.name, "main")
+                }))
+                : [];
+            const manifestRegionMap = new Map(manifestRegionDefinitions.map((region) => [region.id, region]));
+            const regionDefinitions = generatedRegionDefinitions.map((region) => ({
+                ...region,
+                ...(manifestRegionMap.get(region.id) || {})
+            }));
+
+            return {
+                activeTheme,
+                activeThemeManifest,
+                collections,
+                collectionMap,
+                entries,
+                views,
+                layouts,
+                templates,
+                themeTemplates,
+                bindingRecords,
+                requiredCollections,
+                regions,
+                regionDefinitions
+            };
+        },
+
+        async validateTheme(options = {}) {
+            const source = options.source || await this.readThemeSource();
+            const warnings = [];
+            const errors = [];
+            const activeTheme = source.activeTheme || resolveActiveThemeInfo(serviceConfig);
+            const activeThemeIssues = await validateActiveThemeFolder(activeTheme, source.activeThemeManifest);
+            errors.push(...activeThemeIssues.errors);
+            warnings.push(...activeThemeIssues.warnings);
+
+            if (source.layouts.length === 0) {
+                warnings.push({ code: "THEME_LAYOUTS_EMPTY", message: "No builder layouts were found for this theme." });
+            }
+            if (source.templates.length === 0 && source.themeTemplates.length === 0) {
+                warnings.push({ code: "THEME_TEMPLATES_EMPTY", message: "No page templates were found for this theme." });
+            }
+
+            for (const view of source.views || []) {
+                const viewValidation = await this.validateViewRecord(view);
+                viewValidation.errors.forEach((item) => {
+                    errors.push({
+                        ...item,
+                        code: `THEME_${item.code}`,
+                        viewId: view.viewId
+                    });
+                });
+                viewValidation.warnings.forEach((item) => {
+                    warnings.push({
+                        ...item,
+                        code: `THEME_${item.code}`,
+                        viewId: view.viewId
+                    });
+                });
+            }
+
+            source.requiredCollections.forEach((slug) => {
+                const collection = source.collectionMap.get(slug);
+                if (!collection) {
+                    errors.push({ code: "THEME_COLLECTION_MISSING", message: `Required CMS collection is missing: ${slug}.`, collection: slug });
+                }
+            });
+
+            for (const record of source.bindingRecords) {
+                const binding = record.binding || {};
+                const collectionSlug = binding.collection || binding.contentType;
+                if (collectionSlug && source.collectionMap.has(collectionSlug)) {
+                    const fields = getSchemaFields(source.collectionMap.get(collectionSlug));
+                    const fieldNames = new Set(fields.map((field) => field.name).filter(Boolean));
+                    Object.values(binding.fieldMap || {}).forEach((fieldName) => {
+                        if (fieldName && !fieldNames.has(String(fieldName))) {
+                            warnings.push({
+                                code: "THEME_BINDING_FIELD_MISSING",
+                                message: `Binding references missing field "${fieldName}" in ${collectionSlug}.`,
+                                collection: collectionSlug,
+                                field: fieldName
+                            });
+                        }
+                    });
+                }
+
+                const componentPath = String(record.componentPath || "").replace(/\\/g, "/");
+                if (componentPath) {
+                    if (!await cmsComponentPathExists(componentPath, serviceConfig, activeTheme)) {
+                        warnings.push({
+                            code: "THEME_COMPONENT_MISSING",
+                            message: `Component partial was not found: ${componentPath}.`,
+                            componentPath
+                        });
+                    }
+                }
+            }
+
+            source.templates.forEach((template) => {
+                if (!template.routePattern) {
+                    warnings.push({ code: "THEME_TEMPLATE_ROUTE_MISSING", message: `Template "${template.label || template.templateId}" has no route pattern.` });
+                }
+                if (!template.layoutId) {
+                    warnings.push({ code: "THEME_TEMPLATE_LAYOUT_MISSING", message: `Template "${template.label || template.templateId}" has no layout ID.` });
+                }
+            });
+
+            return {
+                valid: errors.length === 0,
+                errors,
+                warnings,
+                counts: {
+                    layouts: source.layouts.length,
+                    templates: source.templates.length + source.themeTemplates.length,
+                    builderTemplates: source.templates.length,
+                    themeTemplates: source.themeTemplates.length,
+                    views: (source.views || []).length,
+                    regions: source.regions.length,
+                    bindings: source.bindingRecords.length,
+                    requiredCollections: source.requiredCollections.length
+                }
+            };
+        },
+
+        async listTemplates() {
+            await ensureBuilderTemplatesTable(serviceConfig.builderDatabasePath);
+            const rows = await readBuilderDbAll(
+                serviceConfig.builderDatabasePath,
+                "SELECT template_json AS templateJson FROM builder_templates ORDER BY datetime(updated_at) DESC"
+            );
+            const templates = rows.map((row) => normalizeCmsTemplateRecord(safeJsonParse(row.templateJson, {})));
+            return Promise.all(templates.map((template) => this.enrichTemplateRecord(template)));
+        },
+
+        async getTemplate(templateId) {
+            await ensureBuilderTemplatesTable(serviceConfig.builderDatabasePath);
+            const safeTemplateId = slugifyThemeName(templateId, "");
+            if (!safeTemplateId) {
+                throw createActionableError("Invalid template ID", 400, "CMS_TEMPLATE_ID_INVALID", { templateId });
+            }
+            const row = await readBuilderDbGet(
+                serviceConfig.builderDatabasePath,
+                "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+                [safeTemplateId]
+            );
+            if (!row) {
+                throw createActionableError("Page template not found", 404, "CMS_TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+            }
+            return this.enrichTemplateRecord(normalizeCmsTemplateRecord(safeJsonParse(row.templateJson, {})));
+        },
+
+        async saveTemplate(input = {}) {
+            await ensureBuilderTemplatesTable(serviceConfig.builderDatabasePath);
+            const normalized = normalizeCmsTemplateRecord(input);
+            const now = new Date().toISOString();
+            const existing = await readBuilderDbGet(
+                serviceConfig.builderDatabasePath,
+                "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+                [normalized.templateId]
+            );
+            const existingTemplate = existing ? safeJsonParse(existing.templateJson, {}) : {};
+            const payload = {
+                ...normalized,
+                createdAt: normalized.createdAt || existingTemplate.createdAt || now,
+                updatedAt: now
+            };
+            const validation = await this.validateTemplateRecord(payload);
+            await readBuilderDbRun(
+                serviceConfig.builderDatabasePath,
+                `
+                    INSERT INTO builder_templates (
+                        template_id, label, route_pattern, content_type,
+                        layout_id, template_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(template_id) DO UPDATE SET
+                        label = excluded.label,
+                        route_pattern = excluded.route_pattern,
+                        content_type = excluded.content_type,
+                        layout_id = excluded.layout_id,
+                        template_json = excluded.template_json,
+                        updated_at = excluded.updated_at
+                `,
+                [
+                    payload.templateId,
+                    payload.label,
+                    payload.routePattern,
+                    payload.contentType,
+                    payload.layoutId,
+                    JSON.stringify(payload),
+                    payload.createdAt,
+                    payload.updatedAt
+                ]
+            );
+            return {
+                ...payload,
+                regionsCount: getTemplateRegionIds(payload).length,
+                validation
+            };
+        },
+
+        async deleteTemplate(templateId) {
+            await ensureBuilderTemplatesTable(serviceConfig.builderDatabasePath);
+            const safeTemplateId = slugifyThemeName(templateId, "");
+            if (!safeTemplateId) {
+                throw createActionableError("Invalid template ID", 400, "CMS_TEMPLATE_ID_INVALID", { templateId });
+            }
+            const result = await readBuilderDbRun(
+                serviceConfig.builderDatabasePath,
+                "DELETE FROM builder_templates WHERE template_id = ?",
+                [safeTemplateId]
+            );
+            if (!result || result.changes === 0) {
+                throw createActionableError("Page template not found", 404, "CMS_TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+            }
+            return { templateId: safeTemplateId, deleted: true };
+        },
+
+        async validateTemplateRecord(template = {}) {
+            const warnings = [];
+            const errors = [];
+            const requiredRegions = ["header", "main", "footer"];
+            const allowedRegions = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
+
+            if (!template.templateId) {
+                errors.push({ code: "TEMPLATE_ID_MISSING", message: "Template ID is required." });
+            }
+            if (!template.routePattern) {
+                errors.push({ code: "TEMPLATE_ROUTE_MISSING", message: "Template route pattern is required." });
+            }
+            if (template.routePattern && /[:{]/.test(template.routePattern) && !template.contentType) {
+                errors.push({ code: "TEMPLATE_CONTENT_TYPE_MISSING", message: "Dynamic routes need a content type." });
+            }
+            if (!template.layoutId) {
+                errors.push({ code: "TEMPLATE_LAYOUT_MISSING", message: "Template layout ID is required." });
+            } else if (await fs.pathExists(serviceConfig.builderDatabasePath)) {
+                const layout = await readBuilderDbGet(
+                    serviceConfig.builderDatabasePath,
+                    "SELECT file_name AS fileName FROM builder_layouts WHERE file_name = ?",
+                    [template.layoutId]
+                ).catch(() => null);
+                if (!layout) {
+                    warnings.push({ code: "TEMPLATE_LAYOUT_NOT_FOUND", message: `Saved layout was not found: ${template.layoutId}.` });
+                }
+            }
+
+            const collectionMap = new Map((await this.listCollections()).map((collection) => [collection.slug, collection]));
+            if (template.contentType && !collectionMap.has(template.contentType)) {
+                errors.push({ code: "TEMPLATE_CONTENT_TYPE_MISSING_COLLECTION", message: `Content type collection is missing: ${template.contentType}.` });
+            }
+
+            const regionIds = getTemplateRegionIds(template);
+            requiredRegions.forEach((regionId) => {
+                const blocks = Array.isArray(template.defaultBlocks?.[regionId]) ? template.defaultBlocks[regionId] : [];
+                if (!regionIds.includes(regionId) && blocks.length === 0) {
+                    warnings.push({ code: "TEMPLATE_REQUIRED_REGION_EMPTY", message: `Required region has no defaults: ${regionId}.` });
+                }
+            });
+
+            template.lockedRegions.forEach((regionId) => {
+                if (!allowedRegions.has(regionId)) {
+                    errors.push({ code: "TEMPLATE_LOCKED_REGION_INVALID", message: `Locked region is not supported: ${regionId}.` });
+                }
+                if (!regionIds.includes(regionId)) {
+                    errors.push({ code: "TEMPLATE_LOCKED_REGION_MISSING", message: `Locked region is not defined: ${regionId}.` });
+                }
+            });
+
+            Object.entries(template.defaultBlocks || {}).forEach(([regionId, blocks]) => {
+                if (!allowedRegions.has(regionId)) {
+                    errors.push({ code: "TEMPLATE_REGION_UNSUPPORTED", message: `Unsupported default block region: ${regionId}.` });
+                    return;
+                }
+                (Array.isArray(blocks) ? blocks : []).forEach((block) => {
+                    const binding = block?.props?.cmsBinding || block?.cmsBinding;
+                    if (!binding || binding.source !== "cms" || !binding.collection) {
+                        return;
+                    }
+                    const collection = collectionMap.get(binding.collection);
+                    if (!collection) {
+                        errors.push({ code: "TEMPLATE_BINDING_COLLECTION_MISSING", message: `Binding collection missing: ${binding.collection}.` });
+                        return;
+                    }
+                    const fieldNames = new Set(getSchemaFields(collection).map((field) => field.name));
+                    Object.values(binding.fieldMap || {}).forEach((fieldName) => {
+                        if (fieldName && !fieldNames.has(String(fieldName))) {
+                            errors.push({ code: "TEMPLATE_BINDING_FIELD_MISSING", message: `Mapped field missing: ${binding.collection}.${fieldName}.` });
+                        }
+                    });
+                });
+            });
+
+            return {
+                status: errors.length ? "error" : warnings.length ? "warning" : "valid",
+                errors,
+                warnings
+            };
+        },
+
+        async enrichTemplateRecord(template = {}) {
+            const validation = await this.validateTemplateRecord(template);
+            return {
+                ...template,
+                regionsCount: getTemplateRegionIds(template).length,
+                validation
+            };
+        },
+
+        async listThemes() {
+            const source = await this.readThemeSource();
+            const validation = await this.validateTheme({ source });
+            const activeTheme = source.activeTheme || resolveActiveThemeInfo(serviceConfig);
+            const exportedManifest = source.activeThemeManifest || null;
+            const themeName = exportedManifest?.name || formatThemeName(activeTheme.slug);
+            const themeSlug = exportedManifest?.slug || activeTheme.slug;
+            const outputPath = activeTheme.themePath;
+
+            return [{
+                id: themeSlug,
+                name: themeName,
+                slug: themeSlug,
+                version: exportedManifest?.version || "1.0.0",
+                active: true,
+                status: "active",
+                description: exportedManifest?.description || "Active theme folder used by CMS validation and builder component discovery.",
+                requiredCollections: source.requiredCollections,
+                regions: source.regions,
+                regionDefinitions: source.regionDefinitions,
+                layouts: source.layouts,
+                templates: source.templates,
+                themeTemplates: source.themeTemplates,
+                views: source.views,
+                bindings: source.bindingRecords,
+                validation,
+                lastExported: exportedManifest?.exportedAt || null,
+                outputPath,
+                manifestPath: activeTheme.manifestPath
+            }];
+        },
+
+        async exportTheme(options = {}) {
+            const source = await this.readThemeSource();
+            const validation = await this.validateTheme({ source });
+            const themeName = String(options.themeName || "Theme 3").trim() || "Theme 3";
+            const themeSlug = slugifyThemeName(themeName);
+            const generatedAt = new Date().toISOString();
+            const defaultOutputRoot = serviceConfig.themeExportPath || path.join(process.cwd(), "themes");
+            const outputPath = path.resolve(options.outputPath || path.join(defaultOutputRoot, themeSlug));
+
+            if (!isPathInside(serviceConfig.projectRoot || process.cwd(), outputPath)) {
+                throw createActionableError("Theme export output must stay inside the project root", 400, "THEME_EXPORT_PATH_INVALID", { outputPath });
+            }
+            if (await fs.pathExists(outputPath)) {
+                if (!options.overwrite) {
+                    throw createActionableError("Theme export output already exists", 409, "THEME_EXPORT_EXISTS", { outputPath });
+                }
+                await fs.emptyDir(outputPath);
+            }
+            await fs.ensureDir(outputPath);
+
+            const dirs = ["templates", "templates/regions", "layouts", "pages", "regions", "views", "partials", "components", "assets", "data/fallback", "bindings"];
+            await Promise.all(dirs.map((dir) => fs.ensureDir(path.join(outputPath, dir))));
+
+            const copyIfExists = async (from, to) => {
+                if (from && await fs.pathExists(from)) {
+                    await fs.copy(from, to, { overwrite: true, errorOnExist: false });
+                    return true;
+                }
+                return false;
+            };
+
+            await copyIfExists(serviceConfig.pagesPath, path.join(outputPath, "pages"));
+            await copyIfExists(serviceConfig.layoutsPath, path.join(outputPath, "layouts", "html"));
+            await copyIfExists(serviceConfig.partialsPath, path.join(outputPath, "partials"));
+            await copyIfExists(path.join(serviceConfig.partialsPath || "", "micro"), path.join(outputPath, "components"));
+
+            if (options.includeCompiledAssets !== false) {
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "css"), path.join(outputPath, "assets", "css"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "js"), path.join(outputPath, "assets", "js"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "images"), path.join(outputPath, "assets", "images"));
+            }
+
+            for (const layout of source.layouts) {
+                await fs.writeJson(path.join(outputPath, "layouts", layout.fileName), layout.layout, { spaces: 2 });
+            }
+            for (const template of source.templates) {
+                const templateId = slugifyThemeName(template.templateId || template.label || "template");
+                await fs.writeJson(path.join(outputPath, "pages", `${templateId}.template.json`), template, { spaces: 2 });
+            }
+            const exportedViews = [];
+            for (const view of source.views || []) {
+                const viewId = slugifyThemeName(view.viewId || view.label || "view", "view");
+                const viewValidation = await this.validateViewRecord(view);
+                const viewFile = `views/${viewId}.json`;
+                const viewExport = {
+                    ...normalizeCmsViewRecord(view),
+                    validation: viewValidation
+                };
+                await fs.writeJson(path.join(outputPath, viewFile), viewExport, { spaces: 2 });
+                exportedViews.push({
+                    id: viewExport.viewId,
+                    label: viewExport.label,
+                    collection: viewExport.collection,
+                    file: viewFile,
+                    displays: viewExport.displays.map((display) => ({
+                        id: display.displayId,
+                        label: display.label,
+                        type: display.type,
+                        route: display.route || null
+                    })),
+                    validation: viewValidation.status
+                });
+            }
+            await fs.writeFile(path.join(outputPath, "templates", "page.html"), buildThemePageTemplate(source.regionDefinitions), "utf8");
+            for (const region of source.regionDefinitions) {
+                await fs.writeFile(
+                    path.join(outputPath, "templates", "regions", `${region.id}.html`),
+                    buildThemeRegionTemplate(region),
+                    "utf8"
+                );
+            }
+            for (const regionId of source.regions) {
+                const regionLayouts = source.layouts.map((layout) => ({
+                    layoutId: layout.fileName,
+                    blocks: getLayoutRegionBlocks(layout.layout, regionId)
+                })).filter((item) => item.blocks.length > 0);
+                await fs.writeJson(path.join(outputPath, "regions", `${regionId}.json`), {
+                    id: regionId,
+                    layouts: regionLayouts
+                }, { spaces: 2 });
+            }
+            await fs.writeJson(path.join(outputPath, "bindings", "cms-bindings.json"), {
+                generatedAt,
+                includeDraftBindings: Boolean(options.includeDraftBindings),
+                bindings: source.bindingRecords
+            }, { spaces: 2 });
+
+            if (options.includeFallbackData !== false) {
+                await writeExportBundle(path.join(outputPath, "data", "fallback"), {
+                    generatedAt,
+                    manifest: {
+                        version: 1,
+                        generatedAt,
+                        statusFilter: ["published", "draft", "archived"],
+                        totals: {
+                            collections: source.collections.length,
+                            entries: Object.values(source.entries).reduce((sum, items) => sum + items.length, 0)
+                        },
+                        collections: source.collections.map((collection) => ({
+                            slug: collection.slug,
+                            name: collection.name,
+                            entryCount: source.entries[collection.slug]?.length || 0,
+                            files: {
+                                collection: `collections/${collection.slug}.json`,
+                                entries: `entries/${collection.slug}.json`
+                            }
+                        }))
+                    },
+                    collections: source.collections.map((collection) => ({
+                        ...collection,
+                        entryCount: source.entries[collection.slug]?.length || 0,
+                        files: {
+                            collection: `collections/${collection.slug}.json`,
+                            entries: `entries/${collection.slug}.json`
+                        }
+                    })),
+                    entriesIndex: source.collections.map((collection) => ({
+                        slug: collection.slug,
+                        count: source.entries[collection.slug]?.length || 0,
+                        file: `entries/${collection.slug}.json`
+                    })),
+                    entriesByCollection: source.entries
+                });
+            }
+
+            const themeJson = {
+                schemaVersion: 1,
+                name: themeName,
+                slug: themeSlug,
+                version: String(options.version || "1.0.0"),
+                exportedAt: generatedAt,
+                source: {
+                    projectRoot: serviceConfig.projectRoot,
+                    cmsDatabase: serviceConfig.databasePath,
+                    builderDatabase: serviceConfig.builderDatabasePath
+                },
+                requiredCollections: source.requiredCollections,
+                regions: source.regions,
+                regionDefinitions: source.regionDefinitions,
+                templates: source.themeTemplates,
+                views: exportedViews,
+                counts: validation.counts,
+                validation,
+                files: dirs
+            };
+            await fs.writeJson(path.join(outputPath, "theme.json"), themeJson, { spaces: 2 });
+            await fs.writeFile(path.join(outputPath, "README.md"), `# ${themeName}
+
+Exported from Theme 3 CMS on ${generatedAt}.
+
+## Package Contents
+
+- \`theme.json\` package metadata and validation summary.
+- \`templates/page.html\` and \`templates/regions/*.html\` Drupal-style theme templates.
+- \`layouts/\` builder layout JSON and copied HTML layouts.
+- \`pages/\` static pages plus page template JSON.
+- \`regions/\` named region manifests.
+- \`views/\` Views-style listing and page display definitions.
+- \`partials/\` and \`components/\` reusable HTML components.
+- \`assets/\` copied source assets when enabled.
+- \`data/fallback/\` CMS fallback JSON when enabled.
+- \`bindings/\` CMS binding metadata.
+`);
+
+            return {
+                generatedAt,
+                outputPath,
+                manifestPath: path.join(outputPath, "theme.json"),
+                validation,
+                totals: validation.counts
+            };
+        },
+
+        async checkBrokenMediaLinks() {
+            const collections = await this.listCollections();
+            const missing = [];
+            for (const collection of collections) {
+                const entries = await this.listEntries(collection.slug);
+                entries.forEach((entry) => {
+                    const serialized = JSON.stringify(entry.data || {});
+                    const matches = serialized.match(/\/uploads\/[^"')\s]+/g) || [];
+                    matches.forEach((url) => {
+                        const fileName = path.basename(url);
+                        const filePath = path.join(serviceConfig.uploadsPath || "", fileName);
+                        if (!fs.existsSync(filePath)) {
+                            missing.push({ collection: collection.slug, entryKey: entry.entryKey, url });
+                        }
+                    });
+                });
+            }
+            return missing;
+        },
+
+        async getPublishChecklist() {
+            const source = await this.readThemeSource();
+            const validation = await this.validateTheme({ source });
+            const missingCollections = validation.errors.filter((item) => item.code === "THEME_COLLECTION_MISSING");
+            const missingFields = validation.warnings.filter((item) => item.code === "THEME_BINDING_FIELD_MISSING");
+            const missingBindings = validation.warnings.filter((item) => item.code === "THEME_COMPONENT_MISSING");
+            const viewIssues = [...validation.errors, ...validation.warnings].filter((item) => String(item.code || "").startsWith("THEME_VIEW_"));
+            const brokenMedia = await this.checkBrokenMediaLinks();
+
+            const theme = (await this.listThemes())[0];
+            const themeManifest = theme?.outputPath ? path.join(theme.outputPath, "theme.json") : null;
+            const themeManifestMtime = await getFileMtime(themeManifest);
+            const themeSourceMtime = await getNewestMtime([
+                serviceConfig.builderDatabasePath,
+                serviceConfig.databasePath
+            ]);
+            const themeCurrent = Boolean(themeManifestMtime)
+                && (!themeSourceMtime || themeManifestMtime.getTime() >= themeSourceMtime.getTime());
+
+            const contentManifest = path.join(serviceConfig.exportPath || "", "manifest.json");
+            const contentManifestMtime = await getFileMtime(contentManifest);
+            const contentSourceMtime = await getFileMtime(serviceConfig.databasePath);
+            const contentCurrent = Boolean(contentManifestMtime)
+                && (!contentSourceMtime || contentManifestMtime.getTime() >= contentSourceMtime.getTime());
+
+            const items = [
+                createChecklistItem(
+                    "collections",
+                    "Required collections exist",
+                    missingCollections.length === 0,
+                    missingCollections.map((item) => item.collection || item.message).join(", ")
+                ),
+                createChecklistItem(
+                    "fields",
+                    "Required fields exist",
+                    missingFields.length === 0,
+                    missingFields.map((item) => `${item.collection}.${item.field}`).join(", ")
+                ),
+                createChecklistItem(
+                    "media",
+                    "No broken media links",
+                    brokenMedia.length === 0,
+                    brokenMedia.map((item) => `${item.collection}/${item.entryKey}: ${item.url}`).join(", ")
+                ),
+                createChecklistItem(
+                    "bindings",
+                    "No missing CMS bindings",
+                    missingBindings.length === 0,
+                    missingBindings.map((item) => item.componentPath || item.message).join(", ")
+                ),
+                createChecklistItem(
+                    "views",
+                    "Views are valid",
+                    viewIssues.length === 0,
+                    viewIssues.map((item) => `${item.viewId || "view"}: ${item.message}`).join(", ")
+                ),
+                createChecklistItem(
+                    "theme-sync",
+                    "Theme export is current",
+                    themeCurrent,
+                    themeManifestMtime ? "Theme package is older than CMS or builder source data." : "No theme export manifest found."
+                ),
+                createChecklistItem(
+                    "content-sync",
+                    "Content export is current",
+                    contentCurrent,
+                    contentManifestMtime ? "Content bridge export is older than CMS data." : "No CMS export manifest found."
+                )
+            ];
+
+            return {
+                generatedAt: new Date().toISOString(),
+                valid: items.every((item) => item.status === "passed"),
+                items,
+                theme: theme || null,
+                paths: {
+                    contentManifest,
+                    themeManifest,
+                    buildPath: serviceConfig.buildPath
+                }
+            };
+        },
+
+        async generateStaticOutput(options = {}) {
+            const outputPath = path.resolve(options.outputPath || serviceConfig.buildPath || path.join(process.cwd(), "build"));
+            if (!isPathInside(serviceConfig.projectRoot || process.cwd(), outputPath)) {
+                throw createActionableError("Static output path must stay inside the project root", 400, "PUBLISH_BUILD_PATH_INVALID", { outputPath });
+            }
+
+            await fs.emptyDir(outputPath);
+            const compiledPages = await compilePaniniPages(serviceConfig, outputPath);
+            if (serviceConfig.exportPath && await fs.pathExists(serviceConfig.exportPath)) {
+                await fs.copy(serviceConfig.exportPath, path.join(outputPath, "data", "cms"), { overwrite: true, errorOnExist: false });
+            }
+            await compileStaticStyles(serviceConfig, outputPath);
+            await copyStaticAssets(serviceConfig, outputPath);
+            if (!compiledPages) {
+                await fs.writeFile(path.join(outputPath, "index.html"), "<!doctype html><title>Theme 3 Build</title><h1>Theme 3 Build</h1>");
+            }
+
+            return {
+                outputPath,
+                generatedAt: new Date().toISOString()
+            };
+        },
+
+        async runPublish(options = {}) {
+            const includeDrafts = Boolean(options.includeDrafts);
+            const includeArchived = Boolean(options.includeArchived);
+            const themeName = options.themeName || "Theme 3";
+            const steps = [];
+
+            const contentExport = await this.exportContent({
+                includeDrafts,
+                includeArchived,
+                outputPath: serviceConfig.exportPath
+            });
+            steps.push({ id: "content", status: "passed", label: "Content exported", result: contentExport });
+
+            const themeExport = await this.exportTheme({
+                themeName,
+                includeCompiledAssets: options.includeCompiledAssets !== false,
+                includeFallbackData: options.includeFallbackData !== false,
+                includeDraftBindings: Boolean(options.includeDraftBindings),
+                overwrite: true
+            });
+            steps.push({ id: "theme", status: "passed", label: "Theme built", result: themeExport });
+
+            const staticOutput = await this.generateStaticOutput({
+                outputPath: options.outputPath || serviceConfig.buildPath
+            });
+            steps.push({ id: "static", status: "passed", label: "Static output generated", result: staticOutput });
+
+            const checklist = await this.getPublishChecklist();
+            return {
+                generatedAt: new Date().toISOString(),
+                status: checklist.valid ? "success" : "warning",
+                steps,
+                checklist,
+                buildPath: staticOutput.outputPath,
+                siteUrl: "/site/"
+            };
+        },
+
+        async getPublishStatus() {
+            const checklist = await this.getPublishChecklist();
+            const buildManifest = await getNewestMtime([
+                path.join(serviceConfig.buildPath || "", "index.html"),
+                serviceConfig.buildPath
+            ]);
+            return {
+                generatedAt: new Date().toISOString(),
+                checklist,
+                buildPath: serviceConfig.buildPath,
+                siteUrl: "/site/",
+                lastBuildAt: buildManifest ? buildManifest.toISOString() : null
+            };
+        },
+
+        async listMedia() {
+            const rows = await cmsRepository.dbAll(`
+                SELECT
+                    id,
+                    file_name AS fileName,
+                    stored_name AS storedName,
+                    mime_type AS mimeType,
+                    size_bytes AS sizeBytes,
+                    width,
+                    height,
+                    url,
+                    created_at AS createdAt,
+                    updated_at AS updatedAt
+                FROM cms_media_assets
+                ORDER BY updated_at DESC, id DESC
+            `);
+
+            const entries = await cmsRepository.dbAll("SELECT data_json AS dataJson FROM cms_entries");
+            return rows.map((row) => {
+                const usedByCount = entries.filter((entry) => String(entry.dataJson || "").includes(row.url)).length;
+                return normalizeMediaRow(row, usedByCount);
+            });
+        },
+
+        async createMediaAsset(payload = {}) {
+            const fileName = sanitizeFileName(payload.fileName || payload.name || "asset");
+            const mimeType = String(payload.mimeType || payload.fileType || "application/octet-stream").trim();
+            const dataBase64 = String(payload.dataBase64 || "").replace(/^data:[^;]+;base64,/, "");
+            if (!dataBase64) {
+                throw createActionableError("Missing media file data", 400, "CMS_MEDIA_DATA_REQUIRED");
+            }
+
+            const buffer = Buffer.from(dataBase64, "base64");
+            if (!buffer.length) {
+                throw createActionableError("Media file data is empty", 400, "CMS_MEDIA_DATA_EMPTY");
+            }
+
+            await fs.ensureDir(serviceConfig.uploadsPath);
+            const storedName = `${Date.now()}-${fileName}`;
+            const targetPath = path.join(serviceConfig.uploadsPath, storedName);
+            await fs.writeFile(targetPath, buffer);
+
+            const now = new Date().toISOString();
+            const url = `/uploads/${storedName}`;
+            const dimensions = payload.dimensions || {};
+            const result = await cmsRepository.dbRun(
+                `
+                    INSERT INTO cms_media_assets (
+                        file_name, stored_name, mime_type, size_bytes, width, height, url, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                [
+                    fileName,
+                    storedName,
+                    mimeType,
+                    buffer.length,
+                    Number.isFinite(Number(dimensions.width)) ? Number(dimensions.width) : null,
+                    Number.isFinite(Number(dimensions.height)) ? Number(dimensions.height) : null,
+                    url,
+                    now,
+                    now
+                ]
+            );
+
+            return normalizeMediaRow({
+                id: result.lastID,
+                fileName,
+                storedName,
+                mimeType,
+                sizeBytes: buffer.length,
+                width: Number.isFinite(Number(dimensions.width)) ? Number(dimensions.width) : null,
+                height: Number.isFinite(Number(dimensions.height)) ? Number(dimensions.height) : null,
+                url,
+                createdAt: now,
+                updatedAt: now
+            });
+        },
+
+        async updateMediaAsset(id, payload = {}) {
+            const numericId = Number(id);
+            if (!Number.isInteger(numericId) || numericId <= 0) {
+                throw createActionableError("Invalid media id", 400, "CMS_MEDIA_ID_INVALID", { id });
+            }
+            const current = await cmsRepository.dbGet(
+                "SELECT id, file_name AS fileName, stored_name AS storedName, mime_type AS mimeType, size_bytes AS sizeBytes, width, height, url, created_at AS createdAt FROM cms_media_assets WHERE id = ?",
+                [numericId]
+            );
+            if (!current) {
+                throw createActionableError("Media asset not found", 404, "CMS_MEDIA_NOT_FOUND", { id: numericId });
+            }
+
+            let fileName = current.fileName;
+            let mimeType = current.mimeType;
+            let sizeBytes = current.sizeBytes;
+            let width = current.width;
+            let height = current.height;
+
+            if (payload.fileName || payload.name) {
+                fileName = sanitizeFileName(payload.fileName || payload.name);
+            }
+
+            if (payload.dataBase64) {
+                const dataBase64 = String(payload.dataBase64 || "").replace(/^data:[^;]+;base64,/, "");
+                const buffer = Buffer.from(dataBase64, "base64");
+                await fs.ensureDir(serviceConfig.uploadsPath);
+                await fs.writeFile(path.join(serviceConfig.uploadsPath, current.storedName), buffer);
+                mimeType = String(payload.mimeType || payload.fileType || current.mimeType).trim();
+                sizeBytes = buffer.length;
+                const dimensions = payload.dimensions || {};
+                width = Number.isFinite(Number(dimensions.width)) ? Number(dimensions.width) : null;
+                height = Number.isFinite(Number(dimensions.height)) ? Number(dimensions.height) : null;
+            }
+
+            const now = new Date().toISOString();
+            await cmsRepository.dbRun(
+                `
+                    UPDATE cms_media_assets
+                    SET file_name = ?, mime_type = ?, size_bytes = ?, width = ?, height = ?, updated_at = ?
+                    WHERE id = ?
+                `,
+                [fileName, mimeType, sizeBytes, width, height, now, numericId]
+            );
+
+            return normalizeMediaRow({
+                id: numericId,
+                fileName,
+                storedName: current.storedName,
+                mimeType,
+                sizeBytes,
+                width,
+                height,
+                url: current.url,
+                createdAt: current.createdAt,
+                updatedAt: now
+            });
+        },
+
+        async deleteMediaAsset(id) {
+            const numericId = Number(id);
+            if (!Number.isInteger(numericId) || numericId <= 0) {
+                throw createActionableError("Invalid media id", 400, "CMS_MEDIA_ID_INVALID", { id });
+            }
+            const current = await cmsRepository.dbGet(
+                "SELECT id, stored_name AS storedName FROM cms_media_assets WHERE id = ?",
+                [numericId]
+            );
+            if (!current) {
+                throw createActionableError("Media asset not found", 404, "CMS_MEDIA_NOT_FOUND", { id: numericId });
+            }
+
+            await fs.remove(path.join(serviceConfig.uploadsPath, current.storedName));
+            await cmsRepository.dbRun("DELETE FROM cms_media_assets WHERE id = ?", [numericId]);
+            return { id: numericId, deleted: true };
+        },
+
+        async listForms() {
+            const rows = await cmsRepository.dbAll(`
+                SELECT
+                    id,
+                    slug,
+                    name,
+                    status,
+                    definition_json AS definitionJson,
+                    created_at AS createdAt,
+                    updated_at AS updatedAt
+                FROM cms_forms
+                ORDER BY updated_at DESC, name COLLATE NOCASE ASC
+            `);
+
+            const countRows = await cmsRepository.dbAll(`
+                SELECT
+                    form_slug AS formSlug,
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS unread,
+                    MAX(created_at) AS lastActivity
+                FROM cms_form_submissions
+                GROUP BY form_slug
+            `);
+            const countsBySlug = new Map(countRows.map((row) => [row.formSlug, row]));
+            return rows.map((row) => normalizeFormRow(row, countsBySlug.get(row.slug) || {}));
+        },
+
+        async getForm(slug, options = {}) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            const row = await cmsRepository.dbGet(
+                `
+                    SELECT
+                        id,
+                        slug,
+                        name,
+                        status,
+                        definition_json AS definitionJson,
+                        created_at AS createdAt,
+                        updated_at AS updatedAt
+                    FROM cms_forms
+                    WHERE slug = ?
+                `,
+                [safeSlug]
+            );
+            if (!row || (options.publicOnly && row.status !== "active")) {
+                throw createActionableError("CMS form not found", 404, "CMS_FORM_NOT_FOUND", { slug: safeSlug });
+            }
+            const countRow = await cmsRepository.dbGet(
+                `
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) AS unread,
+                        MAX(created_at) AS lastActivity
+                    FROM cms_form_submissions
+                    WHERE form_slug = ?
+                `,
+                [safeSlug]
+            );
+            return normalizeFormRow(row, countRow || {});
+        },
+
+        async createForm({ slug, name, status = "draft", definition }) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            const safeName = String(name || "").trim();
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            if (!safeName) {
+                throw createActionableError("Form name is required", 400, "CMS_FORM_NAME_REQUIRED", { name });
+            }
+            const existing = await cmsRepository.dbGet("SELECT slug FROM cms_forms WHERE slug = ?", [safeSlug]);
+            if (existing) {
+                throw createActionableError(`CMS form already exists: ${safeSlug}`, 409, "CMS_FORM_EXISTS", { slug: safeSlug });
+            }
+
+            const normalizedDefinition = normalizeCmsFormDefinition(definition);
+            const normalizedStatus = normalizeFormStatus(status);
+            const now = new Date().toISOString();
+            const result = await cmsRepository.dbRun(
+                `
+                    INSERT INTO cms_forms (slug, name, status, definition_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `,
+                [safeSlug, safeName, normalizedStatus, JSON.stringify(normalizedDefinition), now, now]
+            );
+
+            return normalizeFormRow({
+                id: result.lastID,
+                slug: safeSlug,
+                name: safeName,
+                status: normalizedStatus,
+                definitionJson: JSON.stringify(normalizedDefinition),
+                createdAt: now,
+                updatedAt: now
+            });
+        },
+
+        async updateForm(slug, payload = {}) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            const current = await cmsRepository.dbGet(
+                "SELECT id, slug, name, status, definition_json AS definitionJson, created_at AS createdAt FROM cms_forms WHERE slug = ?",
+                [safeSlug]
+            );
+            if (!current) {
+                throw createActionableError("CMS form not found", 404, "CMS_FORM_NOT_FOUND", { slug: safeSlug });
+            }
+
+            const nextName = String(payload.name || current.name || "").trim();
+            if (!nextName) {
+                throw createActionableError("Form name is required", 400, "CMS_FORM_NAME_REQUIRED", { name: payload.name });
+            }
+            const nextStatus = payload.status === undefined ? current.status : normalizeFormStatus(payload.status);
+            const nextDefinition = payload.definition === undefined
+                ? parseJsonRecord(current.definitionJson, { fields: [], settings: {} })
+                : normalizeCmsFormDefinition(payload.definition);
+            const now = new Date().toISOString();
+
+            await cmsRepository.dbRun(
+                `
+                    UPDATE cms_forms
+                    SET name = ?, status = ?, definition_json = ?, updated_at = ?
+                    WHERE slug = ?
+                `,
+                [nextName, nextStatus, JSON.stringify(nextDefinition), now, safeSlug]
+            );
+
+            return normalizeFormRow({
+                id: current.id,
+                slug: safeSlug,
+                name: nextName,
+                status: nextStatus,
+                definitionJson: JSON.stringify(nextDefinition),
+                createdAt: current.createdAt,
+                updatedAt: now
+            });
+        },
+
+        async deleteForm(slug) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            const existing = await cmsRepository.dbGet("SELECT slug FROM cms_forms WHERE slug = ?", [safeSlug]);
+            if (!existing) {
+                throw createActionableError("CMS form not found", 404, "CMS_FORM_NOT_FOUND", { slug: safeSlug });
+            }
+            await cmsRepository.dbRun("DELETE FROM cms_form_submissions WHERE form_slug = ?", [safeSlug]);
+            await cmsRepository.dbRun("DELETE FROM cms_forms WHERE slug = ?", [safeSlug]);
+            return { slug: safeSlug, deleted: true };
+        },
+
+        async listFormSubmissions(slug) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            await this.getForm(safeSlug);
+            const rows = await cmsRepository.dbAll(
+                `
+                    SELECT
+                        id,
+                        form_slug AS formSlug,
+                        status,
+                        data_json AS dataJson,
+                        created_at AS createdAt,
+                        updated_at AS updatedAt
+                    FROM cms_form_submissions
+                    WHERE form_slug = ?
+                    ORDER BY created_at DESC, id DESC
+                `,
+                [safeSlug]
+            );
+            return rows.map((row) => ({
+                id: row.id,
+                formSlug: row.formSlug,
+                status: row.status,
+                data: parseJsonRecord(row.dataJson, {}),
+                createdAt: row.createdAt,
+                updatedAt: row.updatedAt
+            }));
+        },
+
+        async createFormSubmission(slug, data = {}) {
+            const form = await this.getForm(slug, { publicOnly: true });
+            const normalizedData = normalizeCmsEntryData(data);
+            const missingFields = form.fields.filter((field) => {
+                if (!field.required || field.type === "checkbox") return false;
+                const value = normalizedData[field.name];
+                return value === undefined || value === null || String(value).trim() === "";
+            });
+            if (missingFields.length > 0) {
+                throw createActionableError(
+                    "Required form fields are missing",
+                    400,
+                    "CMS_FORM_SUBMISSION_INVALID",
+                    { fields: missingFields.map((field) => field.name) }
+                );
+            }
+
+            const now = new Date().toISOString();
+            if (form.settings.storeSubmissions === false) {
+                return {
+                    stored: false,
+                    formSlug: form.slug,
+                    status: "accepted",
+                    createdAt: now
+                };
+            }
+
+            const result = await cmsRepository.dbRun(
+                `
+                    INSERT INTO cms_form_submissions (form_slug, status, data_json, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                `,
+                [form.slug, "new", JSON.stringify(normalizedData), now, now]
+            );
+            return {
+                id: result.lastID,
+                formSlug: form.slug,
+                status: "new",
+                data: normalizedData,
+                createdAt: now,
+                updatedAt: now
+            };
+        },
+
+        async updateFormSubmissionStatus(slug, id, status) {
+            const safeSlug = sanitizeCmsSlug(slug);
+            const numericId = Number(id);
+            if (!safeSlug) {
+                throw createActionableError("Invalid form slug", 400, "CMS_FORM_SLUG_INVALID", { slug });
+            }
+            if (!Number.isInteger(numericId) || numericId <= 0) {
+                throw createActionableError("Invalid submission id", 400, "CMS_SUBMISSION_ID_INVALID", { id });
+            }
+            const current = await cmsRepository.dbGet(
+                "SELECT id, form_slug AS formSlug, data_json AS dataJson, created_at AS createdAt FROM cms_form_submissions WHERE id = ? AND form_slug = ?",
+                [numericId, safeSlug]
+            );
+            if (!current) {
+                throw createActionableError("CMS form submission not found", 404, "CMS_SUBMISSION_NOT_FOUND", { id: numericId });
+            }
+            const nextStatus = normalizeSubmissionStatus(status);
+            const now = new Date().toISOString();
+            await cmsRepository.dbRun(
+                "UPDATE cms_form_submissions SET status = ?, updated_at = ? WHERE id = ? AND form_slug = ?",
+                [nextStatus, now, numericId, safeSlug]
+            );
+            return {
+                id: numericId,
+                formSlug: safeSlug,
+                status: nextStatus,
+                data: parseJsonRecord(current.dataJson, {}),
+                createdAt: current.createdAt,
+                updatedAt: now
+            };
+        },
+
         repository: cmsRepository
+    };
+}
+
+function slugifyThemeName(value, fallback = "theme-3") {
+    return String(value || fallback)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/(^-+|-+$)/g, "") || fallback;
+}
+
+function isPathInside(parentPath, targetPath) {
+    const relative = path.relative(path.resolve(parentPath), path.resolve(targetPath));
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function waitForStream(stream) {
+    return new Promise((resolve, reject) => {
+        stream.on("end", resolve);
+        stream.on("finish", resolve);
+        stream.on("error", reject);
+    });
+}
+
+async function copyIfExists(from, to) {
+    if (from && await fs.pathExists(from)) {
+        await fs.copy(from, to, { overwrite: true, errorOnExist: false });
+        return true;
+    }
+    return false;
+}
+
+async function compilePaniniPages(serviceConfig = {}, outputPath) {
+    const pagesRoot = serviceConfig.pagesPath;
+    const layoutsRoot = serviceConfig.layoutsPath;
+    const partialsRoot = serviceConfig.partialsPath;
+
+    if (!pagesRoot || !await fs.pathExists(pagesRoot)) {
+        return false;
+    }
+
+    panini.refresh();
+    const helpersRoot = path.join(path.dirname(pagesRoot), "helpers");
+    const dataRoot = path.join(path.dirname(pagesRoot), "data");
+    const toPaniniPath = (targetPath) => {
+        const resolved = path.resolve(targetPath);
+        const relative = path.relative(process.cwd(), resolved);
+        const value = relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+            ? relative
+            : resolved;
+        return value.replace(/\\/g, "/");
+    };
+    const pagesPath = toPaniniPath(pagesRoot);
+    const pagesGlob = `${pagesPath}/**/*.{html,hbs,handlebars}`;
+    const stream = src(pagesGlob, { allowEmpty: true })
+        .pipe(panini({
+            root: pagesPath,
+            layouts: toPaniniPath(layoutsRoot),
+            partials: toPaniniPath(partialsRoot),
+            helpers: toPaniniPath(helpersRoot),
+            data: toPaniniPath(dataRoot)
+        }))
+        .pipe(dest(outputPath));
+
+    await waitForStream(stream);
+    return true;
+}
+
+async function compileStaticStyles(serviceConfig = {}, outputPath) {
+    const sourcePath = serviceConfig.sourcePath || "";
+    const cssOutputPath = path.join(outputPath, "css");
+    await copyIfExists(path.join(sourcePath, "css"), cssOutputPath);
+
+    const scssEntry = path.join(sourcePath, "scss", "styles.scss");
+    if (!await fs.pathExists(scssEntry)) {
+        return false;
+    }
+
+    const result = sass.compile(scssEntry, {
+        style: "expanded",
+        loadPaths: [path.join(sourcePath, "scss")]
+    });
+    await fs.ensureDir(cssOutputPath);
+    await fs.writeFile(path.join(cssOutputPath, "styles.css"), result.css, "utf8");
+    return true;
+}
+
+async function copyStaticAssets(serviceConfig = {}, outputPath) {
+    const sourcePath = serviceConfig.sourcePath || "";
+    await copyIfExists(path.join(sourcePath, "js"), path.join(outputPath, "js"));
+    await copyIfExists(path.join(sourcePath, "images"), path.join(outputPath, "img"));
+    await copyIfExists(path.join(sourcePath, "images"), path.join(outputPath, "assets", "images"));
+}
+
+function readBuilderDbAll(databasePath, sql, params = []) {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(databasePath, sqlite3.OPEN_READONLY, (openErr) => {
+            if (openErr) {
+                reject(openErr);
+                return;
+            }
+            db.all(sql, params, (err, rows) => {
+                db.close();
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve(rows || []);
+            });
+        });
+    });
+}
+
+async function ensureBuilderTemplatesTable(databasePath) {
+    if (!databasePath) {
+        throw createActionableError("Builder database path is not configured", 500, "BUILDER_DATABASE_NOT_CONFIGURED");
+    }
+    await fs.ensureDir(path.dirname(databasePath));
+    await readBuilderDbRun(
+        databasePath,
+        `
+            CREATE TABLE IF NOT EXISTS builder_templates (
+                template_id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                route_pattern TEXT,
+                content_type TEXT,
+                layout_id TEXT,
+                template_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `
+    );
+}
+
+function readBuilderDbGet(databasePath, sql, params = []) {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(databasePath, (openErr) => {
+            if (openErr) {
+                reject(openErr);
+                return;
+            }
+            db.get(sql, params, (err, row) => {
+                db.close();
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve(row || null);
+            });
+        });
+    });
+}
+
+function readBuilderDbRun(databasePath, sql, params = []) {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(databasePath, (openErr) => {
+            if (openErr) {
+                reject(openErr);
+                return;
+            }
+            db.run(sql, params, function onRun(err) {
+                db.close();
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve(this);
+            });
+        });
+    });
+}
+
+function safeJsonParse(value, fallback) {
+    try {
+        return JSON.parse(value);
+    } catch (_error) {
+        return fallback;
+    }
+}
+
+function getSchemaFields(collection) {
+    return Array.isArray(collection?.schema?.fields) ? collection.schema.fields : [];
+}
+
+function getViewEntryField(entry = {}, fieldName = "") {
+    const normalized = String(fieldName || "").replace(/-/g, "").toLowerCase();
+    if (normalized === "entrykey") return entry.entryKey;
+    if (normalized === "status") return entry.status;
+    if (normalized === "sortorder") return entry.sortOrder;
+    if (normalized === "updatedat") return entry.updatedAt;
+    return entry.data?.[fieldName];
+}
+
+function compareViewValues(left, right) {
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+        return leftNumber - rightNumber;
+    }
+    return String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+        numeric: true,
+        sensitivity: "base"
+    });
+}
+
+function applyViewQuery(entries = [], query = {}) {
+    const status = String(query.status || "published").toLowerCase();
+    const filters = query.filters && typeof query.filters === "object" && !Array.isArray(query.filters)
+        ? query.filters
+        : {};
+    const sorted = entries
+        .filter((entry) => status === "any" || String(entry.status || "").toLowerCase() === status)
+        .filter((entry) => Object.entries(filters).every(([fieldName, expected]) => {
+            const value = getViewEntryField(entry, fieldName);
+            if (Array.isArray(expected)) {
+                return expected.some((item) => String(item) === String(value));
+            }
+            if (expected && typeof expected === "object" && !Array.isArray(expected)) {
+                if (expected.operator === "contains") {
+                    return String(value ?? "").toLowerCase().includes(String(expected.value ?? "").toLowerCase());
+                }
+                if (expected.operator === "not") {
+                    return String(value) !== String(expected.value);
+                }
+                return String(value) === String(expected.value);
+            }
+            return String(value) === String(expected);
+        }))
+        .sort((left, right) => {
+            for (const sortItem of query.sort || []) {
+                const comparison = compareViewValues(
+                    getViewEntryField(left, sortItem.field),
+                    getViewEntryField(right, sortItem.field)
+                );
+                if (comparison !== 0) {
+                    return sortItem.direction === "desc" ? -comparison : comparison;
+                }
+            }
+            return sortEntries(left, right);
+        });
+    const offset = Number.isFinite(Number(query.offset)) ? Math.max(0, Number(query.offset)) : 0;
+    const limit = Number.isFinite(Number(query.limit)) ? Math.max(0, Number(query.limit)) : sorted.length;
+    return sorted.slice(offset, limit ? offset + limit : undefined);
+}
+
+async function cmsComponentPathExists(componentPath, serviceConfig = {}, activeTheme = null) {
+    if (path.isAbsolute(componentPath) || String(componentPath || "").includes("..")) {
+        return false;
+    }
+    const theme = activeTheme || resolveActiveThemeInfo(serviceConfig);
+    const candidates = [
+        path.join(theme.themePath || "", "partials", componentPath),
+        path.join(theme.themePath || "", "components", componentPath.replace(/^micro[\\/]/, "")),
+        path.join(serviceConfig.partialsPath || "", componentPath),
+    ];
+    for (const candidate of candidates) {
+        if (candidate && await fs.pathExists(candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function flattenLayoutBlocks(layoutData = {}) {
+    const blocks = [];
+    if (Array.isArray(layoutData.layout)) {
+        blocks.push(...layoutData.layout.map((item) => ({
+            ...item,
+            region: normalizeThemeRegionId(item?.region, item?.region || "main")
+        })));
+    }
+    if (layoutData.regions && typeof layoutData.regions === "object" && !Array.isArray(layoutData.regions)) {
+        Object.entries(layoutData.regions).forEach(([regionId, items]) => {
+            const normalizedRegion = normalizeThemeRegionId(regionId);
+            if (Array.isArray(items)) {
+                items.forEach((item) => blocks.push({
+                    ...item,
+                    region: normalizeThemeRegionId(item.region || normalizedRegion, normalizedRegion)
+                }));
+            }
+        });
+    }
+    return blocks.filter((item) => item && typeof item === "object");
+}
+
+function getLayoutRegionBlocks(layoutData = {}, regionId = "main") {
+    const normalizedRegion = normalizeThemeRegionId(regionId);
+    const regions = layoutData?.regions && typeof layoutData.regions === "object" && !Array.isArray(layoutData.regions)
+        ? layoutData.regions
+        : {};
+    return Object.entries(regions).flatMap(([candidateRegionId, blocks]) => {
+        if (normalizeThemeRegionId(candidateRegionId) !== normalizedRegion || !Array.isArray(blocks)) {
+            return [];
+        }
+        return blocks.map((block, index) => ({
+            ...block,
+            region: normalizeThemeRegionId(block.region || normalizedRegion, normalizedRegion),
+            order: Number.isFinite(Number(block.order)) ? Number(block.order) : index + 1
+        }));
+    });
+}
+
+function normalizeThemeLayoutData(layoutData = {}) {
+    const next = JSON.parse(JSON.stringify(layoutData || {}));
+    if (next.regions && typeof next.regions === "object" && !Array.isArray(next.regions)) {
+        const normalizedRegions = {};
+        Object.entries(next.regions).forEach(([regionId, blocks]) => {
+            const normalized = normalizeThemeRegionId(regionId);
+            const list = Array.isArray(blocks) ? blocks : [];
+            normalizedRegions[normalized] = [
+                ...(normalizedRegions[normalized] || []),
+                ...list.map((block, index) => ({
+                    ...block,
+                    region: normalizeThemeRegionId(block.region || normalized, normalized),
+                    order: Number.isFinite(Number(block.order)) ? Number(block.order) : index + 1
+                }))
+            ];
+        });
+        next.regions = normalizedRegions;
+    }
+    if (Array.isArray(next.layout)) {
+        next.layout = next.layout.map((block) => ({
+            ...block,
+            region: normalizeThemeRegionId(block.region, block.region || "main")
+        }));
+    } else if (next.regions && typeof next.regions === "object" && !Array.isArray(next.regions)) {
+        next.layout = Object.values(next.regions).flatMap((blocks) => Array.isArray(blocks) ? blocks : []);
+    }
+    return next;
+}
+
+function normalizeCmsRegionRecordMap(input = {}) {
+    return Object.entries(input).reduce((acc, [regionId, value]) => {
+        const normalized = normalizeThemeRegionId(regionId);
+        acc[normalized] = {
+            ...(typeof value === "object" && value !== null && !Array.isArray(value) ? value : {}),
+            id: normalized
+        };
+        return acc;
+    }, {});
+}
+
+function normalizeCmsRegionBlocksMap(input = {}) {
+    return Object.entries(input).reduce((acc, [regionId, blocks]) => {
+        const normalized = normalizeThemeRegionId(regionId);
+        const list = Array.isArray(blocks) ? blocks : [];
+        acc[normalized] = [
+            ...(acc[normalized] || []),
+            ...list.map((block, index) => ({
+                ...block,
+                region: normalizeThemeRegionId(block.region || normalized, normalized),
+                order: Number.isFinite(Number(block.order)) ? Number(block.order) : index + 1
+            }))
+        ];
+        return acc;
+    }, {});
+}
+
+function normalizeCmsTemplateRecord(input = {}) {
+    const templateId = slugifyThemeName(input.templateId || input.id || input.label || "template", "template");
+    const regions = input.regions && typeof input.regions === "object" && !Array.isArray(input.regions)
+        ? normalizeCmsRegionRecordMap(input.regions)
+        : {};
+    const defaultBlocks = input.defaultBlocks && typeof input.defaultBlocks === "object" && !Array.isArray(input.defaultBlocks)
+        ? normalizeCmsRegionBlocksMap(input.defaultBlocks)
+        : {};
+    const lockedRegions = Array.isArray(input.lockedRegions)
+        ? input.lockedRegions.map((region) => normalizeThemeRegionId(region)).filter(Boolean)
+        : [];
+
+    return {
+        templateId,
+        label: String(input.label || input.name || templateId).trim() || templateId,
+        description: String(input.description || "").trim(),
+        routePattern: String(input.routePattern || input.route || "").trim(),
+        contentType: sanitizeCmsSlug(input.contentType || input.content_type || "", ""),
+        layoutId: String(input.layoutId || input.layout_id || "").trim(),
+        regions,
+        defaultBlocks,
+        lockedRegions: Array.from(new Set(lockedRegions)),
+        createdAt: input.createdAt || null,
+        updatedAt: input.updatedAt || null
+    };
+}
+
+function getTemplateRegionIds(template = {}) {
+    const regions = template.regions && typeof template.regions === "object" && !Array.isArray(template.regions)
+        ? Object.keys(template.regions).map((region) => normalizeThemeRegionId(region))
+        : [];
+    const defaultBlocks = template.defaultBlocks && typeof template.defaultBlocks === "object" && !Array.isArray(template.defaultBlocks)
+        ? Object.keys(template.defaultBlocks).map((region) => normalizeThemeRegionId(region))
+        : [];
+    return Array.from(new Set([...regions, ...defaultBlocks]));
+}
+
+function collectBindingRecords(layouts = [], templates = []) {
+    const records = [];
+    layouts.forEach((layout) => {
+        flattenLayoutBlocks(layout.layout).forEach((block) => {
+            const binding = block.cmsBinding || block.binding;
+            if (binding && typeof binding === "object") {
+                records.push({
+                    source: "layout",
+                    layoutId: layout.fileName,
+                    blockId: block.id || null,
+                    componentPath: block.componentPath || block.partial || "",
+                    region: normalizeThemeRegionId(block.region, block.region || "main"),
+                    binding
+                });
+            }
+        });
+    });
+    templates.forEach((template) => {
+        Object.entries(template.defaultBlocks || {}).forEach(([regionId, blocks]) => {
+            (Array.isArray(blocks) ? blocks : []).forEach((block) => {
+                const binding = block.cmsBinding || block.binding;
+                if (binding && typeof binding === "object") {
+                    records.push({
+                        source: "template",
+                        templateId: template.templateId,
+                        blockId: block.id || null,
+                        componentPath: block.componentPath || block.partial || "",
+                        region: normalizeThemeRegionId(block.region || regionId, regionId),
+                        binding
+                    });
+                }
+            });
+        });
+    });
+    return records;
+}
+
+function getBindingCollections(bindingRecords = []) {
+    const slugs = new Set();
+    bindingRecords.forEach((record) => {
+        const binding = record.binding || {};
+        if (binding.collection) {
+            slugs.add(String(binding.collection));
+        }
+        if (binding.contentType) {
+            slugs.add(String(binding.contentType));
+        }
+    });
+    return Array.from(slugs).sort();
+}
+
+async function getFileMtime(filePath) {
+    if (!filePath || !await fs.pathExists(filePath)) {
+        return null;
+    }
+    const stat = await fs.stat(filePath);
+    return stat.mtime;
+}
+
+async function getNewestMtime(paths = []) {
+    const dates = [];
+    for (const itemPath of paths) {
+        const mtime = await getFileMtime(itemPath);
+        if (mtime) {
+            dates.push(mtime);
+        }
+    }
+    if (dates.length === 0) {
+        return null;
+    }
+    return dates.sort((a, b) => b.getTime() - a.getTime())[0];
+}
+
+function createChecklistItem(id, label, passed, details = "") {
+    return {
+        id,
+        label,
+        status: passed ? "passed" : "failed",
+        details
+    };
+}
+
+function humanizeRegionLabel(regionId) {
+    return String(regionId || "")
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function normalizeThemeRegionId(value, fallback = "main") {
+    const aliases = {
+        main_content: "main",
+        content_main: "main",
+        body: "main",
+        page_body: "main",
+        side_nav: "side-navigation",
+        side_navigation: "side-navigation",
+        sidenav: "side-navigation",
+        sidebar: "side-navigation",
+        side: "side-navigation",
+        content_above: "content-above",
+        contentabove: "content-above",
+        above_content: "content-above",
+        content_below: "content-below",
+        contentbelow: "content-below",
+        below_content: "content-below"
+    };
+    const allowed = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
+    const normalizeToken = (input) => String(input || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    const raw = normalizeToken(value);
+    const firstToken = raw.includes("_") ? raw.split("_")[0] : raw;
+    const normalized = aliases[raw] || aliases[firstToken] || raw.replace(/_/g, "-");
+    if (allowed.has(normalized)) {
+        return normalized;
+    }
+    const fallbackRaw = normalizeToken(fallback);
+    const fallbackRegion = aliases[fallbackRaw] || fallbackRaw.replace(/_/g, "-") || "main";
+    return allowed.has(fallbackRegion) ? fallbackRegion : "main";
+}
+
+function sortThemeRegions(regionIds = []) {
+    const preferredOrder = ["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"];
+    const order = new Map(preferredOrder.map((regionId, index) => [regionId, index]));
+    const normalizedRegionIds = Array.from(new Set(regionIds.map((regionId) => normalizeThemeRegionId(regionId))));
+    return normalizedRegionIds.sort((left, right) => {
+        const leftRank = order.has(left) ? order.get(left) : preferredOrder.length;
+        const rightRank = order.has(right) ? order.get(right) : preferredOrder.length;
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return String(left).localeCompare(String(right));
+    });
+}
+
+function createThemeRegionDefinitions(regionIds = []) {
+    const required = new Set(["header", "main", "footer"]);
+    const defaultPartials = {
+        header: "partials/landmark/header.html",
+        footer: "partials/landmark/footer.html"
+    };
+
+    return regionIds.map((regionId) => ({
+        id: regionId,
+        label: humanizeRegionLabel(regionId),
+        required: required.has(regionId),
+        template: `templates/regions/${regionId}.html`,
+        defaultPartial: defaultPartials[regionId] || null
+    }));
+}
+
+function createThemeTemplateManifest(regionIds = []) {
+    return [
+        {
+            id: "page",
+            label: "Default Page",
+            type: "page",
+            file: "templates/page.html",
+            regions: regionIds
+        }
+    ];
+}
+
+function buildThemeRegionTemplate(region = {}) {
+    const regionId = region.id || "region";
+    const fallback = region.defaultPartial
+        ? `  {{> ${region.defaultPartial.replace(/^partials\//, "").replace(/\.html$/, "")} }}\n`
+        : "";
+
+    return `<section data-theme-region="${regionId}" data-theme-region-label="${region.label || humanizeRegionLabel(regionId)}">
+  {{{ region "${regionId}" }}}
+${fallback}</section>
+`;
+}
+
+function buildThemePageTemplate(regionDefinitions = []) {
+    const regionIds = regionDefinitions.map((region) => region.id);
+    const beforeMain = regionIds.filter((id) => ["header"].includes(id));
+    const mainRegions = regionIds.filter((id) => !["header", "footer"].includes(id));
+    const afterMain = regionIds.filter((id) => ["footer"].includes(id));
+    const renderRegionInclude = (regionId) => `  {{> regions/${regionId} }}`;
+
+    return `<!doctype html>
+<html lang="{{ page.lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}</title>
+  {{{ assets.styles }}}
+</head>
+<body class="{{ page.bodyClass }}">
+${beforeMain.map(renderRegionInclude).join("\n")}
+  <main id="main-content" data-theme-region-group="main">
+${mainRegions.map((regionId) => `    {{> regions/${regionId} }}`).join("\n")}
+  </main>
+${afterMain.map(renderRegionInclude).join("\n")}
+  {{{ assets.scripts }}}
+</body>
+</html>
+`;
+}
+
+function formatThemeName(slug = "theme-3") {
+    return String(slug || "theme-3")
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ") || "Theme 3";
+}
+
+function resolveActiveThemeInfo(serviceConfig = {}, settings = {}) {
+    const themeRoot = path.resolve(settings.themeExportPath || serviceConfig.themeExportPath || path.join(serviceConfig.projectRoot || process.cwd(), "themes"));
+    const slug = slugifyThemeName(settings.activeTheme || serviceConfig.activeTheme || "theme-3", "theme-3");
+    const configuredPath = String(settings.activeThemePath || serviceConfig.activeThemePath || "").trim();
+    const themePath = path.resolve(configuredPath || path.join(themeRoot, slug));
+    return {
+        slug,
+        themeRoot,
+        themePath,
+        manifestPath: path.join(themePath, "theme.json")
+    };
+}
+
+async function readStoredSettingsForTheme(serviceConfig = {}, defaults = {}) {
+    if (!serviceConfig.settingsPath || !await fs.pathExists(serviceConfig.settingsPath)) {
+        return defaults;
+    }
+    const stored = await fs.readJson(serviceConfig.settingsPath).catch(() => ({}));
+    return normalizeSettingsPayload(stored, defaults);
+}
+
+async function readActiveThemeManifest(activeTheme = {}) {
+    if (!activeTheme.manifestPath || !await fs.pathExists(activeTheme.manifestPath)) {
+        return null;
+    }
+    return fs.readJson(activeTheme.manifestPath).catch(() => null);
+}
+
+async function validateActiveThemeFolder(activeTheme = {}, manifest = null) {
+    const warnings = [];
+    const errors = [];
+    const themePath = activeTheme.themePath || "";
+    const manifestPath = activeTheme.manifestPath || "";
+
+    if (!themePath || !await fs.pathExists(themePath)) {
+        warnings.push({
+            code: "THEME_ACTIVE_FOLDER_MISSING",
+            message: `Active theme folder was not found: ${themePath}.`,
+            themePath
+        });
+        return { errors, warnings };
+    }
+    if (!manifest) {
+        warnings.push({
+            code: "THEME_ACTIVE_MANIFEST_MISSING",
+            message: `Active theme manifest was not found: ${manifestPath}.`,
+            manifestPath
+        });
+        return { errors, warnings };
+    }
+
+    const expectedDirs = ["templates", "templates/regions", "layouts", "pages", "regions", "partials", "components", "assets", "data/fallback", "bindings"];
+    for (const dir of expectedDirs) {
+        const dirPath = path.join(themePath, dir);
+        if (!await fs.pathExists(dirPath)) {
+            warnings.push({
+                code: "THEME_ACTIVE_DIR_MISSING",
+                message: `Active theme directory is missing: ${dir}.`,
+                path: dir
+            });
+        }
+    }
+
+    for (const template of manifest.templates || []) {
+        if (template.file && !await fs.pathExists(path.join(themePath, template.file))) {
+            warnings.push({
+                code: "THEME_ACTIVE_TEMPLATE_FILE_MISSING",
+                message: `Theme template file is missing: ${template.file}.`,
+                path: template.file
+            });
+        }
+    }
+    for (const region of manifest.regionDefinitions || []) {
+        if (region.template && !await fs.pathExists(path.join(themePath, region.template))) {
+            warnings.push({
+                code: "THEME_ACTIVE_REGION_TEMPLATE_MISSING",
+                message: `Theme region template is missing: ${region.template}.`,
+                region: region.id,
+                path: region.template
+            });
+        }
+        if (region.defaultPartial && !await fs.pathExists(path.join(themePath, region.defaultPartial))) {
+            warnings.push({
+                code: "THEME_ACTIVE_DEFAULT_PARTIAL_MISSING",
+                message: `Theme default partial is missing: ${region.defaultPartial}.`,
+                region: region.id,
+                path: region.defaultPartial
+            });
+        }
+    }
+    for (const view of manifest.views || []) {
+        if (view.file && !await fs.pathExists(path.join(themePath, view.file))) {
+            warnings.push({
+                code: "THEME_ACTIVE_VIEW_FILE_MISSING",
+                message: `Theme View file is missing: ${view.file}.`,
+                viewId: view.id,
+                path: view.file
+            });
+        }
+    }
+
+    return { errors, warnings };
+}
+
+function normalizeSettingsPayload(payload = {}, defaults = {}) {
+    const stringFields = [
+        "projectName",
+        "cmsBaseUrl",
+        "cmsAdminUrl",
+        "builderPreviewUrl",
+        "localStoragePath",
+        "activeTheme",
+        "activeThemePath",
+        "contentExportPath",
+        "themeExportPath",
+        "apiEndpoint",
+        "apiToken"
+    ];
+    const next = { ...defaults };
+    stringFields.forEach((field) => {
+        if (payload[field] !== undefined) {
+            next[field] = String(payload[field] || "").trim();
+        }
+    });
+    return next;
+}
+
+function validateSettingsPayload(settings = {}) {
+    const warnings = [];
+    const errors = [];
+    const requireUrl = (field, label) => {
+        const value = String(settings[field] || "").trim();
+        if (!value) {
+            errors.push({ field, message: `${label} is required.` });
+            return;
+        }
+        if (!/^https?:\/\//i.test(value)) {
+            errors.push({ field, message: `${label} must start with http:// or https://.` });
+        }
+    };
+
+    if (!String(settings.projectName || "").trim()) {
+        errors.push({ field: "projectName", message: "Project name is required." });
+    }
+    requireUrl("cmsBaseUrl", "CMS base URL");
+    requireUrl("cmsAdminUrl", "CMS admin URL");
+    requireUrl("builderPreviewUrl", "Builder preview URL");
+    if (settings.apiEndpoint && !/^https?:\/\//i.test(String(settings.apiEndpoint))) {
+        warnings.push({ field: "apiEndpoint", message: "API endpoint should start with http:// or https://." });
+    }
+    ["localStoragePath", "contentExportPath", "themeExportPath", "activeThemePath"].forEach((field) => {
+        if (!String(settings[field] || "").trim()) {
+            warnings.push({ field, message: `${field} is empty; the server default will be used.` });
+        }
+    });
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        warnings
     };
 }
 

@@ -22,7 +22,7 @@ CMS Admin
 |-- Content modeling and content editing
 
 Visual Builder
-|-- Page design, component layout, and CMS binding
+|-- Page design, layout regions, block placement, component config, and CMS binding
 
 Theme Manager
 |-- Exported theme packages, active theme selection, and validation
@@ -365,6 +365,44 @@ Recommended layout:
 +------------------+-------------------------------+-------------+
 ```
 
+### Layout Regions
+
+The builder should expose theme layout regions as first-class drop zones. This follows the same mental model as Drupal block layout while keeping the implementation Theme 3-specific.
+
+Common regions:
+
+- Header
+- Hero
+- Main
+- Side navigation
+- Content above
+- Content below
+- Footer
+
+Canvas behavior:
+
+- Show region labels and boundaries.
+- Allow dropping blocks only into allowed regions when a component declares restrictions.
+- Show empty states per region.
+- Support locked regions for page templates that should not be changed by editors.
+- Support reusable global regions such as header and footer.
+
+Recommended canvas structure:
+
+```text
+--------------------------------------------------+
+| Header region              Header block         |
++--------------------------------------------------+
+| Hero region                Hero block           |
++------------------+-------------------------------+
+| SideNav region   | Main region                   |
+| Navigation block | Article body block            |
+| CTA block        | Related articles block        |
++------------------+-------------------------------+
+| Footer region              Footer block         |
++--------------------------------------------------+
+```
+
 ### Component Library
 
 The component library should scan `html/partials/**/*.html`.
@@ -375,6 +413,7 @@ Component item content:
 - Category
 - Small preview
 - CMS-ready badge when default bindings exist
+- Allowed region indicator when restrictions exist
 
 Filters:
 
@@ -384,17 +423,20 @@ Filters:
 - Layout
 - Content
 - Micro
+- Region
 
 ### Canvas
 
 Canvas behavior:
 
-- Drop components into page order.
+- Drop components into layout regions.
 - Select component on click.
 - Show component boundary when selected.
 - Allow reorder, duplicate, delete, and move.
 - Show static fallback when CMS data is unavailable.
 - Show CMS data when export data or live preview data is available.
+- Let users move blocks between compatible regions.
+- Preserve block order inside each region.
 
 Canvas controls:
 
@@ -412,6 +454,7 @@ Tabs:
 - Content
 - Style
 - CMS Binding
+- Region
 - Advanced
 
 Content tab:
@@ -421,6 +464,7 @@ Content tab:
 - Link fields
 - Image picker
 - Alt text
+- Component config fields generated from the component schema
 
 Style tab:
 
@@ -441,12 +485,88 @@ CMS Binding tab:
 - Field mapping controls
 - Fallback behavior
 
+Region tab:
+
+- Current region
+- Move to region
+- Block order
+- Global or page-specific placement
+- Locked template status
+- Visibility by route, role, device, or content condition later
+
 Advanced tab:
 
 - Component path
 - Instance ID
+- Region name
 - Raw binding JSON
+- Raw block config JSON
 - Debug resolved data
+
+### Block Configuration UI
+
+Every placed component should be treated as a block instance with editable config. The UI should avoid exposing raw JSON for normal editing.
+
+Recommended controls:
+
+- Text inputs for labels, headings, links, and alt text.
+- Selects for variants, layouts, and display modes.
+- Toggles for boolean options.
+- Numeric inputs for limits, columns, spacing, and sort order.
+- Media picker for image/file props.
+- CMS binding controls for dynamic data.
+
+Block config states:
+
+- Valid config
+- Missing required config
+- Uses default component config
+- Overrides global block config
+- Config differs from page template default
+
+### Page Templates UI
+
+Theme page templates should be manageable from the Builder or Theme Manager.
+
+Recommended screens:
+
+- Template list
+- Template detail
+- Region/block defaults
+- Route/content type mapping
+- Template validation
+
+Template list columns:
+
+- Name
+- Route pattern
+- Content type
+- Layout
+- Regions
+- Validation status
+- Actions
+
+Template detail layout:
+
+```text
++--------------------------------------------------------------+
+| Template: Article Detail                   [Preview] [Save]   |
++----------------------------+---------------------------------+
+| Regions And Blocks         | Template Settings               |
+|                            |                                 |
+| Header                     | Route pattern                   |
+| Hero                       | Content type                    |
+| Side navigation            | Layout                          |
+| Main                       | Locked regions                  |
+| Footer                     | Required collections            |
++----------------------------+---------------------------------+
+```
+
+Template editing modes:
+
+- View mode: preview the template with fallback, exported CMS, or live CMS data.
+- Edit mode: configure regions, block defaults, binding defaults, and locks.
+- Content preview mode: choose a CMS entry and render the template as that entry.
 
 ## CMS Binding UI
 
@@ -539,6 +659,8 @@ Recommended sections:
 
 - Theme overview
 - Required collections
+- Layout regions
+- Page templates
 - Template list
 - Asset list
 - Binding list
@@ -566,6 +688,15 @@ After export, show:
 - Files generated
 - Warnings
 - Next steps
+
+Theme validation should include:
+
+- Missing required regions.
+- Blocks placed in unsupported regions.
+- Page templates without route patterns.
+- Page templates referencing missing layouts.
+- Component config schema errors.
+- CMS bindings referencing missing collections or fields.
 
 ## Preview And Publish UI
 
@@ -737,18 +868,20 @@ Build in this order:
 3. Schema-driven collection builder
 4. Entry list
 5. Schema-driven entry editor
-6. Visual builder CMS binding panel
-7. Theme export dialog
-8. Theme manager
-9. Form builder
-10. API tokens and public API docs
+6. Visual builder region canvas
+7. Block configuration and CMS binding panel
+8. Page template list/detail
+9. Theme export dialog
+10. Theme manager
+11. Form builder
+12. API tokens and public API docs
 
 ## UI Definition Of Done
 
 The UI design is complete when:
 
 - Editors can manage content without raw JSON for normal tasks.
-- Designers can bind visual components to CMS content without editing files.
+- Designers can place component blocks into layout regions and bind them to CMS content without editing files.
 - Developers can export and inspect a separated theme folder.
 - Publishers can validate, preview, and export content confidently.
 - Every important screen has loading, empty, success, and error states.

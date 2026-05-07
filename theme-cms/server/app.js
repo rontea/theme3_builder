@@ -10,6 +10,21 @@ const { createCmsService } = require("./services/cms.service");
 const { createCmsController } = require("./controllers/cms.controller");
 const { registerCmsRoutes } = require("./routes/cms.routes");
 
+async function findSiteEntryFile(siteRootPath) {
+    const preferredFiles = ["index.html", "project.html", "about.html"];
+    for (const fileName of preferredFiles) {
+        const candidate = path.join(siteRootPath, fileName);
+        if (!await fs.pathExists(candidate)) {
+            continue;
+        }
+        const content = await fs.readFile(candidate, "utf8").catch(() => "");
+        if (!content.includes("{{>")) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
 async function createThemeCmsApp(options = {}) {
     const config = createThemeCmsConfig(options);
     const app = express();
@@ -21,8 +36,9 @@ async function createThemeCmsApp(options = {}) {
     });
 
     app.use(cors());
-    app.use(express.json({ limit: options.bodyLimit || "512kb" }));
+    app.use(express.json({ limit: options.bodyLimit || "10mb" }));
     app.use("/cms", express.static(config.adminPath));
+    app.use("/uploads", express.static(config.uploadsPath));
     app.get("/cms", (req, res) => {
         res.sendFile(path.resolve(config.adminPath, "index.html"));
     });
@@ -39,21 +55,26 @@ async function createThemeCmsApp(options = {}) {
         next();
     });
     const siteRootPath = await fs.pathExists(config.buildPath) ? config.buildPath : config.pagesPath;
-    app.use("/site", express.static(siteRootPath));
-    app.get("/site", (req, res) => {
+    app.get(/^\/site$/, (req, res) => {
         res.redirect("/site/");
     });
     app.get("/site/", async (req, res, next) => {
-        const preferredFiles = ["index.html", "project.html", "about.html"];
-        for (const fileName of preferredFiles) {
-            const candidate = path.join(siteRootPath, fileName);
-            if (await fs.pathExists(candidate)) {
-                res.sendFile(candidate);
-                return;
-            }
+        const entryFile = await findSiteEntryFile(siteRootPath);
+        if (entryFile) {
+            res.sendFile(entryFile);
+            return;
         }
         next();
     });
+    app.get("/site/index.html", async (req, res, next) => {
+        const entryFile = await findSiteEntryFile(siteRootPath);
+        if (entryFile) {
+            res.sendFile(entryFile);
+            return;
+        }
+        next();
+    });
+    app.use("/site", express.static(siteRootPath, { index: false }));
     registerCmsRoutes(app, controller);
 
     return {

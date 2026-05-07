@@ -20,6 +20,17 @@ class VisualBuilder {
         this.partialHeightCache = {};
         this.currentDragPartialPath = null;
         this.canvasLayoutMode = 'flow';
+        this.activeRegionFilter = 'all';
+        this.activePaletteTab = 'partials';
+        this.layoutRegions = [
+            { id: 'header', name: 'Header', required: true, locked: false },
+            { id: 'hero', name: 'Hero', required: false, locked: false },
+            { id: 'main', name: 'Main Content', required: true, locked: false },
+            { id: 'side-navigation', name: 'Side Navigation', required: false, locked: false },
+            { id: 'content-above', name: 'Content Above', required: false, locked: false },
+            { id: 'content-below', name: 'Content Below', required: false, locked: false },
+            { id: 'footer', name: 'Footer', required: true, locked: false }
+        ];
         this.freeformSectionTemplate = 'free-layout';
         this.pendingNativeDragData = null;
         this.selectedItem = null;
@@ -37,6 +48,12 @@ class VisualBuilder {
         this.cmsCollections = [];
         this.cmsEntriesByCollection = {};
         this.cmsEntriesLoadPromises = {};
+        this.cmsViews = [];
+        this.cmsViewPreviews = {};
+        this.cmsViewPreviewPromises = {};
+        this.templates = [];
+        this.savedLayouts = [];
+        this.selectedTemplate = null;
         this.runtimeConfig = {
             cms: {
                 readMode: 'export',
@@ -131,7 +148,9 @@ class VisualBuilder {
         await this.loadRuntimeConfig();
         await this.initMicroComponents();
         await this.loadCmsCollections();
+        await this.loadCmsViews();
         this.initDesignPresets();
+        this.initRegionFilters();
         const initialMode = this.getInitialBuilderMode();
         this.setBuilderMode(initialMode);
         this.updateWorkspaceStatus();
@@ -183,11 +202,14 @@ class VisualBuilder {
         // Sidebar elements
         this.searchInput = document.getElementById('searchPartials');
         this.partialsFilter = document.getElementById('filterPartials');
+        this.regionFilter = document.getElementById('filterRegions');
         this.partialsList = document.getElementById('partialsList');
         this.microList = document.getElementById('microList');
+        this.viewsList = document.getElementById('viewsList');
         this.syncPagePartials = document.getElementById('syncPagePartials');
         this.partialsTab = document.getElementById('partialsTab');
         this.microTab = document.getElementById('microTab');
+        this.viewsTab = document.getElementById('viewsTab');
         this.sidebarTitle = document.getElementById('sidebarTitle');
         this.microQuickFilters = document.getElementById('microQuickFilters');
         this.presetSelect = document.getElementById('designPresetSelect');
@@ -221,9 +243,11 @@ class VisualBuilder {
         this.btnClosePage = document.getElementById('btnClosePage');
         this.btnCreateProject = document.getElementById('btnCreateProject');
         this.btnOpenCms = document.getElementById('btnOpenCms');
+        this.btnTemplates = document.getElementById('btnTemplates');
         this.projectNameDisplay = document.getElementById('projectNameDisplay');
         this.builderSurfaceBadge = document.getElementById('builderSurfaceBadge');
         this.builderTargetBadge = document.getElementById('builderTargetBadge');
+        this.builderValidationBadge = document.getElementById('builderValidationBadge');
 
         // Modals
         this.previewModal = document.getElementById('previewModal');
@@ -236,6 +260,7 @@ class VisualBuilder {
         this.partialCodeModal = document.getElementById('partialCodeModal');
         this.partialPreviewModal = document.getElementById('partialPreviewModal');
         this.imageModal = document.getElementById('imageModal');
+        this.templatesModal = document.getElementById('templatesModal');
         this.previewFrame = document.getElementById('previewFrame');
         this.previewFrameWrap = document.getElementById('previewFrameWrap');
         this.previewControls = document.getElementById('previewControls');
@@ -276,6 +301,25 @@ class VisualBuilder {
         this.cancelImageModalButton = document.getElementById('cancelImageModal');
         this.imageLibraryList = document.getElementById('imageLibraryList');
         this.refreshImageLibraryButton = document.getElementById('refreshImageLibrary');
+        this.closeTemplatesModalButton = document.getElementById('closeTemplatesModal');
+        this.newTemplateButton = document.getElementById('newTemplateButton');
+        this.templateSearchInput = document.getElementById('templateSearchInput');
+        this.templateTypeFilter = document.getElementById('templateTypeFilter');
+        this.templatesList = document.getElementById('templatesList');
+        this.templateEditorEmpty = document.getElementById('templateEditorEmpty');
+        this.templateEditor = document.getElementById('templateEditor');
+        this.templateEditorTitle = document.getElementById('templateEditorTitle');
+        this.templateValidationSummary = document.getElementById('templateValidationSummary');
+        this.templateIdInput = document.getElementById('templateIdInput');
+        this.templateLabelInput = document.getElementById('templateLabelInput');
+        this.templateRouteInput = document.getElementById('templateRouteInput');
+        this.templateContentTypeSelect = document.getElementById('templateContentTypeSelect');
+        this.templateLayoutSelect = document.getElementById('templateLayoutSelect');
+        this.templatePreviewEntrySelect = document.getElementById('templatePreviewEntrySelect');
+        this.templateRegionList = document.getElementById('templateRegionList');
+        this.saveTemplateButton = document.getElementById('saveTemplateButton');
+        this.deleteTemplateButton = document.getElementById('deleteTemplateButton');
+        this.previewTemplateButton = document.getElementById('previewTemplateButton');
         this.savedLayoutsList = document.getElementById('savedLayoutsList');
         this.landingScreen = document.getElementById('landingScreen');
         this.landingProjectsList = document.getElementById('landingProjectsList');
@@ -305,6 +349,12 @@ class VisualBuilder {
         if (this.partialsFilter) {
             this.partialsFilter.addEventListener('change', () => this.filterComponents());
         }
+        if (this.regionFilter) {
+            this.regionFilter.addEventListener('change', () => {
+                this.activeRegionFilter = this.regionFilter.value || 'all';
+                this.filterComponents();
+            });
+        }
         if (this.previewControls) {
             this.previewControls.addEventListener('click', (e) => this.handlePreviewControlClick(e));
         }
@@ -318,10 +368,22 @@ class VisualBuilder {
             this.presetSelect.addEventListener('change', (e) => this.applyDesignPreset(e.target.value));
         }
         if (this.partialsTab) {
-            this.partialsTab.addEventListener('click', () => this.setBuilderMode('page'));
+            this.partialsTab.addEventListener('click', () => {
+                this.activePaletteTab = 'partials';
+                this.setBuilderMode('page');
+            });
         }
         if (this.microTab) {
-            this.microTab.addEventListener('click', () => this.setBuilderMode('partial'));
+            this.microTab.addEventListener('click', () => {
+                this.activePaletteTab = 'micro';
+                this.setBuilderMode('partial');
+            });
+        }
+        if (this.viewsTab) {
+            this.viewsTab.addEventListener('click', () => {
+                this.activePaletteTab = 'views';
+                this.setBuilderMode('page');
+            });
         }
         
         // Toolbar buttons
@@ -352,6 +414,36 @@ class VisualBuilder {
         this.btnCreateProject.addEventListener('click', () => this.openProjectModal());
         if (this.btnOpenCms) {
             this.btnOpenCms.addEventListener('click', () => this.openCmsModal());
+        }
+        if (this.btnTemplates) {
+            this.btnTemplates.addEventListener('click', () => this.openTemplatesModal());
+        }
+        if (this.closeTemplatesModalButton) {
+            this.closeTemplatesModalButton.addEventListener('click', () => this.hideModal(this.templatesModal));
+        }
+        if (this.newTemplateButton) {
+            this.newTemplateButton.addEventListener('click', () => this.createTemplateDraft());
+        }
+        if (this.templateSearchInput) {
+            this.templateSearchInput.addEventListener('input', () => this.renderTemplatesList());
+        }
+        if (this.templateTypeFilter) {
+            this.templateTypeFilter.addEventListener('change', () => this.renderTemplatesList());
+        }
+        if (this.templatesList) {
+            this.templatesList.addEventListener('click', (event) => this.handleTemplateListClick(event));
+        }
+        if (this.templateContentTypeSelect) {
+            this.templateContentTypeSelect.addEventListener('change', () => this.handleTemplateContentTypeChange());
+        }
+        if (this.saveTemplateButton) {
+            this.saveTemplateButton.addEventListener('click', () => this.saveTemplateFromEditor());
+        }
+        if (this.deleteTemplateButton) {
+            this.deleteTemplateButton.addEventListener('click', () => this.deleteSelectedTemplate());
+        }
+        if (this.previewTemplateButton) {
+            this.previewTemplateButton.addEventListener('click', () => this.previewSelectedTemplate());
         }
         this.syncLandingPages.addEventListener('click', () => this.syncPagesFromFilesystem());
         if (this.syncLandingLandmarks) {
@@ -519,11 +611,13 @@ class VisualBuilder {
         this.pageTitleInput.disabled = isLocked || isEditingPartial || isEditingLayout;
         if (this.partialsTab) this.partialsTab.disabled = isLocked;
         if (this.microTab) this.microTab.disabled = isLocked;
+        if (this.viewsTab) this.viewsTab.disabled = isLocked;
         if (this.editorCanvas && typeof this.editorCanvas.updateInteractionMode === 'function') {
             this.editorCanvas.updateInteractionMode(this);
         } else {
             if (this.partialsSortable) this.partialsSortable.option('disabled', isLocked);
             if (this.microSortable) this.microSortable.option('disabled', isLocked);
+            if (this.viewsSortable) this.viewsSortable.option('disabled', isLocked);
             if (this.canvasSortable) this.canvasSortable.option('disabled', isLocked);
         }
         this.updateSaveButtonLabel();
@@ -825,6 +919,11 @@ class VisualBuilder {
         }
         if (this.builderTargetBadge) {
             this.builderTargetBadge.textContent = this.getWorkspaceTargetLabel();
+        }
+        if (this.builderValidationBadge) {
+            const issues = this.getLayoutValidationIssues();
+            this.builderValidationBadge.hidden = issues.length === 0;
+            this.builderValidationBadge.textContent = `${issues.length} Validation ${issues.length === 1 ? 'Error' : 'Errors'}`;
         }
         this.updateCanvasModeHint();
     }
@@ -1136,14 +1235,15 @@ class VisualBuilder {
         this.savedLayoutsList.innerHTML = '<div class="loading">Loading saved layouts...</div>';
         try {
             const result = await this.apiClient.listSavedLayouts();
+            this.savedLayouts = Array.isArray(result.data) ? result.data : [];
 
-            if (!Array.isArray(result.data) || result.data.length === 0) {
+            if (!this.savedLayouts.length) {
                 this.savedLayoutsList.innerHTML = '<div class="loading">No saved layouts found</div>';
                 return;
             }
 
             let html = '';
-            result.data.forEach((item) => {
+            this.savedLayouts.forEach((item) => {
                 html += `
                     <div class="saved-layout-item" data-file-name="${item.fileName}">
                         <div class="saved-layout-meta">
@@ -1178,6 +1278,330 @@ class VisualBuilder {
         } catch (error) {
             console.error('Failed to load saved layouts list:', error);
             this.savedLayoutsList.innerHTML = '<div class="loading">Failed to load saved layouts</div>';
+        }
+    }
+
+    async openTemplatesModal() {
+        if (!this.templatesModal) {
+            return;
+        }
+        this.templatesModal.classList.add('active');
+        await this.loadTemplateWorkspace();
+    }
+
+    async loadTemplateWorkspace() {
+        if (this.templatesList) {
+            this.templatesList.innerHTML = '<div class="loading">Loading templates...</div>';
+        }
+        try {
+            const [templatesResult, layoutsResult] = await Promise.all([
+                this.apiClient.listTemplates(),
+                this.apiClient.listSavedLayouts()
+            ]);
+            this.templates = Array.isArray(templatesResult.data) ? templatesResult.data : [];
+            this.savedLayouts = Array.isArray(layoutsResult.data) ? layoutsResult.data : [];
+            this.populateTemplateSelects();
+            this.renderTemplatesList();
+            if (this.selectedTemplate) {
+                const refreshed = this.templates.find((item) => item.templateId === this.selectedTemplate.templateId);
+                if (refreshed) {
+                    this.selectTemplate(refreshed);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load templates:', error);
+            if (this.templatesList) {
+                this.templatesList.innerHTML = '<div class="loading">Failed to load templates</div>';
+            }
+            this.showToast(`Failed to load templates: ${error.message}`, 'error');
+        }
+    }
+
+    populateTemplateSelects() {
+        if (this.templateContentTypeSelect) {
+            const current = this.templateContentTypeSelect.value || '';
+            this.templateContentTypeSelect.innerHTML = '<option value="">Static / Unmapped</option>'
+                + this.cmsCollections.map((collection) => {
+                    return `<option value="${this.escapeAttribute(collection.slug)}">${this.escapeHtml(collection.name || collection.slug)}</option>`;
+                }).join('');
+            this.templateContentTypeSelect.value = current;
+        }
+        if (this.templateLayoutSelect) {
+            const current = this.templateLayoutSelect.value || '';
+            this.templateLayoutSelect.innerHTML = '<option value="">Choose saved layout</option>'
+                + this.savedLayouts.map((layout) => {
+                    const label = layout.pageName || layout.fileName;
+                    return `<option value="${this.escapeAttribute(layout.fileName)}">${this.escapeHtml(label)} (${this.escapeHtml(layout.fileName)})</option>`;
+                }).join('');
+            this.templateLayoutSelect.value = current;
+        }
+    }
+
+    renderTemplatesList() {
+        if (!this.templatesList) {
+            return;
+        }
+        const query = (this.templateSearchInput?.value || '').trim().toLowerCase();
+        const filter = this.templateTypeFilter?.value || 'all';
+        const filtered = this.templates.filter((template) => {
+            const text = `${template.label || ''} ${template.templateId || ''} ${template.routePattern || ''} ${template.contentType || ''}`.toLowerCase();
+            const matchesQuery = !query || text.includes(query);
+            const dynamic = Boolean(template.contentType || String(template.routePattern || '').includes(':'));
+            const matchesType = filter === 'all' || (filter === 'dynamic' ? dynamic : !dynamic);
+            return matchesQuery && matchesType;
+        });
+
+        if (!filtered.length) {
+            this.templatesList.innerHTML = '<div class="loading">No page templates found</div>';
+            return;
+        }
+
+        this.templatesList.innerHTML = `
+            <div class="template-table">
+                <div class="template-table-row template-table-head">
+                    <span>Name</span>
+                    <span>Route</span>
+                    <span>Content Type</span>
+                    <span>Layout</span>
+                    <span>Regions</span>
+                    <span>Status</span>
+                </div>
+                ${filtered.map((template) => {
+                    const status = template.validation?.status || 'valid';
+                    const selected = this.selectedTemplate?.templateId === template.templateId ? ' selected' : '';
+                    return `
+                        <button type="button" class="template-table-row template-row${selected}" data-template-id="${this.escapeAttribute(template.templateId)}">
+                            <span><strong>${this.escapeHtml(template.label || template.templateId)}</strong><small>${this.escapeHtml(template.templateId)}</small></span>
+                            <span><code>${this.escapeHtml(template.routePattern || 'Unmapped')}</code></span>
+                            <span>${template.contentType ? this.escapeHtml(template.contentType) : '<em>Static</em>'}</span>
+                            <span>${this.escapeHtml(template.layoutId || 'Missing')}</span>
+                            <span>${Number(template.regionsCount || 0)}</span>
+                            <span><mark class="template-status template-status-${status}">${this.escapeHtml(status)}</mark></span>
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    handleTemplateListClick(event) {
+        const row = event.target.closest('[data-template-id]');
+        if (!row) {
+            return;
+        }
+        const template = this.templates.find((item) => item.templateId === row.dataset.templateId);
+        if (template) {
+            this.selectTemplate(template);
+        }
+    }
+
+    createTemplateDraft() {
+        const baseId = this.currentPageName || this.pageTitleInput?.value || 'new-template';
+        const templateId = this.normalizeTemplateId(baseId);
+        const regions = {};
+        const defaultBlocks = {};
+        this.layoutRegions.forEach((region) => {
+            regions[region.id] = { label: region.name, required: Boolean(region.required) };
+            const blocks = this.pageComponents
+                .filter((item) => this.normalizeRegionId(item.region, 'main') === region.id)
+                .map((item, index) => this.serializeBlockInstance(item, index, region.id));
+            if (blocks.length) {
+                defaultBlocks[region.id] = blocks;
+            }
+        });
+        this.selectTemplate({
+            templateId,
+            label: this.pageTitleInput?.value || 'New Template',
+            description: '',
+            routePattern: this.currentPageName ? `/${this.currentPageName}` : '/',
+            contentType: '',
+            layoutId: this.currentLayoutFileName || this.savedLayouts[0]?.fileName || '',
+            regions,
+            defaultBlocks,
+            lockedRegions: ['header', 'footer'],
+            validation: { status: 'warning', warnings: [], errors: [] }
+        });
+    }
+
+    normalizeTemplateId(value) {
+        return String(value || 'template')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/(^-+|-+$)/g, '') || 'template';
+    }
+
+    selectTemplate(template) {
+        this.selectedTemplate = JSON.parse(JSON.stringify(template));
+        if (this.templateEditorEmpty) this.templateEditorEmpty.hidden = true;
+        if (this.templateEditor) this.templateEditor.hidden = false;
+        if (this.templateEditorTitle) this.templateEditorTitle.textContent = template.label || template.templateId || 'Template';
+        if (this.templateIdInput) this.templateIdInput.value = template.templateId || '';
+        if (this.templateLabelInput) this.templateLabelInput.value = template.label || '';
+        if (this.templateRouteInput) this.templateRouteInput.value = template.routePattern || '';
+        this.populateTemplateSelects();
+        if (this.templateContentTypeSelect) this.templateContentTypeSelect.value = template.contentType || '';
+        if (this.templateLayoutSelect) this.templateLayoutSelect.value = template.layoutId || '';
+        this.renderTemplateValidation(template.validation);
+        this.renderTemplateRegions(template);
+        this.populateTemplatePreviewEntries();
+        this.renderTemplatesList();
+    }
+
+    renderTemplateValidation(validation = {}) {
+        if (!this.templateValidationSummary) {
+            return;
+        }
+        const errors = Array.isArray(validation.errors) ? validation.errors : [];
+        const warnings = Array.isArray(validation.warnings) ? validation.warnings : [];
+        const status = validation.status || (errors.length ? 'error' : warnings.length ? 'warning' : 'valid');
+        const items = [...errors, ...warnings];
+        if (!items.length) {
+            this.templateValidationSummary.innerHTML = '<div class="template-validation template-validation-valid"><strong>Valid</strong><span>No template validation issues.</span></div>';
+            return;
+        }
+        this.templateValidationSummary.innerHTML = `
+            <div class="template-validation template-validation-${status}">
+                <strong>${status === 'error' ? 'Template has errors' : 'Template has warnings'}</strong>
+                ${items.map((item) => `<span>${this.escapeHtml(item.message || item.code)}</span>`).join('')}
+            </div>
+        `;
+    }
+
+    renderTemplateRegions(template) {
+        if (!this.templateRegionList) {
+            return;
+        }
+        const locked = new Set(template.lockedRegions || []);
+        const defaultBlocks = template.defaultBlocks || {};
+        this.templateRegionList.innerHTML = this.layoutRegions.map((region) => {
+            const blocks = Array.isArray(defaultBlocks[region.id]) ? defaultBlocks[region.id] : [];
+            return `
+                <div class="template-region-card" data-region-id="${region.id}">
+                    <div class="template-region-card-head">
+                        <div>
+                            <strong>${this.escapeHtml(region.name)}</strong>
+                            <span>${blocks.length} default block${blocks.length === 1 ? '' : 's'}</span>
+                        </div>
+                        <label class="checkbox-row">
+                            <input type="checkbox" class="template-region-lock" ${locked.has(region.id) ? 'checked' : ''}>
+                            <span>Locked</span>
+                        </label>
+                    </div>
+                    <textarea class="template-region-blocks" rows="6" spellcheck="false">${this.escapeHtml(JSON.stringify(blocks, null, 2))}</textarea>
+                </div>
+            `;
+        }).join('');
+    }
+
+    readTemplateFromEditor() {
+        const regions = {};
+        const defaultBlocks = {};
+        const lockedRegions = [];
+        this.templateRegionList?.querySelectorAll('.template-region-card').forEach((card) => {
+            const regionId = card.dataset.regionId;
+            const region = this.getRegionDefinition(regionId);
+            regions[regionId] = { label: region?.name || regionId, required: Boolean(region?.required) };
+            if (card.querySelector('.template-region-lock')?.checked) {
+                lockedRegions.push(regionId);
+            }
+            const raw = card.querySelector('.template-region-blocks')?.value || '[]';
+            const parsed = this.parseJsonInput(raw, []);
+            if (!Array.isArray(parsed)) {
+                throw new Error(`${regionId} default blocks must be an array`);
+            }
+            defaultBlocks[regionId] = parsed;
+        });
+        return {
+            templateId: this.normalizeTemplateId(this.templateIdInput?.value || ''),
+            label: (this.templateLabelInput?.value || '').trim(),
+            routePattern: (this.templateRouteInput?.value || '').trim(),
+            contentType: this.templateContentTypeSelect?.value || '',
+            layoutId: this.templateLayoutSelect?.value || '',
+            regions,
+            defaultBlocks,
+            lockedRegions
+        };
+    }
+
+    async saveTemplateFromEditor() {
+        try {
+            const payload = this.readTemplateFromEditor();
+            const result = await this.apiClient.saveTemplate(payload);
+            const saved = result.data;
+            const existingIndex = this.templates.findIndex((item) => item.templateId === saved.templateId);
+            if (existingIndex >= 0) {
+                this.templates.splice(existingIndex, 1, saved);
+            } else {
+                this.templates.unshift(saved);
+            }
+            this.selectTemplate(saved);
+            this.showToast('Template saved', 'success');
+        } catch (error) {
+            console.error('Failed to save template:', error);
+            this.showToast(`Template save failed: ${error.message}`, 'error');
+        }
+    }
+
+    async deleteSelectedTemplate() {
+        if (!this.selectedTemplate?.templateId) {
+            return;
+        }
+        if (!confirm(`Delete template "${this.selectedTemplate.label || this.selectedTemplate.templateId}"?`)) {
+            return;
+        }
+        try {
+            await this.apiClient.deleteTemplate(this.selectedTemplate.templateId);
+            this.templates = this.templates.filter((item) => item.templateId !== this.selectedTemplate.templateId);
+            this.selectedTemplate = null;
+            if (this.templateEditorEmpty) this.templateEditorEmpty.hidden = false;
+            if (this.templateEditor) this.templateEditor.hidden = true;
+            this.renderTemplatesList();
+            this.showToast('Template deleted', 'success');
+        } catch (error) {
+            console.error('Failed to delete template:', error);
+            this.showToast(`Template delete failed: ${error.message}`, 'error');
+        }
+    }
+
+    async handleTemplateContentTypeChange() {
+        await this.populateTemplatePreviewEntries();
+    }
+
+    async populateTemplatePreviewEntries() {
+        if (!this.templatePreviewEntrySelect) {
+            return;
+        }
+        const collection = this.templateContentTypeSelect?.value || '';
+        if (!collection) {
+            this.templatePreviewEntrySelect.innerHTML = '<option value="">Static template</option>';
+            return;
+        }
+        this.templatePreviewEntrySelect.innerHTML = '<option value="">Loading entries...</option>';
+        const entries = await this.ensureCmsEntriesLoaded(collection, { force: true });
+        this.templatePreviewEntrySelect.innerHTML = '<option value="">First matching entry</option>'
+            + entries.map((entry) => `<option value="${this.escapeAttribute(entry.entryKey)}">${this.escapeHtml(this.getCmsEntryLabel(entry))}</option>`).join('');
+    }
+
+    async previewSelectedTemplate() {
+        if (!this.selectedTemplate?.templateId) {
+            this.showToast('Save the template before previewing', 'warning');
+            return;
+        }
+        try {
+            const entryKey = this.templatePreviewEntrySelect?.value || '';
+            const result = await this.apiClient.previewTemplate(this.selectedTemplate.templateId, { entryKey });
+            if (this.previewFrame) {
+                this.previewFrame.srcdoc = result.data?.html || '';
+            }
+            if (this.previewMarkupWrap) this.previewMarkupWrap.hidden = true;
+            if (this.previewFrameWrap) this.previewFrameWrap.hidden = false;
+            if (this.previewTypeControls) this.previewTypeControls.hidden = true;
+            this.previewModal.classList.add('active');
+        } catch (error) {
+            console.error('Failed to preview template:', error);
+            this.showToast(`Template preview failed: ${error.message}`, 'error');
         }
     }
 
@@ -1325,8 +1749,11 @@ class VisualBuilder {
             }
 
             const layoutData = result.data;
-            const components = await this.buildPageComponentsFromLayout(layoutData.layout || []);
-            this.pageComponents = components;
+            const layoutItems = layoutData.regions && typeof layoutData.regions === 'object'
+                ? this.flattenRegions(layoutData.regions)
+                : (layoutData.layout || []);
+            const components = await this.buildPageComponentsFromLayout(layoutItems);
+            this.pageComponents = components.map((item, index) => this.prepareBlockInstance(item, index));
             this.canvasLayoutMode = layoutData?.meta?.canvasLayoutMode === 'freeform' ? 'freeform' : 'flow';
             this.freeformSectionTemplate = layoutData?.meta?.freeformSectionTemplate || this.freeformSectionTemplate || 'free-layout';
             this.editingPartialPath = null;
@@ -1366,6 +1793,14 @@ class VisualBuilder {
     async buildPageComponentsFromLayout(layoutItems) {
         const components = [];
         for (const [index, item] of layoutItems.entries()) {
+            if (item.type === 'view') {
+                const prepared = this.prepareBlockInstance(item, index);
+                prepared.content = '';
+                await this.ensureCmsViewPreviewLoaded(prepared.viewId, prepared.displayId);
+                components.push(prepared);
+                continue;
+            }
+
             const componentPath = item.componentPath || item.partial;
             const endpoint = item.type === 'layout' ? '/api/layout' : '/api/partial';
             const response = await fetch(`${endpoint}?path=${encodeURIComponent(componentPath)}`);
@@ -1379,10 +1814,19 @@ class VisualBuilder {
                 type: item.type || 'partial',
                 componentPath,
                 name: item.name || componentPath.split('/').pop().replace('.html', ''),
-                props: item.props || {},
+                props: {
+                    ...(item.props || {}),
+                    ...(item.cmsBinding ? { cmsBinding: item.cmsBinding } : {}),
+                    blockConfig: item.blockConfig || item.props?.blockConfig || {}
+                },
                 content: result.data,
                 children: item.children || {},
-                canvas: item.canvas ? this.normalizeCanvasPlacement(item.canvas, index) : null
+                canvas: item.canvas ? this.normalizeCanvasPlacement(item.canvas, index) : null,
+                region: this.normalizeRegionId(item.region, this.inferRegionForComponent(componentPath)),
+                order: Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1,
+                blockConfig: item.blockConfig || item.props?.blockConfig || {},
+                visible: item.visible !== false && item.visibility !== 'hidden',
+                locked: Boolean(item.locked)
             });
         }
         return components;
@@ -1607,6 +2051,34 @@ class VisualBuilder {
         }
     }
 
+    async loadCmsViews() {
+        if (this.viewsList) {
+            this.viewsList.innerHTML = '<div class="loading">Loading Views...</div>';
+        }
+        try {
+            const result = await this.apiClient.listCmsViews();
+            this.cmsViews = Array.isArray(result?.data) ? result.data.map((view) => ({
+                ...view,
+                id: view.viewId,
+                name: view.label || view.viewId,
+                type: 'view',
+                group: 'CMS Views',
+                path: view.viewId,
+                preview: `${view.collection || 'collection'} - ${(view.displays || []).length} display${(view.displays || []).length === 1 ? '' : 's'}`
+            })) : [];
+            if (this.activePaletteTab === 'views') {
+                this.updatePaletteFilterOptions();
+                this.filterComponents();
+            }
+        } catch (error) {
+            console.error('Error loading CMS Views:', error);
+            this.cmsViews = [];
+            if (this.viewsList) {
+                this.viewsList.innerHTML = '<div class="loading">Error loading Views</div>';
+            }
+        }
+    }
+
     applyPartialGroups() {
         this.partials = this.partials.map((partial) => ({
             ...partial,
@@ -1712,7 +2184,7 @@ class VisualBuilder {
         }
 
         const sortable = options.sortable
-            || (listEl === this.partialsList ? this.partialsSortable : this.microSortable);
+            || (listEl === this.viewsList ? this.viewsSortable : (listEl === this.partialsList ? this.partialsSortable : this.microSortable));
         if (sortable) {
             sortable.option('disabled', false);
         }
@@ -1724,12 +2196,31 @@ class VisualBuilder {
                 ? item.preview
                 : 'No preview available';
             const draggableAttr = this.canvasLayoutMode === 'freeform' ? 'true' : 'false';
+            const allowedRegions = this.getAllowedRegionsForComponent(item.id, 'micro').join(',');
             return `
-                <div class="component-item" draggable="${draggableAttr}" data-type="micro" data-path="${item.id}" data-id="${item.id}">
+                <div class="component-item" draggable="${draggableAttr}" data-type="micro" data-path="${item.id}" data-id="${item.id}" data-allowed-regions="${allowedRegions}">
                     <i class="fas fa-cube"></i>
                     <div class="component-meta">
                         <span class="component-name">${item.name}</span>
                         <span class="component-preview">${preview}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (item.type === 'view') {
+            const displays = Array.isArray(item.displays) ? item.displays : [];
+            const blockDisplays = displays.filter((display) => (display.type || 'block') === 'block');
+            const defaultDisplay = blockDisplays[0] || displays[0] || {};
+            const preview = item.preview && item.preview.trim().length > 0
+                ? item.preview
+                : 'CMS View block';
+            return `
+                <div class="component-item" draggable="false" data-type="view" data-path="${this.escapeAttribute(item.viewId)}" data-id="${this.escapeAttribute(item.viewId)}" data-display-id="${this.escapeAttribute(defaultDisplay.displayId || '')}" data-allowed-regions="main,side-navigation,content-above,content-below,hero">
+                    <i class="fas fa-table-list"></i>
+                    <div class="component-meta">
+                        <span class="component-name">${this.escapeHtml(item.name || item.viewId)}</span>
+                        <span class="component-preview">${this.escapeHtml(preview)}</span>
                     </div>
                 </div>
             `;
@@ -2315,8 +2806,9 @@ class VisualBuilder {
             ? partial.preview
             : 'No preview available';
         const draggableAttr = this.canvasLayoutMode === 'freeform' ? 'true' : 'false';
+        const allowedRegions = this.getAllowedRegionsForComponent(partial.path, 'partial').join(',');
         return `
-            <div class="component-item" draggable="${draggableAttr}" data-type="partial" data-path="${partial.path}" data-id="${partial.id}">
+            <div class="component-item" draggable="${draggableAttr}" data-type="partial" data-path="${partial.path}" data-id="${partial.id}" data-allowed-regions="${allowedRegions}">
                 <i class="fas fa-puzzle-piece"></i>
                 <div class="component-meta">
                     <span class="component-name">${partial.name}</span>
@@ -2367,30 +2859,42 @@ class VisualBuilder {
 
         this.builderMode = mode;
         const isPageMode = mode === 'page';
+        if (!isPageMode) {
+            this.activePaletteTab = 'micro';
+        } else if (this.activePaletteTab === 'micro') {
+            this.activePaletteTab = 'partials';
+        }
+        const isViewsPalette = isPageMode && this.activePaletteTab === 'views';
 
         if (this.partialsTab) {
-            this.partialsTab.classList.toggle('active', isPageMode);
+            this.partialsTab.classList.toggle('active', isPageMode && !isViewsPalette);
         }
         if (this.microTab) {
             this.microTab.classList.toggle('active', !isPageMode);
         }
+        if (this.viewsTab) {
+            this.viewsTab.classList.toggle('active', isViewsPalette);
+        }
         if (this.partialsList) {
-            this.partialsList.classList.toggle('active', isPageMode);
+            this.partialsList.classList.toggle('active', isPageMode && !isViewsPalette);
         }
         if (this.microList) {
             this.microList.classList.toggle('active', !isPageMode);
+        }
+        if (this.viewsList) {
+            this.viewsList.classList.toggle('active', isViewsPalette);
         }
         if (this.microQuickFilters) {
             this.microQuickFilters.style.display = isPageMode ? 'none' : '';
         }
         if (this.sidebarTitle) {
-            this.sidebarTitle.textContent = isPageMode ? 'Partials (html/partials)' : 'Micro Components';
+            this.sidebarTitle.textContent = isViewsPalette ? 'CMS Views' : (isPageMode ? 'Theme Partials' : 'Theme Components');
         }
         if (this.canvasModeLabel) {
             this.canvasModeLabel.textContent = isPageMode ? 'Canvas' : 'Partial Canvas';
         }
         if (this.searchInput) {
-            this.searchInput.placeholder = isPageMode ? 'Search components...' : 'Search micro components...';
+            this.searchInput.placeholder = isViewsPalette ? 'Search Views...' : (isPageMode ? 'Search components...' : 'Search micro components...');
         }
         if (this.syncPagePartials) {
             const showSync = isPageMode;
@@ -2424,7 +2928,7 @@ class VisualBuilder {
                 description.textContent = isPageMode
                     ? (this.canvasLayoutMode === 'freeform'
                         ? 'Drag a component to auto-create a grid or flex section that keeps content attached to that section'
-                        : 'Drag partials from the sidebar to start building your page')
+                        : (isViewsPalette ? 'Drag Views from the sidebar to place CMS displays' : 'Drag partials from the sidebar to start building your page'))
                     : 'Drag micro components from the sidebar to assemble a partial';
             }
         }
@@ -2451,6 +2955,9 @@ class VisualBuilder {
             }
             if (this.microSortable) {
                 this.microSortable.option('disabled', isPageMode);
+            }
+            if (this.viewsSortable) {
+                this.viewsSortable.option('disabled', !isViewsPalette);
             }
         }
 
@@ -2626,6 +3133,36 @@ class VisualBuilder {
       }
 
       async createComponentInstance(type, componentPath) {
+          if (type === 'view') {
+              const view = this.cmsViews.find((item) => item.viewId === componentPath) || null;
+              const displays = Array.isArray(view?.displays) ? view.displays : [];
+              const display = displays.find((item) => (item.type || 'block') === 'block') || displays[0] || {};
+              const instance = {
+                  instanceId: this.generateInstanceId(),
+                  type: 'view',
+                  componentPath: `view:${componentPath}`,
+                  partial: `view:${componentPath}`,
+                  viewId: componentPath,
+                  displayId: display.displayId || '',
+                  name: view?.label || componentPath,
+                  props: {
+                      viewId: componentPath,
+                      displayId: display.displayId || '',
+                      config: {},
+                      visibility: 'visible'
+                  },
+                  blockConfig: {},
+                  config: {},
+                  visibility: 'visible',
+                  content: '',
+                  children: {},
+                  region: 'main',
+                  visible: true
+              };
+              await this.ensureCmsViewPreviewLoaded(instance.viewId, instance.displayId);
+              return instance;
+          }
+
           if (type === 'partial') {
               const result = await this.apiClient.getPartial(componentPath);
               const defaultCmsBinding = this.getDefaultCmsBindingForComponent(componentPath);
@@ -2637,7 +3174,12 @@ class VisualBuilder {
                   props: defaultCmsBinding ? { cmsBinding: defaultCmsBinding } : {},
                   content: result.data,
                   children: {},
-                  canvas: null
+                  canvas: null,
+                  region: this.inferRegionForComponent(componentPath),
+                  order: this.getActiveComponents().length + 1,
+                  blockConfig: {},
+                  visible: true,
+                  locked: false
               };
           }
 
@@ -2654,7 +3196,12 @@ class VisualBuilder {
                   props: { ...(definition.defaultProps || {}) },
                   content: definition.template,
                   children: {},
-                  canvas: null
+                  canvas: null,
+                  region: 'main',
+                  order: this.getActiveComponents().length + 1,
+                  blockConfig: {},
+                  visible: true,
+                  locked: false
               };
           }
 
@@ -2779,10 +3326,13 @@ class VisualBuilder {
       }
 
     setActiveComponents(components) {
+        const normalized = Array.isArray(components)
+            ? components.map((item, index) => this.prepareBlockInstance(item, index))
+            : [];
         if (this.builderMode === 'partial') {
-            this.partialComponents = components;
+            this.partialComponents = normalized;
         } else {
-            this.pageComponents = components;
+            this.pageComponents = normalized;
         }
     }
 
@@ -2794,7 +3344,10 @@ class VisualBuilder {
     }
 
     getActivePaletteItems() {
-        return this.builderMode === 'partial' ? this.microComponents : this.partials;
+        if (this.builderMode === 'partial') {
+            return this.microComponents;
+        }
+        return this.activePaletteTab === 'views' ? this.cmsViews : this.partials;
     }
 
     getMicroComponentDefinition(id) {
@@ -2806,7 +3359,9 @@ class VisualBuilder {
         const selectedGroup = this.partialsFilter ? this.partialsFilter.value : 'all';
         const items = this.getActivePaletteItems();
         const isPageMode = this.builderMode === 'page';
-        const listEl = isPageMode ? this.partialsList : this.microList;
+        const listEl = this.builderMode === 'partial'
+            ? this.microList
+            : (this.activePaletteTab === 'views' ? this.viewsList : this.partialsList);
         if (!listEl) {
             return;
         }
@@ -2814,6 +3369,7 @@ class VisualBuilder {
             this.updateMicroQuickFilters(selectedGroup);
         }
 
+        const activeRegion = this.activeRegionFilter || 'all';
         const filtered = items.filter(p => {
             const queryMatch = !query ||
                 p.name.toLowerCase().includes(query) ||
@@ -2821,15 +3377,17 @@ class VisualBuilder {
                 (p.category || '').toLowerCase().includes(query) ||
                 (p.group || '').toLowerCase().includes(query);
             const groupMatch = selectedGroup === 'all' || String(p.group) === String(selectedGroup);
-            return queryMatch && groupMatch;
+            const allowedRegions = p.allowedRegions || this.getAllowedRegionsForComponent(p.path || p.id || '', p.type || (isPageMode ? 'partial' : 'micro'));
+            const regionMatch = activeRegion === 'all' || allowedRegions.includes(activeRegion);
+            return queryMatch && groupMatch && regionMatch;
         });
 
         const emptyMessage = isPageMode && !this.pageCreated
             ? 'Create a page to load partials...'
-            : 'No components match the current search/filter';
+            : (this.activePaletteTab === 'views' ? 'No Views match the current search/filter' : 'No components match the current search/filter');
         this.renderPaletteItems(filtered, {
             listEl,
-            allowActions: isPageMode,
+            allowActions: isPageMode && this.activePaletteTab !== 'views',
             emptyMessage
         });
         this.updatePaletteItemCount(items.length, filtered.length);
@@ -2868,6 +3426,228 @@ class VisualBuilder {
         const saved = localStorage.getItem('builderDesignPreset');
         const initial = this.designPresets.find((preset) => preset.id === saved) || this.designPresets[0];
         this.applyDesignPreset(initial.id, { persist: false });
+    }
+
+    initRegionFilters() {
+        if (!this.regionFilter) {
+            return;
+        }
+        this.regionFilter.innerHTML = [
+            '<option value="all">All regions</option>',
+            ...this.layoutRegions.map((region) => `<option value="${region.id}">${region.name}</option>`)
+        ].join('');
+        this.regionFilter.value = this.activeRegionFilter || 'all';
+    }
+
+    getRegionDefinition(regionId = 'main') {
+        const normalized = this.normalizeRegionId(regionId, 'main');
+        return this.layoutRegions.find((region) => region.id === normalized) || this.layoutRegions.find((region) => region.id === 'main') || this.layoutRegions[0];
+    }
+
+    normalizeRegionId(value, fallback = 'main') {
+        const aliases = {
+            main_content: 'main',
+            content_main: 'main',
+            body: 'main',
+            page_body: 'main',
+            side_nav: 'side-navigation',
+            side_navigation: 'side-navigation',
+            sidenav: 'side-navigation',
+            sidebar: 'side-navigation',
+            side: 'side-navigation',
+            content_above: 'content-above',
+            contentabove: 'content-above',
+            above_content: 'content-above',
+            content_below: 'content-below',
+            contentbelow: 'content-below',
+            below_content: 'content-below'
+        };
+        const normalizeToken = (input) => String(input || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '');
+        const raw = normalizeToken(value);
+        const fromPath = raw.includes('_') ? raw.split('_')[0] : raw;
+        const normalized = aliases[raw] || aliases[fromPath] || raw;
+        if (this.layoutRegions.some((region) => region.id === normalized)) {
+            return normalized;
+        }
+        const fallbackRaw = normalizeToken(fallback);
+        const fallbackRegion = aliases[fallbackRaw] || fallbackRaw || 'main';
+        return this.layoutRegions.some((region) => region.id === fallbackRegion) ? fallbackRegion : 'main';
+    }
+
+    inferRegionForComponent(componentPath = '') {
+        const path = String(componentPath || '').toLowerCase();
+        if (/(^|\/)(header|navbar|nav)(\.|\/|$)/.test(path) || path.includes('landmark/header')) return 'header';
+        if (path.includes('hero') || path.includes('marquee')) return 'hero';
+        if (path.includes('footer') || path.includes('landmark/footer')) return 'footer';
+        if (path.includes('side') || path.includes('sidebar') || path.includes('navigation')) return 'side-navigation';
+        if (path.includes('cta') || path.includes('newsletter')) return 'content-below';
+        if (path.includes('header')) return 'content-above';
+        return 'main';
+    }
+
+    getAllowedRegionsForComponent(componentPath = '', type = 'partial') {
+        if (type === 'view') {
+            return ['main', 'side-navigation', 'content-above', 'content-below', 'hero'];
+        }
+        if (type === 'micro') {
+            return ['main', 'side-navigation', 'content-above', 'content-below', 'hero'];
+        }
+        const primary = this.inferRegionForComponent(componentPath);
+        const path = String(componentPath || '').toLowerCase();
+        if (primary === 'header') return ['header'];
+        if (primary === 'footer') return ['footer'];
+        if (primary === 'hero') return ['hero', 'content-above', 'main'];
+        if (primary === 'side-navigation') return ['side-navigation', 'main'];
+        if (path.includes('cta')) return ['content-below', 'main'];
+        return ['main', 'content-above', 'content-below'];
+    }
+
+    prepareBlockInstance(item = {}, index = 0) {
+        const componentPath = item.componentPath || item.partial || item.componentId || '';
+        const type = item.type || 'partial';
+        if (type === 'view') {
+            const viewId = item.viewId || item.props?.viewId || String(componentPath).replace(/^view:/, '');
+            const displayId = item.displayId || item.props?.displayId || '';
+            return {
+                ...item,
+                instanceId: item.instanceId || item.id || this.generateInstanceId(),
+                id: item.id || item.instanceId,
+                type: 'view',
+                componentPath: componentPath || `view:${viewId}`,
+                partial: item.partial || `view:${viewId}`,
+                viewId,
+                displayId,
+                name: item.name || this.getCmsViewLabel(viewId) || viewId || 'View',
+                region: this.normalizeRegionId(item.region, 'main'),
+                order: Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1,
+                blockConfig: item.blockConfig || item.config || item.props?.blockConfig || {},
+                config: item.config || item.props?.config || {},
+                visibility: item.visibility || item.props?.visibility || 'visible',
+                visible: item.visible !== false && item.visibility !== 'hidden',
+                locked: Boolean(item.locked),
+                props: {
+                    ...(item.props || {}),
+                    viewId,
+                    displayId,
+                    config: item.config || item.props?.config || {},
+                    visibility: item.visibility || item.props?.visibility || 'visible'
+                },
+                children: {}
+            };
+        }
+        const region = this.normalizeRegionId(item.region, this.inferRegionForComponent(componentPath));
+        const props = item.props || {};
+        return {
+            ...item,
+            instanceId: item.instanceId || item.id || this.generateInstanceId(),
+            id: item.id || item.instanceId,
+            type,
+            componentPath,
+            name: item.name || componentPath.split('/').pop()?.replace('.html', '') || 'Component',
+            region,
+            order: Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1,
+            blockConfig: item.blockConfig || item.config || props.blockConfig || {},
+            visible: item.visible !== false && item.visibility !== 'hidden',
+            locked: Boolean(item.locked),
+            props
+        };
+    }
+
+    getComponentsByRegion(components = this.getActiveComponents()) {
+        const grouped = {};
+        this.layoutRegions.forEach((region) => {
+            grouped[region.id] = [];
+        });
+        components.forEach((item, index) => {
+            const prepared = this.prepareBlockInstance(item, index);
+            const region = this.normalizeRegionId(prepared.region, 'main');
+            grouped[region] = grouped[region] || [];
+            grouped[region].push(prepared);
+        });
+        Object.keys(grouped).forEach((regionId) => {
+            grouped[regionId].sort((a, b) => {
+                const byOrder = Number(a.order || 0) - Number(b.order || 0);
+                return byOrder || String(a.instanceId).localeCompare(String(b.instanceId));
+            });
+        });
+        return grouped;
+    }
+
+    flattenRegions(regions = {}) {
+        return this.layoutRegions.flatMap((region) => {
+            const items = Array.isArray(regions[region.id]) ? regions[region.id] : [];
+            return items.map((item, index) => this.prepareBlockInstance({ ...item, region: region.id, order: index + 1 }, index));
+        });
+    }
+
+    buildRegionsPayload() {
+        const grouped = this.getComponentsByRegion(this.pageComponents);
+        const payload = {};
+        this.layoutRegions.forEach((region) => {
+            payload[region.id] = grouped[region.id].map((item, index) => this.serializeBlockInstance(item, index, region.id));
+        });
+        return payload;
+    }
+
+    serializeBlockInstance(item, index = 0, regionId = 'main') {
+        if (item.type === 'view') {
+            const viewId = item.viewId || item.props?.viewId || '';
+            const displayId = item.displayId || item.props?.displayId || '';
+            const config = item.config || item.props?.config || {};
+            const visibility = item.visibility || item.props?.visibility || (item.visible === false ? 'hidden' : 'visible');
+            return {
+                id: item.instanceId,
+                instanceId: item.instanceId,
+                order: index + 1,
+                type: 'view',
+                viewId,
+                displayId,
+                region: this.normalizeRegionId(regionId || item.region, 'main'),
+                name: item.name || this.getCmsViewLabel(viewId) || viewId,
+                config,
+                visibility,
+                blockConfig: item.blockConfig || {},
+                visible: item.visible !== false,
+                locked: Boolean(item.locked),
+                props: {
+                    ...(item.props || {}),
+                    viewId,
+                    displayId,
+                    config,
+                    visibility,
+                    blockConfig: item.blockConfig || item.props?.blockConfig || {}
+                },
+                children: {},
+                canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
+                renderedContent: this.getRenderedComponentContent(item)
+            };
+        }
+
+        return {
+            id: item.instanceId,
+            instanceId: item.instanceId,
+            order: index + 1,
+            type: item.type,
+            partial: item.componentPath,
+            componentPath: item.componentPath,
+            name: item.name,
+            region: this.normalizeRegionId(regionId || item.region, 'main'),
+            blockConfig: item.blockConfig || {},
+            cmsBinding: item.props?.cmsBinding || null,
+            visible: item.visible !== false,
+            locked: Boolean(item.locked),
+            props: {
+                ...(item.props || {}),
+                blockConfig: item.blockConfig || item.props?.blockConfig || {}
+            },
+            children: item.children || {},
+            canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
+            renderedContent: this.getRenderedComponentContent(item)
+        };
     }
 
     getActivePreset() {
@@ -2989,6 +3769,11 @@ class VisualBuilder {
     }
 
     removeCanvasItem(instanceId) {
+        const item = this.findComponentById(instanceId);
+        if (item?.locked) {
+            this.showToast('This block is locked by the template', 'warning');
+            return;
+        }
         this.pushHistory();
         const components = this.getActiveComponents();
         const removed = this.removeComponentById(instanceId, components);
@@ -3014,6 +3799,48 @@ class VisualBuilder {
         this.renderCanvasFromState();
         this.refreshLivePreview();
         this.showToast('Component duplicated', 'success');
+    }
+
+    moveCanvasItem(instanceId, direction = 0) {
+        const location = this.findComponentLocation(instanceId);
+        if (!location || location.item.locked) {
+            this.showToast('This block cannot be moved', 'warning');
+            return;
+        }
+        const region = this.normalizeRegionId(location.item.region, 'main');
+        const components = this.getActiveComponents();
+        const siblings = components
+            .filter((item) => this.normalizeRegionId(item.region, 'main') === region)
+            .sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+        const currentIndex = siblings.findIndex((item) => item.instanceId === instanceId);
+        const nextIndex = currentIndex + Number(direction || 0);
+        if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) {
+            return;
+        }
+        this.pushHistory();
+        const [item] = siblings.splice(currentIndex, 1);
+        siblings.splice(nextIndex, 0, item);
+        const next = this.layoutRegions.flatMap((regionDef) => {
+            const list = regionDef.id === region
+                ? siblings
+                : components.filter((entry) => this.normalizeRegionId(entry.region, 'main') === regionDef.id);
+            return list.map((entry, index) => ({ ...entry, order: index + 1 }));
+        });
+        this.setActiveComponents(next);
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+    }
+
+    toggleCanvasItemVisibility(instanceId) {
+        const item = this.findComponentById(instanceId);
+        if (!item) {
+            return;
+        }
+        this.pushHistory();
+        item.visible = item.visible === false;
+        this.renderCanvasFromState();
+        this.refreshLivePreview();
+        this.showToast(item.visible === false ? 'Block hidden' : 'Block shown', 'success');
     }
 
     selectCanvasItem(instanceId) {
@@ -3348,6 +4175,418 @@ class VisualBuilder {
         return window.BuilderCmsBinding.resolveBindingEntries(binding, entries);
     }
 
+    getCmsView(viewId) {
+        const id = String(viewId || '').trim();
+        return this.cmsViews.find((view) => view.viewId === id) || null;
+    }
+
+    getCmsViewLabel(viewId) {
+        const view = this.getCmsView(viewId);
+        return view ? (view.label || view.viewId) : '';
+    }
+
+    getCmsViewDisplays(viewId) {
+        const view = this.getCmsView(viewId);
+        return Array.isArray(view?.displays) ? view.displays : [];
+    }
+
+    getCmsViewPreviewKey(viewId, displayId) {
+        return `${viewId || ''}::${displayId || ''}`;
+    }
+
+    async ensureCmsViewPreviewLoaded(viewId, displayId, options = {}) {
+        const id = String(viewId || '').trim();
+        const display = String(displayId || '').trim();
+        if (!id) {
+            return null;
+        }
+        const key = this.getCmsViewPreviewKey(id, display);
+        if (!options.force && this.cmsViewPreviews[key]) {
+            return this.cmsViewPreviews[key];
+        }
+        if (!options.force && this.cmsViewPreviewPromises[key]) {
+            return this.cmsViewPreviewPromises[key];
+        }
+
+        this.cmsViewPreviewPromises[key] = this.apiClient.previewCmsView(id, display)
+            .then((result) => {
+                const data = result?.data || null;
+                if (data) {
+                    this.cmsViewPreviews[key] = data;
+                }
+                return data;
+            })
+            .catch((error) => {
+                console.error(`Failed to preview CMS View ${id}:`, error);
+                return null;
+            })
+            .finally(() => {
+                delete this.cmsViewPreviewPromises[key];
+            });
+
+        return this.cmsViewPreviewPromises[key];
+    }
+
+    renderCmsViewBlockPreview(item = {}) {
+        const viewId = item.viewId || item.props?.viewId || '';
+        const displayId = item.displayId || item.props?.displayId || '';
+        const preview = this.cmsViewPreviews[this.getCmsViewPreviewKey(viewId, displayId)];
+        const view = preview?.view || this.getCmsView(viewId) || {};
+        const display = preview?.display || this.getCmsViewDisplays(viewId).find((entry) => entry.displayId === displayId) || {};
+        const entries = Array.isArray(preview?.entries) ? preview.entries : [];
+        const title = item.name || view.label || viewId || 'View';
+        const itemsHtml = entries.map((entry) => {
+            const data = entry.data || {};
+            const heading = data.title || data.heading || data.name || entry.entryKey || 'Untitled';
+            const summary = data.summary || data.description || data.body || '';
+            const href = data.detail_url || data.detailUrl || data.url || '';
+            const headingHtml = href
+                ? `<a href="${this.escapeAttribute(href)}">${this.escapeHtml(heading)}</a>`
+                : this.escapeHtml(heading);
+            return `
+                <article class="cms-view-preview-item">
+                    <h4>${headingHtml}</h4>
+                    ${summary ? `<p>${this.escapeHtml(summary)}</p>` : ''}
+                </article>
+            `;
+        }).join('');
+
+        if (!preview) {
+            this.ensureCmsViewPreviewLoaded(viewId, displayId).then(() => {
+                const canvasItem = document.querySelector(`.canvas-item[data-instance-id="${item.instanceId}"] .content-preview`);
+                if (canvasItem) {
+                    canvasItem.innerHTML = this.renderCmsViewBlockPreview(item);
+                }
+                this.refreshLivePreview();
+            });
+        }
+
+        return `
+            <section class="cms-view-preview-block" data-view-id="${this.escapeAttribute(viewId)}" data-display-id="${this.escapeAttribute(displayId)}">
+                <div class="cms-view-preview-header">
+                    <span>${this.escapeHtml(display.label || display.type || 'Block display')}</span>
+                    <h3>${this.escapeHtml(title)}</h3>
+                </div>
+                <div class="cms-view-preview-items">
+                    ${preview ? (itemsHtml || '<p class="cms-view-empty">No matching content.</p>') : '<p class="cms-view-empty">Loading View preview...</p>'}
+                </div>
+            </section>
+        `;
+    }
+
+    showViewPropertiesPanel(instanceId) {
+        const item = this.findComponentById(instanceId);
+        if (!item || !this.propertiesPanel || !this.propertiesContent) return;
+        const viewId = item.viewId || item.props?.viewId || '';
+        const displayId = item.displayId || item.props?.displayId || '';
+        const displays = this.getCmsViewDisplays(viewId);
+        const displayOptions = displays.map((display) => {
+            const suffix = display.type && display.type !== 'block' ? ` (${display.type})` : '';
+            return `<option value="${this.escapeAttribute(display.displayId)}"${display.displayId === displayId ? ' selected' : ''}>${this.escapeHtml(display.label || display.displayId)}${this.escapeHtml(suffix)}</option>`;
+        }).join('');
+        const currentRegion = this.normalizeRegionId(item.region, 'main');
+        const allowedRegions = this.getAllowedRegionsForComponent('', 'view');
+        const validationIssues = this.getBlockValidationIssues(item);
+        const config = item.config || item.props?.config || {};
+
+        this.propertiesContent.innerHTML = `
+            <div class="properties-section">
+                <div class="properties-title">View Block</div>
+                <div class="form-group"><label>Name</label><input type="text" value="${this.escapeAttribute(item.name || '')}" id="propViewName"></div>
+                <div class="form-group"><label>View</label><input type="text" value="${this.escapeAttribute(this.getCmsViewLabel(viewId) || viewId)}" disabled></div>
+                <div class="form-group"><label>Display</label><select id="propViewDisplay">${displayOptions || '<option value="">No displays</option>'}</select></div>
+                <div class="form-group"><label>Region</label><select id="propViewRegion">
+                    ${this.layoutRegions.map((region) => {
+                        const disabled = allowedRegions.includes(region.id) ? '' : ' disabled';
+                        return `<option value="${region.id}"${region.id === currentRegion ? ' selected' : ''}${disabled}>${this.escapeHtml(region.name)}</option>`;
+                    }).join('')}
+                </select></div>
+                <label class="property-toggle">
+                    <input type="checkbox" id="propViewVisible"${item.visible !== false ? ' checked' : ''}>
+                    <span>Visible</span>
+                </label>
+                ${validationIssues.length ? validationIssues.map((issue) => `
+                    <div class="cms-binding-status cms-binding-status-warning">
+                        <strong>${this.escapeHtml(issue.title)}</strong>
+                        <span>${this.escapeHtml(issue.message)}</span>
+                    </div>
+                `).join('') : ''}
+            </div>
+            <div class="properties-section">
+                <div class="properties-title">View Config</div>
+                <div class="form-group"><label>Config JSON</label><textarea id="propViewConfig" rows="7">${this.escapeHtml(JSON.stringify(config, null, 2))}</textarea></div>
+                <button type="button" class="btn btn-secondary property-action-btn" id="propViewRefresh">Refresh Preview</button>
+            </div>
+        `;
+
+        document.getElementById('propViewName')?.addEventListener('input', (event) => {
+            this.updateComponentProps(instanceId, { name: event.target.value });
+        });
+        document.getElementById('propViewDisplay')?.addEventListener('change', (event) => {
+            const nextDisplayId = event.target.value;
+            item.displayId = nextDisplayId;
+            item.props = { ...(item.props || {}), displayId: nextDisplayId };
+            this.ensureCmsViewPreviewLoaded(viewId, nextDisplayId, { force: true }).then(() => {
+                this.renderCanvasFromState();
+                this.refreshLivePreview();
+                this.showViewPropertiesPanel(instanceId);
+            });
+        });
+        document.getElementById('propViewRegion')?.addEventListener('change', (event) => {
+            item.region = this.normalizeRegionId(event.target.value, 'main');
+            this.renderCanvasFromState();
+            this.refreshLivePreview();
+            this.showViewPropertiesPanel(instanceId);
+        });
+        document.getElementById('propViewVisible')?.addEventListener('change', (event) => {
+            item.visible = event.target.checked;
+            item.visibility = item.visible ? 'visible' : 'hidden';
+            item.props = { ...(item.props || {}), visibility: item.visibility };
+            this.renderCanvasFromState();
+            this.refreshLivePreview();
+        });
+        document.getElementById('propViewConfig')?.addEventListener('change', (event) => {
+            try {
+                const nextConfig = this.parseJsonInput(event.target.value, {}) || {};
+                item.config = nextConfig;
+                item.props = { ...(item.props || {}), config: nextConfig };
+                this.renderCanvasFromState();
+                this.refreshLivePreview();
+            } catch (error) {
+                this.showToast(`Invalid View config JSON: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('propViewRefresh')?.addEventListener('click', async () => {
+            await this.ensureCmsViewPreviewLoaded(viewId, item.displayId || displayId, { force: true });
+            this.renderCanvasFromState();
+            this.refreshLivePreview();
+        });
+
+        this.propertiesPanel.classList.add('active');
+    }
+
+    getCmsCollection(collectionSlug) {
+        const slug = String(collectionSlug || '').trim();
+        return this.cmsCollections.find((collection) => collection.slug === slug) || null;
+    }
+
+    getCmsCollectionFields(collectionSlug) {
+        const collection = this.getCmsCollection(collectionSlug);
+        const fields = collection?.schema?.fields;
+        return Array.isArray(fields) ? fields : [];
+    }
+
+    getCmsEntryLabel(entry) {
+        if (!entry) return '';
+        const data = entry.data || {};
+        return data.title || data.heading || data.name || entry.entryKey || `Entry ${entry.id || ''}`.trim();
+    }
+
+    getCmsBindingStatus(binding) {
+        if (!binding || binding.source !== 'cms' || !binding.collection) {
+            return {
+                type: 'muted',
+                title: 'Using static fallback',
+                message: 'No CMS binding is configured for this block.'
+            };
+        }
+
+        const collection = this.getCmsCollection(binding.collection);
+        if (!collection) {
+            return {
+                type: 'error',
+                title: 'Missing collection',
+                message: `The collection "${binding.collection}" is not available in the CMS export.`
+            };
+        }
+
+        const fields = this.getCmsCollectionFields(binding.collection).map((field) => field.name);
+        const missingFields = Object.values(binding.fieldMap || {})
+            .filter(Boolean)
+            .filter((fieldName) => !fields.includes(fieldName));
+        if (missingFields.length > 0) {
+            return {
+                type: 'error',
+                title: 'Missing mapped field',
+                message: `Missing field${missingFields.length === 1 ? '' : 's'}: ${missingFields.join(', ')}.`
+            };
+        }
+
+        const cachedEntries = this.getCachedCmsEntries(binding.collection);
+        if (!Array.isArray(cachedEntries) || cachedEntries.length === 0) {
+            return {
+                type: 'warning',
+                title: 'Using static fallback',
+                message: 'Entries are not loaded yet or the exported collection has no entries.'
+            };
+        }
+
+        const resolved = window.BuilderCmsBinding.resolveBindingEntries(binding, cachedEntries);
+        if (!resolved) {
+            return {
+                type: 'warning',
+                title: 'Bound but no matching entries',
+                message: 'The binding is valid, but its filters do not match exported entries.'
+            };
+        }
+
+        const count = resolved.mode === 'collection'
+            ? (Array.isArray(resolved.items) ? resolved.items.length : 0)
+            : (resolved.record ? 1 : 0);
+        return {
+            type: 'success',
+            title: 'Bound and resolved',
+            message: `${count || 1} exported ${count === 1 ? 'entry' : 'entries'} available for preview.`
+        };
+    }
+
+    getKnownComponentConfigSchema(item = {}) {
+        const componentPath = String(item.componentPath || item.partial || item.componentId || '').toLowerCase();
+        const name = String(item.name || '').toLowerCase();
+        const isProjectGrid = componentPath === 'content/grid'
+            || componentPath.includes('project_listing')
+            || componentPath.includes('project/project')
+            || name.includes('project grid');
+        if (!isProjectGrid) {
+            return [];
+        }
+        return [
+            {
+                name: 'layoutType',
+                label: 'Layout Type',
+                type: 'select',
+                target: 'blockConfig',
+                required: true,
+                options: [
+                    { value: '', label: 'Select a layout...' },
+                    { value: 'masonry', label: 'Masonry' },
+                    { value: 'grid', label: 'Strict Grid' },
+                    { value: 'list', label: 'List View' }
+                ]
+            },
+            { name: 'itemsPerPage', label: 'Items Per Page', type: 'number', target: 'blockConfig', default: 10 },
+            { name: 'showPagination', label: 'Show Pagination', type: 'boolean', target: 'blockConfig', default: true }
+        ];
+    }
+
+    getBlockValidationIssues(item = {}) {
+        if (!item) return [];
+        if (item.type === 'view') {
+            const viewId = item.viewId || item.props?.viewId || '';
+            const displayId = item.displayId || item.props?.displayId || '';
+            const view = this.getCmsView(viewId);
+            const display = this.getCmsViewDisplays(viewId).find((entry) => entry.displayId === displayId);
+            const issues = [];
+            if (!view) {
+                issues.push({
+                    type: 'view',
+                    title: 'Missing View',
+                    message: `The View "${viewId || 'unknown'}" is not available.`,
+                    field: 'viewId'
+                });
+            }
+            if (!display) {
+                issues.push({
+                    type: 'view',
+                    title: 'Missing View Display',
+                    message: `The display "${displayId || 'unknown'}" is not available for this View.`,
+                    field: 'displayId'
+                });
+            } else if ((display.type || 'block') !== 'block') {
+                issues.push({
+                    type: 'view',
+                    title: 'Unsupported Display Type',
+                    message: 'Only block displays can be placed into builder regions.',
+                    field: 'displayId'
+                });
+            }
+            const region = this.normalizeRegionId(item.region, 'main');
+            const allowedRegions = this.getAllowedRegionsForComponent('', 'view');
+            if (!allowedRegions.includes(region)) {
+                issues.push({
+                    type: 'region',
+                    title: 'Unsupported Region',
+                    message: `This View block cannot be displayed in ${this.getRegionDefinition(region)?.name || region}.`,
+                    field: 'region'
+                });
+            }
+            return issues;
+        }
+        const fields = this.getComponentConfigSchema(item, item.props || {});
+        const props = item.props || {};
+        const blockConfig = item.blockConfig || props.blockConfig || {};
+        const issues = [];
+        fields.forEach((field) => {
+            if (!field.required) return;
+            const target = field.target === 'props' ? props : blockConfig;
+            const value = target?.[field.name];
+            if (value === undefined || value === null || String(value).trim() === '') {
+                issues.push({
+                    type: 'config',
+                    title: 'Missing Required Config',
+                    message: `This block requires '${field.label || field.name}' to be configured.`,
+                    field: field.name
+                });
+            }
+        });
+        const region = this.normalizeRegionId(item.region, this.inferRegionForComponent(item.componentPath));
+        const allowedRegions = this.getAllowedRegionsForComponent(item.componentPath, item.type);
+        if (allowedRegions.length && !allowedRegions.includes(region)) {
+            issues.push({
+                type: 'region',
+                title: 'Unsupported Region',
+                message: `This block cannot be displayed in ${this.getRegionDefinition(region)?.name || region}.`,
+                field: 'region'
+            });
+        }
+        return issues;
+    }
+
+    getLayoutValidationIssues() {
+        if (this.builderMode !== 'page') {
+            return [];
+        }
+        return this.getActiveComponents().flatMap((item) => this.getBlockValidationIssues(item));
+    }
+
+    getComponentConfigSchema(item, props = {}) {
+        if (!item) return [];
+        const explicit = item.configSchema || item.schema || item.manifest?.configSchema || item.manifest?.schema;
+        if (Array.isArray(explicit)) return explicit;
+        if (Array.isArray(explicit?.fields)) return explicit.fields;
+        const known = this.getKnownComponentConfigSchema(item);
+        if (known.length) return known;
+
+        if (item.type === 'micro') {
+            const definition = this.getMicroComponentDefinition(item.componentPath);
+            const schema = definition?.configSchema || definition?.schema;
+            if (Array.isArray(schema)) return schema;
+            if (Array.isArray(schema?.fields)) return schema.fields;
+        }
+
+        return this.inferBlockConfigSchema(item, props);
+    }
+
+    inferBlockConfigSchema(item, props = {}) {
+        const fields = [];
+        const content = item?.content || '';
+        if (content.includes('h1') || content.includes('h2') || content.includes('h3') || props.title !== undefined) {
+            fields.push({ name: 'title', label: 'Title Text', type: 'text', target: 'props' });
+        }
+        if (content.includes('<p') || props.text !== undefined) {
+            fields.push({ name: 'text', label: 'Paragraph Text', type: 'textarea', target: 'props' });
+        }
+        if (content.includes('<a') || props.linkText !== undefined) {
+            fields.push({ name: 'linkText', label: 'Link Text', type: 'text', target: 'props' });
+            fields.push({ name: 'linkHref', label: 'Link Href', type: 'url', target: 'props' });
+        }
+        if (content.includes('<img') || props.imageSrc !== undefined) {
+            fields.push({ name: 'imageSrc', label: 'Image Src', type: 'image', target: 'props' });
+            fields.push({ name: 'imageAlt', label: 'Image Alt', type: 'text', target: 'props' });
+        }
+        return fields;
+    }
+
     findCmsEyebrowTarget(root) {
         if (!root) {
             return null;
@@ -3625,216 +4864,285 @@ class VisualBuilder {
     showPropertiesPanel(instanceId, elementKey = null) {
         const item = this.findComponentById(instanceId);
         if (!item || !this.propertiesPanel || !this.propertiesContent) return;
+        if (item.type === 'view') {
+            this.showViewPropertiesPanel(instanceId);
+            return;
+        }
 
         const defaults = this.extractDefaultsFromContent(item.content);
         const props = { ...defaults, ...(item.props || {}) };
         const layoutMeta = this.getLayoutMeta(item.content);
         const elementState = elementKey ? this.getSelectedElementState(instanceId, elementKey) : null;
+        const blockConfig = item.blockConfig || props.blockConfig || {};
+        const configFields = this.getComponentConfigSchema(item, props);
+        const validationIssues = this.getBlockValidationIssues(item);
         const cmsBinding = props.cmsBinding || {};
+        const cmsMode = cmsBinding.mode || 'record';
+        const cmsSelection = cmsBinding.selection || {};
+        const selectedCollection = cmsBinding.collection || '';
+        if (selectedCollection && !Array.isArray(this.cmsEntriesByCollection[selectedCollection]) && !this.cmsEntriesLoadPromises[selectedCollection]) {
+            this.ensureCmsEntriesLoaded(selectedCollection).then(() => {
+                if (this.selectedItem === instanceId && this.propertiesPanel?.classList.contains('active')) {
+                    this.showPropertiesPanel(instanceId, elementKey);
+                }
+            });
+        }
+        const selectedEntryKey = cmsSelection.entryKey || cmsSelection?.filter?.entryKey || cmsSelection?.filter?.entry_key || '';
+        const cmsFields = this.getCmsCollectionFields(selectedCollection);
+        const cmsEntries = this.getCachedCmsEntries(selectedCollection);
+        const cmsStatus = this.getCmsBindingStatus(cmsBinding);
+
         const cmsCollectionOptions = ['<option value="">No CMS binding</option>']
             .concat(this.cmsCollections.map((collection) => {
-                const selected = collection.slug === (cmsBinding.collection || '') ? ' selected' : '';
+                const selected = collection.slug === selectedCollection ? ' selected' : '';
                 return `<option value="${this.escapeAttribute(collection.slug)}"${selected}>${this.escapeHtml(collection.name || collection.slug)}</option>`;
             }))
             .join('');
-        const cmsMode = cmsBinding.mode || 'record';
+        const cmsEntryOptions = ['<option value="">First matching entry</option>']
+            .concat(cmsEntries.map((entry) => {
+                const value = entry.entryKey || '';
+                const selected = value === selectedEntryKey ? ' selected' : '';
+                return `<option value="${this.escapeAttribute(value)}"${selected}>${this.escapeHtml(this.getCmsEntryLabel(entry))}</option>`;
+            }))
+            .join('');
+        const cmsFieldOptions = ['<option value="">Choose field</option>']
+            .concat(cmsFields.map((field) => `<option value="${this.escapeAttribute(field.name)}">${this.escapeHtml(field.label || field.name)}</option>`))
+            .join('');
+        const currentRegion = this.normalizeRegionId(item.region, this.inferRegionForComponent(item.componentPath));
+        if (item.region !== currentRegion) {
+            item.region = currentRegion;
+        }
+        const allowedRegions = this.getAllowedRegionsForComponent(item.componentPath, item.type);
 
         this.propertiesPanel.classList.add('active');
 
-        const componentSection = `
-            <div class="properties-section">
-                <div class="properties-title">Component</div>
-                <div class="form-group">
-                    <label>Component Type</label>
-                    <input type="text" value="${item.type}" disabled>
-                </div>
-                <div class="form-group">
-                    <label>${item.type === 'micro' ? 'Component ID' : 'File Path'}</label>
-                    <input type="text" value="${item.componentPath}" disabled>
-                </div>
-                <div class="form-group">
-                    <label>Component Name</label>
-                    <input type="text" value="${this.escapeAttribute(item.name || '')}" id="propName">
-                </div>
-            </div>
-        `;
-
-        const legacySection = !elementState ? `
-            <div class="properties-section">
-                <div class="properties-title">Quick Props</div>
-                <div class="form-group">
-                    <label>Title Text</label>
-                    <input type="text" value="${this.escapeAttribute(props.title || '')}" id="propTitle">
-                </div>
-                <div class="form-group">
-                    <label>Paragraph Text</label>
-                    <input type="text" value="${this.escapeAttribute(props.text || '')}" id="propText">
-                </div>
-                <div class="form-group">
-                    <label>Link Text</label>
-                    <input type="text" value="${this.escapeAttribute(props.linkText || '')}" id="propLinkText">
-                </div>
-                <div class="form-group">
-                    <label>Link Href</label>
-                    <input type="text" value="${this.escapeAttribute(props.linkHref || '')}" id="propLinkHref">
-                </div>
-                <div class="form-group">
-                    <label>Image Src</label>
-                    <input type="text" value="${this.escapeAttribute(props.imageSrc || '')}" id="propImageSrc">
-                </div>
-                <div class="form-group">
-                    <label>Image Alt</label>
-                    <input type="text" value="${this.escapeAttribute(props.imageAlt || '')}" id="propImageAlt">
-                </div>
-            </div>
-        ` : '';
-
-        const elementSection = elementState ? `
-            <div class="properties-section">
-                <div class="properties-title">Selected Element</div>
-                <div class="property-chip-row">
-                    <span class="property-chip">${elementState.tag}</span>
-                    <span class="property-chip">${elementState.key}</span>
-                </div>
-                ${elementState.canEditText ? `
-                <div class="form-group">
-                    <label>Text Content</label>
-                    <textarea id="propElementText" rows="4">${this.escapeHtml(elementState.text || '')}</textarea>
-                </div>
-                ` : ''}
-                ${elementState.isLink ? `
-                <div class="form-group">
-                    <label>Href</label>
-                    <input type="text" value="${this.escapeAttribute(elementState.href || '')}" id="propElementHref">
-                </div>
-                ` : ''}
-                ${elementState.isImage ? `
-                <div class="form-group">
-                    <label>Image Src</label>
-                    <input type="text" value="${this.escapeAttribute(elementState.src || '')}" id="propElementSrc">
-                </div>
-                <div class="form-group">
-                    <label>Image Alt</label>
-                    <input type="text" value="${this.escapeAttribute(elementState.alt || '')}" id="propElementAlt">
-                </div>
-                ` : ''}
-                <div class="form-group">
-                    <label>Element ID</label>
-                    <input type="text" value="${this.escapeAttribute(elementState.id || '')}" id="propElementId">
-                </div>
-                <div class="form-group">
-                    <label>Class</label>
-                    <textarea id="propElementClass" rows="3">${this.escapeHtml(elementState.className || '')}</textarea>
-                </div>
-                <div class="form-group">
-                    <label>Title Attribute</label>
-                    <input type="text" value="${this.escapeAttribute(elementState.title || '')}" id="propElementTitle">
-                </div>
-                <div class="form-group">
-                    <label>Inline Style</label>
-                    <textarea id="propElementStyle" rows="4">${this.escapeHtml(elementState.style || '')}</textarea>
-                </div>
-                ${elementState.isImage ? `
-                <button type="button" class="btn btn-secondary property-action-btn" id="propReplaceImage">Replace Image</button>
-                ` : ''}
-            </div>
-        ` : `
-            <div class="properties-section">
-                <p class="project-note">Click any element inside the selected component to edit its own properties here.</p>
-            </div>
-        `;
-
-        const layoutSection = layoutMeta.isLayout ? `
-            <div class="properties-section">
-                <div class="properties-title">Layout</div>
-                <div class="form-group">
-                    <label>Layout Gap (px)</label>
-                    <input type="number" min="0" value="${this.escapeAttribute(props.layoutGap || '')}" id="propLayoutGap" placeholder="24">
-                </div>
-                <div class="form-group">
-                    <label>Layout Padding (px)</label>
-                    <input type="number" min="0" value="${this.escapeAttribute(props.layoutPadding || '')}" id="propLayoutPadding" placeholder="0">
-                </div>
-                <div class="form-group">
-                    <label>Align Items</label>
-                    <select id="propLayoutAlign">
-                        <option value="">Default</option>
-                        <option value="flex-start">Start</option>
-                        <option value="center">Center</option>
-                        <option value="flex-end">End</option>
-                        <option value="stretch">Stretch</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Justify Content</label>
-                    <select id="propLayoutJustify">
-                        <option value="">Default</option>
-                        <option value="flex-start">Start</option>
-                        <option value="center">Center</option>
-                        <option value="flex-end">End</option>
-                        <option value="space-between">Space Between</option>
-                        <option value="space-around">Space Around</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Background Color</label>
-                    <input type="text" value="${this.escapeAttribute(props.layoutBg || '')}" id="propLayoutBg" placeholder="#ffffff">
-                </div>
-                ${layoutMeta.isGrid ? `
-                <div class="form-group">
-                    <label>Grid Columns</label>
-                    <select id="propLayoutColumns">
-                        <option value="">Default</option>
-                        <option value="2">2 Columns</option>
-                        <option value="3">3 Columns</option>
-                        <option value="4">4 Columns</option>
-                    </select>
-                </div>
-                ` : ''}
-                ${layoutMeta.isFlex ? `
-                <div class="form-group">
-                    <label class="checkbox-row">
-                        <input type="checkbox" id="propLayoutReverse">
-                        <span>Reverse Order</span>
-                    </label>
-                </div>
-                ` : ''}
-            </div>
-        ` : '';
-
-        const cmsSection = !elementState ? `
-            <div class="properties-section">
-                <div class="properties-title">CMS Binding</div>
-                <div class="cms-binding-grid">
+        const renderConfigField = (field) => {
+            const target = field.target === 'props' ? 'props' : 'blockConfig';
+            const value = target === 'props' ? (props[field.name] ?? '') : (blockConfig[field.name] ?? field.default ?? '');
+            const id = `propConfig_${target}_${field.name}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const type = String(field.type || 'text').toLowerCase();
+            const label = this.escapeHtml(field.label || field.name);
+            const requiredMarker = field.required ? '<span class="required-marker">Required</span>' : '';
+            const valueAttr = this.escapeAttribute(value);
+            if (type === 'boolean' || type === 'checkbox') {
+                return `
                     <div class="form-group">
-                        <label>Collection</label>
-                        <select id="propCmsCollection">${cmsCollectionOptions}</select>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="${id}" data-config-target="${target}" data-config-name="${this.escapeAttribute(field.name)}"${value ? ' checked' : ''}>
+                            <span>${label}</span>
+                        </label>
+                    </div>
+                `;
+            }
+            if (type === 'select' && Array.isArray(field.options)) {
+                const options = field.options.map((option) => {
+                    const optionValue = typeof option === 'object' ? option.value : option;
+                    const optionLabel = typeof option === 'object' ? (option.label || option.value) : option;
+                    return `<option value="${this.escapeAttribute(optionValue)}"${String(optionValue) === String(value) ? ' selected' : ''}>${this.escapeHtml(optionLabel)}</option>`;
+                }).join('');
+                return `
+                    <div class="form-group">
+                        <label for="${id}">${label}${requiredMarker}</label>
+                        <select id="${id}" data-config-target="${target}" data-config-name="${this.escapeAttribute(field.name)}">${options}</select>
+                    </div>
+                `;
+            }
+            if (type === 'textarea' || type === 'richtext' || type === 'rich text') {
+                return `
+                    <div class="form-group">
+                        <label for="${id}">${label}${requiredMarker}</label>
+                        <textarea id="${id}" rows="4" data-config-target="${target}" data-config-name="${this.escapeAttribute(field.name)}">${this.escapeHtml(value)}</textarea>
+                    </div>
+                `;
+            }
+            const inputType = type === 'number' ? 'number' : type === 'url' ? 'url' : 'text';
+            return `
+                <div class="form-group">
+                    <label for="${id}">${label}${requiredMarker}</label>
+                    <input type="${inputType}" value="${valueAttr}" id="${id}" data-config-target="${target}" data-config-name="${this.escapeAttribute(field.name)}">
+                </div>
+            `;
+        };
+
+        const contentPanel = `
+            <section class="properties-tab-panel active" data-tab-panel="content">
+                <div class="properties-section">
+                    <div class="properties-title">Component</div>
+                    <div class="form-group">
+                        <label>Component Type</label>
+                        <input type="text" value="${this.escapeAttribute(item.type)}" disabled>
                     </div>
                     <div class="form-group">
-                        <label>Mode</label>
-                        <select id="propCmsMode">
-                            <option value="record"${cmsMode === 'record' ? ' selected' : ''}>Record</option>
-                            <option value="collection"${cmsMode === 'collection' ? ' selected' : ''}>Collection</option>
+                        <label>${item.type === 'micro' ? 'Component ID' : 'File Path'}</label>
+                        <input type="text" value="${this.escapeAttribute(item.componentPath)}" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Component Name</label>
+                        <input type="text" value="${this.escapeAttribute(item.name || '')}" id="propName">
+                    </div>
+                </div>
+                ${elementState ? `
+                    <div class="properties-section">
+                        <div class="properties-title">Selected Element</div>
+                        <div class="property-chip-row">
+                            <span class="property-chip">${this.escapeHtml(elementState.tag)}</span>
+                            <span class="property-chip">${this.escapeHtml(elementState.key)}</span>
+                        </div>
+                        ${elementState.canEditText ? `<div class="form-group"><label>Text Content</label><textarea id="propElementText" rows="4">${this.escapeHtml(elementState.text || '')}</textarea></div>` : ''}
+                        ${elementState.isLink ? `<div class="form-group"><label>Href</label><input type="text" value="${this.escapeAttribute(elementState.href || '')}" id="propElementHref"></div>` : ''}
+                        ${elementState.isImage ? `
+                            <div class="form-group"><label>Image Src</label><input type="text" value="${this.escapeAttribute(elementState.src || '')}" id="propElementSrc"></div>
+                            <div class="form-group"><label>Image Alt</label><input type="text" value="${this.escapeAttribute(elementState.alt || '')}" id="propElementAlt"></div>
+                            <button type="button" class="btn btn-secondary property-action-btn" id="propReplaceImage">Replace Image</button>
+                        ` : ''}
+                        <div class="form-group"><label>Element ID</label><input type="text" value="${this.escapeAttribute(elementState.id || '')}" id="propElementId"></div>
+                        <div class="form-group"><label>Class</label><textarea id="propElementClass" rows="3">${this.escapeHtml(elementState.className || '')}</textarea></div>
+                        <div class="form-group"><label>Title Attribute</label><input type="text" value="${this.escapeAttribute(elementState.title || '')}" id="propElementTitle"></div>
+                        <div class="form-group"><label>Inline Style</label><textarea id="propElementStyle" rows="4">${this.escapeHtml(elementState.style || '')}</textarea></div>
+                    </div>
+                ` : `
+                    <div class="properties-section">
+                        <div class="properties-title">${configFields.length ? 'Block Configuration' : 'Quick Props'}</div>
+                        ${configFields.length ? configFields.map(renderConfigField).join('') : '<p class="project-note">No editable content fields were inferred for this block.</p>'}
+                    </div>
+                `}
+            </section>
+        `;
+
+        const stylePanel = `
+            <section class="properties-tab-panel" data-tab-panel="style">
+                ${layoutMeta.isLayout ? `
+                    <div class="properties-section">
+                        <div class="properties-title">Layout Style</div>
+                        <div class="form-group"><label>Layout Gap (px)</label><input type="number" min="0" value="${this.escapeAttribute(props.layoutGap || '')}" id="propLayoutGap" placeholder="24"></div>
+                        <div class="form-group"><label>Layout Padding (px)</label><input type="number" min="0" value="${this.escapeAttribute(props.layoutPadding || '')}" id="propLayoutPadding" placeholder="0"></div>
+                        <div class="form-group">
+                            <label>Align Items</label>
+                            <select id="propLayoutAlign">
+                                <option value="">Default</option>
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="stretch">Stretch</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Justify Content</label>
+                            <select id="propLayoutJustify">
+                                <option value="">Default</option>
+                                <option value="flex-start">Start</option>
+                                <option value="center">Center</option>
+                                <option value="flex-end">End</option>
+                                <option value="space-between">Space Between</option>
+                                <option value="space-around">Space Around</option>
+                            </select>
+                        </div>
+                        <div class="form-group"><label>Background Color</label><input type="text" value="${this.escapeAttribute(props.layoutBg || '')}" id="propLayoutBg" placeholder="#ffffff"></div>
+                        ${layoutMeta.isGrid ? `<div class="form-group"><label>Grid Columns</label><select id="propLayoutColumns"><option value="">Default</option><option value="2">2 Columns</option><option value="3">3 Columns</option><option value="4">4 Columns</option></select></div>` : ''}
+                        ${layoutMeta.isFlex ? `<div class="form-group"><label class="checkbox-row"><input type="checkbox" id="propLayoutReverse"><span>Reverse Order</span></label></div>` : ''}
+                    </div>
+                ` : '<div class="properties-section"><p class="project-note">This block does not expose layout style controls.</p></div>'}
+            </section>
+        `;
+
+        const cmsPanel = `
+            <section class="properties-tab-panel" data-tab-panel="cms">
+                ${elementState ? '<div class="properties-section"><p class="project-note">CMS bindings are configured at the block level.</p></div>' : `
+                    <div class="properties-section">
+                        <div class="properties-title">CMS Binding</div>
+                        <div class="cms-binding-status cms-binding-status-${cmsStatus.type}">
+                            <strong>${this.escapeHtml(cmsStatus.title)}</strong>
+                            <span>${this.escapeHtml(cmsStatus.message)}</span>
+                        </div>
+                        <div class="cms-binding-grid">
+                            <div class="form-group"><label>Collection</label><select id="propCmsCollection">${cmsCollectionOptions}</select></div>
+                            <div class="form-group">
+                                <label>Mode</label>
+                                <select id="propCmsMode">
+                                    <option value="record"${cmsMode === 'record' ? ' selected' : ''}>Record</option>
+                                    <option value="collection"${cmsMode === 'collection' ? ' selected' : ''}>Collection</option>
+                                </select>
+                            </div>
+                            <div class="form-group cms-record-only"><label>Entry</label><select id="propCmsEntry">${cmsEntryOptions}</select></div>
+                            <div class="form-group cms-collection-only"><label>Sort</label><input type="text" value="${this.escapeAttribute(cmsSelection.sort || '')}" id="propCmsSort" placeholder="sort_order:asc"></div>
+                            <div class="form-group cms-collection-only"><label>Limit</label><input type="number" min="0" value="${this.escapeAttribute(cmsSelection.limit || '')}" id="propCmsLimit" placeholder="0"></div>
+                            <div class="form-group"><label>Fallback Mode</label><select id="propCmsFallback"><option value="static"${(cmsBinding.fallback || 'static') === 'static' ? ' selected' : ''}>Static fallback</option><option value="empty"${cmsBinding.fallback === 'empty' ? ' selected' : ''}>Render empty</option></select></div>
+                            <div class="form-group"><label>Filters JSON</label><textarea id="propCmsFilter" rows="4" placeholder='{"active":true}'>${this.escapeHtml(JSON.stringify(cmsSelection.filter || {}, null, 2))}</textarea></div>
+                            <div class="form-group cms-collection-only"><label>Grouping JSON</label><textarea id="propCmsGroups" rows="4" placeholder='[{"title":"Featured","filter":{"featured":true}}]'>${this.escapeHtml(JSON.stringify(cmsSelection.groups || [], null, 2))}</textarea></div>
+                        </div>
+                    </div>
+                    <div class="properties-section">
+                        <div class="properties-title">Field Map</div>
+                        <div id="propCmsFieldMapRows" class="cms-field-map-rows">
+                            ${Object.entries(cmsBinding.fieldMap || {}).map(([target, source]) => `
+                                <div class="cms-field-map-row">
+                                    <input type="text" class="prop-cms-map-target" value="${this.escapeAttribute(target)}" placeholder="Block prop">
+                                    <select class="prop-cms-map-source" data-selected-source="${this.escapeAttribute(source)}">${cmsFieldOptions}</select>
+                                    <button type="button" class="btn btn-secondary prop-cms-map-remove" title="Remove field map"><i class="fas fa-times"></i></button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <button type="button" class="btn btn-secondary property-action-btn" id="propCmsAddFieldMap">Add Field Map</button>
+                        <div class="cms-binding-actions">
+                            <button type="button" class="btn btn-secondary" id="propCmsOpenManager">Open CMS</button>
+                            <button type="button" class="btn btn-secondary" id="propCmsClear">Clear Binding</button>
+                        </div>
+                    </div>
+                `}
+            </section>
+        `;
+
+        const regionPanel = `
+            <section class="properties-tab-panel" data-tab-panel="region">
+                <div class="properties-section">
+                    <div class="properties-title">Region</div>
+                    <div class="form-group">
+                        <label>Layout Region</label>
+                        <select id="propRegion">
+                            ${this.layoutRegions.map((region) => {
+                                const disabled = allowedRegions.length && !allowedRegions.includes(region.id) ? ' disabled' : '';
+                                return `<option value="${region.id}"${region.id === currentRegion ? ' selected' : ''}${disabled}>${this.escapeHtml(region.name)}</option>`;
+                            }).join('')}
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>Filter JSON</label>
-                        <textarea id="propCmsFilter" rows="4" placeholder='{"active":true}'>${this.escapeHtml(JSON.stringify(cmsBinding?.selection?.filter || {}, null, 2))}</textarea>
+                        <label class="checkbox-row">
+                            <input type="checkbox" id="propVisible"${item.visible !== false ? ' checked' : ''}>
+                            <span>Visible</span>
+                        </label>
                     </div>
-                    <div class="form-group">
-                        <label>Field Map JSON</label>
-                        <textarea id="propCmsFieldMap" rows="4" placeholder='{"title":"name"}'>${this.escapeHtml(JSON.stringify(cmsBinding.fieldMap || {}, null, 2))}</textarea>
-                    </div>
+                    <p class="project-note">Allowed regions: ${allowedRegions.map((id) => this.getRegionDefinition(id)?.name || id).join(', ') || 'Any'}.</p>
+                    ${validationIssues.length ? validationIssues.map((issue) => `
+                        <div class="cms-binding-status cms-binding-status-warning">
+                            <strong>${this.escapeHtml(issue.title)}</strong>
+                            <span>${this.escapeHtml(issue.message)}</span>
+                        </div>
+                    `).join('') : ''}
                 </div>
-                <div class="cms-binding-actions">
-                    <button type="button" class="btn btn-secondary" id="propCmsOpenManager">Open CMS</button>
-                    <button type="button" class="btn btn-secondary" id="propCmsClear">Clear Binding</button>
-                </div>
-                <p class="project-note">Collections and entries are now managed in the standalone CMS admin. The builder only stores binding metadata.</p>
-            </div>
-        ` : '';
+            </section>
+        `;
 
-        this.propertiesContent.innerHTML = `${componentSection}${elementSection}${legacySection}${layoutSection}${cmsSection}`;
+        const advancedPanel = `
+            <section class="properties-tab-panel" data-tab-panel="advanced">
+                <div class="properties-section">
+                    <div class="properties-title">Debug JSON</div>
+                    <div class="form-group"><label>Block Config JSON</label><textarea id="propBlockConfigJson" rows="7">${this.escapeHtml(JSON.stringify(blockConfig, null, 2))}</textarea></div>
+                    <div class="form-group"><label>CMS Binding JSON</label><textarea id="propCmsBindingJson" rows="10" readonly>${this.escapeHtml(JSON.stringify(props.cmsBinding || null, null, 2))}</textarea></div>
+                    <p class="project-note">Raw binding JSON is shown for debugging. Use the CMS Binding tab to edit binding metadata.</p>
+                </div>
+            </section>
+        `;
+
+        this.propertiesContent.innerHTML = `
+            <div class="properties-tabs" role="tablist" aria-label="Block properties">
+                <button type="button" class="properties-tab active" role="tab" aria-selected="true" data-tab="content">Content</button>
+                <button type="button" class="properties-tab" role="tab" aria-selected="false" tabindex="-1" data-tab="style">Style</button>
+                <button type="button" class="properties-tab" role="tab" aria-selected="false" tabindex="-1" data-tab="cms">CMS Binding</button>
+                <button type="button" class="properties-tab" role="tab" aria-selected="false" tabindex="-1" data-tab="region">Region</button>
+                <button type="button" class="properties-tab" role="tab" aria-selected="false" tabindex="-1" data-tab="advanced">Advanced</button>
+            </div>
+            ${contentPanel}${stylePanel}${cmsPanel}${regionPanel}${advancedPanel}
+        `;
 
         const bindProp = (id, fn, eventName = 'input') => {
             const el = document.getElementById(id);
@@ -3843,6 +5151,64 @@ class VisualBuilder {
         };
 
         bindProp('propName', (value) => this.updateComponentProps(instanceId, { name: value }));
+
+        const activatePropertiesTab = (button) => {
+                const tab = button.dataset.tab;
+                this.propertiesContent.querySelectorAll('.properties-tab').forEach((entry) => {
+                    entry.classList.toggle('active', entry === button);
+                    entry.setAttribute('aria-selected', String(entry === button));
+                    entry.setAttribute('tabindex', entry === button ? '0' : '-1');
+                });
+                this.propertiesContent.querySelectorAll('.properties-tab-panel').forEach((panel) => {
+                    panel.classList.toggle('active', panel.dataset.tabPanel === tab);
+                });
+        };
+
+        const propertyTabs = Array.from(this.propertiesContent.querySelectorAll('.properties-tab'));
+        propertyTabs.forEach((button) => {
+            button.addEventListener('click', () => {
+                activatePropertiesTab(button);
+            });
+            button.addEventListener('keydown', (event) => {
+                if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const currentIndex = propertyTabs.indexOf(button);
+                let nextIndex = currentIndex;
+                if (event.key === 'Home') nextIndex = 0;
+                else if (event.key === 'End') nextIndex = propertyTabs.length - 1;
+                else {
+                    const direction = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1;
+                    nextIndex = (currentIndex + direction + propertyTabs.length) % propertyTabs.length;
+                }
+                propertyTabs[nextIndex]?.focus();
+                activatePropertiesTab(propertyTabs[nextIndex]);
+            });
+        });
+
+        this.propertiesContent.querySelectorAll('[data-config-name]').forEach((control) => {
+            const eventName = control.type === 'checkbox' || control.tagName === 'SELECT' ? 'change' : 'input';
+            control.addEventListener(eventName, (e) => {
+                const target = e.currentTarget.dataset.configTarget || 'blockConfig';
+                const name = e.currentTarget.dataset.configName;
+                const value = e.currentTarget.type === 'checkbox' ? e.currentTarget.checked : e.currentTarget.value;
+                if (!name) return;
+                if (target === 'props') {
+                    this.updateComponentProps(instanceId, { props: { [name]: value } });
+                    return;
+                }
+                const current = this.findComponentById(instanceId);
+                const nextConfig = { ...(current?.blockConfig || {}) };
+                if (value === '' || value === null || value === undefined) {
+                    delete nextConfig[name];
+                } else {
+                    nextConfig[name] = value;
+                }
+                this.updateComponentProps(instanceId, {
+                    blockConfig: nextConfig,
+                    props: { blockConfig: nextConfig }
+                });
+            });
+        });
 
         if (elementState) {
             bindProp('propElementText', (value) => this.updateElementTextProperty(instanceId, elementState.key, value));
@@ -3866,13 +5232,6 @@ class VisualBuilder {
                     });
                 });
             }
-        } else {
-            bindProp('propTitle', (value) => this.updateComponentProps(instanceId, { props: { title: value } }));
-            bindProp('propText', (value) => this.updateComponentProps(instanceId, { props: { text: value } }));
-            bindProp('propLinkText', (value) => this.updateComponentProps(instanceId, { props: { linkText: value } }));
-            bindProp('propLinkHref', (value) => this.updateComponentProps(instanceId, { props: { linkHref: value } }));
-            bindProp('propImageSrc', (value) => this.updateComponentProps(instanceId, { props: { imageSrc: value } }));
-            bindProp('propImageAlt', (value) => this.updateComponentProps(instanceId, { props: { imageAlt: value } }));
         }
 
         if (layoutMeta.isLayout) {
@@ -3913,7 +5272,66 @@ class VisualBuilder {
             bindProp('propLayoutBg', (value) => this.updateComponentProps(instanceId, { props: { layoutBg: value } }));
         }
 
+        const regionSelect = document.getElementById('propRegion');
+        if (regionSelect) {
+            regionSelect.addEventListener('change', (e) => {
+                const nextRegion = this.normalizeRegionId(e.target.value, item.region || 'main');
+                this.pushHistory();
+                item.region = nextRegion;
+                this.renderCanvasFromState();
+                this.refreshLivePreview();
+                this.showPropertiesPanel(instanceId);
+            });
+        }
+
+        const visibleToggle = document.getElementById('propVisible');
+        if (visibleToggle) {
+            visibleToggle.addEventListener('change', (e) => {
+                item.visible = e.target.checked;
+                this.renderCanvasFromState();
+                this.refreshLivePreview();
+            });
+        }
+
+        const blockConfigJson = document.getElementById('propBlockConfigJson');
+        if (blockConfigJson) {
+            blockConfigJson.addEventListener('change', () => {
+                try {
+                    const nextConfig = this.parseJsonInput(blockConfigJson.value, {}) || {};
+                    this.updateComponentProps(instanceId, {
+                        blockConfig: nextConfig,
+                        props: { blockConfig: nextConfig }
+                    });
+                    this.showPropertiesPanel(instanceId);
+                } catch (error) {
+                    this.showToast(`Invalid block config JSON: ${error.message}`, 'error');
+                }
+            });
+        }
+
         if (!elementState) {
+            const syncCmsModeVisibility = () => {
+                const mode = document.getElementById('propCmsMode')?.value || 'record';
+                this.propertiesContent.querySelectorAll('.cms-record-only').forEach((el) => {
+                    el.hidden = mode !== 'record';
+                });
+                this.propertiesContent.querySelectorAll('.cms-collection-only').forEach((el) => {
+                    el.hidden = mode !== 'collection';
+                });
+            };
+
+            const readFieldMapRows = () => {
+                const rows = Array.from(this.propertiesContent.querySelectorAll('.cms-field-map-row'));
+                return rows.reduce((acc, row) => {
+                    const target = row.querySelector('.prop-cms-map-target')?.value?.trim();
+                    const source = row.querySelector('.prop-cms-map-source')?.value?.trim();
+                    if (target && source) {
+                        acc[target] = source;
+                    }
+                    return acc;
+                }, {});
+            };
+
             const updateCmsBinding = () => {
                 const collectionValue = document.getElementById('propCmsCollection')?.value || '';
                 if (!collectionValue) {
@@ -3922,53 +5340,123 @@ class VisualBuilder {
                 }
 
                 let filter = {};
-                let fieldMap = {};
+                let groups = [];
                 try {
                     filter = this.parseJsonInput(document.getElementById('propCmsFilter')?.value, {}) || {};
-                    fieldMap = this.parseJsonInput(document.getElementById('propCmsFieldMap')?.value, {}) || {};
+                    groups = this.parseJsonInput(document.getElementById('propCmsGroups')?.value, []) || [];
                 } catch (error) {
                     this.showToast(`Invalid CMS binding JSON: ${error.message}`, 'error');
                     return;
+                }
+
+                const mode = document.getElementById('propCmsMode')?.value || 'record';
+                const entryKey = document.getElementById('propCmsEntry')?.value || '';
+                if (mode === 'record' && entryKey) {
+                    filter.entryKey = entryKey;
+                }
+                const sort = document.getElementById('propCmsSort')?.value?.trim() || '';
+                const limitRaw = document.getElementById('propCmsLimit')?.value;
+                const limit = Number(limitRaw);
+                const selection = { filter };
+                if (mode === 'collection') {
+                    if (sort) selection.sort = sort;
+                    if (Number.isFinite(limit) && limit > 0) selection.limit = limit;
+                    if (Array.isArray(groups) && groups.length > 0) selection.groups = groups;
                 }
 
                 this.updateComponentProps(instanceId, {
                     props: {
                         cmsBinding: {
                             source: 'cms',
-                            mode: document.getElementById('propCmsMode')?.value || 'record',
+                            mode,
                             collection: collectionValue,
-                            selection: {
-                                filter
-                            },
-                            fieldMap,
-                            fallback: 'static'
+                            selection,
+                            fieldMap: readFieldMapRows(),
+                            fallback: document.getElementById('propCmsFallback')?.value || 'static'
                         }
                     }
                 });
 
                 this.ensureCmsEntriesLoaded(collectionValue).then(() => {
-                    this.updateComponentProps(instanceId, { props: {} });
+                    if (this.selectedItem === instanceId) {
+                        this.showPropertiesPanel(instanceId);
+                    }
                 });
             };
 
             const cmsCollectionSelect = document.getElementById('propCmsCollection');
             const cmsModeSelect = document.getElementById('propCmsMode');
+            const cmsEntrySelect = document.getElementById('propCmsEntry');
             const cmsFilterInput = document.getElementById('propCmsFilter');
-            const cmsFieldMapInput = document.getElementById('propCmsFieldMap');
+            const cmsGroupsInput = document.getElementById('propCmsGroups');
+            const cmsSortInput = document.getElementById('propCmsSort');
+            const cmsLimitInput = document.getElementById('propCmsLimit');
+            const cmsFallbackInput = document.getElementById('propCmsFallback');
             const cmsOpenButton = document.getElementById('propCmsOpenManager');
             const cmsClearButton = document.getElementById('propCmsClear');
+            const fieldMapRows = document.getElementById('propCmsFieldMapRows');
+            const addFieldMapButton = document.getElementById('propCmsAddFieldMap');
+
+            this.propertiesContent.querySelectorAll('.prop-cms-map-source').forEach((select) => {
+                const selected = select.dataset.selectedSource || '';
+                if (selected) {
+                    select.value = selected;
+                }
+            });
 
             if (cmsCollectionSelect) {
                 cmsCollectionSelect.addEventListener('change', updateCmsBinding);
             }
             if (cmsModeSelect) {
-                cmsModeSelect.addEventListener('change', updateCmsBinding);
+                cmsModeSelect.addEventListener('change', () => {
+                    syncCmsModeVisibility();
+                    updateCmsBinding();
+                });
+            }
+            if (cmsEntrySelect) {
+                cmsEntrySelect.addEventListener('change', updateCmsBinding);
             }
             if (cmsFilterInput) {
                 cmsFilterInput.addEventListener('change', updateCmsBinding);
             }
-            if (cmsFieldMapInput) {
-                cmsFieldMapInput.addEventListener('change', updateCmsBinding);
+            if (cmsGroupsInput) {
+                cmsGroupsInput.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsSortInput) {
+                cmsSortInput.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsLimitInput) {
+                cmsLimitInput.addEventListener('change', updateCmsBinding);
+            }
+            if (cmsFallbackInput) {
+                cmsFallbackInput.addEventListener('change', updateCmsBinding);
+            }
+            if (fieldMapRows) {
+                fieldMapRows.addEventListener('input', (event) => {
+                    if (event.target.matches('.prop-cms-map-target')) updateCmsBinding();
+                });
+                fieldMapRows.addEventListener('change', (event) => {
+                    if (event.target.matches('.prop-cms-map-source')) updateCmsBinding();
+                });
+                fieldMapRows.addEventListener('click', (event) => {
+                    const remove = event.target.closest('.prop-cms-map-remove');
+                    if (!remove) return;
+                    remove.closest('.cms-field-map-row')?.remove();
+                    updateCmsBinding();
+                });
+            }
+            if (addFieldMapButton && fieldMapRows) {
+                addFieldMapButton.addEventListener('click', () => {
+                    const row = document.createElement('div');
+                    row.className = 'cms-field-map-row';
+                    row.innerHTML = `
+                        <input type="text" class="prop-cms-map-target" placeholder="Block prop">
+                        <select class="prop-cms-map-source">${document.querySelector('.prop-cms-map-source')?.innerHTML || '<option value="">Choose field</option>'}</select>
+                        <button type="button" class="btn btn-secondary prop-cms-map-remove" title="Remove field map"><i class="fas fa-times"></i></button>
+                    `;
+                    fieldMapRows.appendChild(row);
+                    row.querySelector('.prop-cms-map-target')?.focus();
+                });
             }
             if (cmsOpenButton) {
                 cmsOpenButton.addEventListener('click', () => this.openCmsModal());
@@ -3979,6 +5467,7 @@ class VisualBuilder {
                     this.showPropertiesPanel(instanceId);
                 });
             }
+            syncCmsModeVisibility();
         }
     }
 
@@ -4295,6 +5784,10 @@ class VisualBuilder {
       }
 
     getRenderedComponentContent(item, options = {}) {
+        if (item?.type === 'view') {
+            return this.renderCmsViewBlockPreview(item);
+        }
+
         const forCanvas = Boolean(options.forCanvas);
         const wrapper = document.createElement('div');
         wrapper.innerHTML = item.content || '';
@@ -4544,11 +6037,14 @@ class VisualBuilder {
         if (typeof patch.name === 'string') {
             item.name = patch.name;
         }
+        if (patch.blockConfig && typeof patch.blockConfig === 'object') {
+            item.blockConfig = { ...patch.blockConfig };
+        }
         if (patch.props && typeof patch.props === 'object') {
             const nextProps = { ...(item.props || {}), ...patch.props };
             Object.keys(nextProps).forEach((key) => {
                 if (nextProps[key] === null || nextProps[key] === undefined || nextProps[key] === '') {
-                    if (key === 'cmsBinding' || key === 'layoutBg' || key === 'layoutGap' || key === 'layoutPadding') {
+                    if (key === 'cmsBinding' || key === 'blockConfig' || key === 'layoutBg' || key === 'layoutGap' || key === 'layoutPadding') {
                         delete nextProps[key];
                     }
                 }
@@ -4715,23 +6211,29 @@ class VisualBuilder {
 
       getPreviewCanvasStyle(item) {
           const placement = this.normalizeCanvasPlacement(item?.canvas);
-          return `position:absolute;left:${placement.x}px;top:${placement.y}px;width:${placement.width}px;max-width:calc(100% - ${placement.x}px);`;
+          return `position:absolute;left:min(${placement.x}px, calc(100% - min(${placement.width}px, 100%)));top:${placement.y}px;width:min(${placement.width}px, 100%);max-width:100%;`;
       }
 
       renderComponentsForCurrentCanvas(components = []) {
+          const visibleComponents = components.filter((item) => item.visible !== false);
           if (this.canvasLayoutMode !== 'freeform') {
-              return components
+              const ordered = this.builderMode === 'page'
+                  ? this.layoutRegions.flatMap((region) => visibleComponents
+                      .filter((item) => this.normalizeRegionId(item.region, 'main') === region.id)
+                      .sort((a, b) => Number(a.order || 0) - Number(b.order || 0)))
+                  : visibleComponents;
+              return ordered
                   .map((item) => this.getRenderedComponentContent(item))
                   .join('\n');
           }
           const stageHeight = Math.max(
               480,
-              ...components.map((item) => {
+              ...visibleComponents.map((item) => {
                   const placement = this.normalizeCanvasPlacement(item?.canvas);
                   return placement.y + this.getApproximateCanvasItemHeight(item) + 48;
               })
           );
-          const nodes = components.map((item) => {
+          const nodes = visibleComponents.map((item) => {
               return `<div class="builder-freeform-node" style="${this.getPreviewCanvasStyle(item)}">${this.getRenderedComponentContent(item)}</div>`;
           }).join('\n');
           return `<div class="builder-freeform-stage" style="position:relative; min-height:${Math.round(stageHeight)}px;">${nodes}</div>`;
@@ -4818,29 +6320,22 @@ class VisualBuilder {
 
     getLayoutData() {
         const effectivePageName = this.currentPageName || this.pageTitleInput.value || 'untitled-page';
+        const regions = this.buildRegionsPayload();
+        const flatLayout = this.layoutRegions.flatMap((region) => regions[region.id] || []);
         return {
             project: this.project,
             pageName: effectivePageName,
             pageTitle: this.pageTitleInput.value || 'Untitled Page',
             createdAt: new Date().toISOString(),
             meta: {
-                version: 1,
+                version: 2,
                 updatedAt: new Date().toISOString(),
                 canvasLayoutMode: this.canvasLayoutMode,
-                freeformSectionTemplate: this.freeformSectionTemplate
+                freeformSectionTemplate: this.freeformSectionTemplate,
+                layoutModel: 'regions'
             },
-              layout: this.pageComponents.map((item, index) => ({
-                  id: item.instanceId,
-                  order: index + 1,
-                  type: item.type,
-                  partial: item.componentPath,
-                  componentPath: item.componentPath,
-                  name: item.name,
-                  props: item.props || {},
-                  children: item.children || {},
-                  canvas: this.canvasLayoutMode === 'freeform' ? this.normalizeCanvasPlacement(item.canvas, index) : null,
-                  renderedContent: this.getRenderedComponentContent(item)
-              }))
+              regions,
+              layout: flatLayout
           };
       }
 

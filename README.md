@@ -121,7 +121,8 @@ Builder endpoints:
 - Full contract reference: `docs/builder-api-contracts.md`
 - CMS system design: `docs/cms-design-system-workflow.md`
 - CMS UI design: `docs/cms-ui-design.md`
-- CMS usage guide: `docs/cms-builder-workflow.md`
+- CMS usage guide: `docs/cms-usage-guide.md`
+- CMS/builder workflow: `docs/cms-builder-workflow.md`
 - CMS runbook: `docs/cms-runbook.md`
 
 Saved layout files:

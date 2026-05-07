@@ -1,6 +1,24 @@
 # CMS Design System And Workflow
 
-This document describes the recommended CMS design for Theme 3 Builder. The goal is to let users manage content easily, assemble pages visually, render through theme partials, and expose content through a headless API.
+This document describes the recommended CMS design for Theme 3 Builder. The initial product goal is a Drupal-style site building workflow: users create layout sections and regions, place reusable blocks into those regions, define Views-style listings, and render everything through a portable theme folder. Content management, forms, publishing, and APIs support that workflow, but they should not become the center of the builder experience.
+
+## Core Product Direction
+
+The CMS should feel closer to Drupal's block layout, Views, and theme system than to a generic page builder.
+
+The primary workflow is:
+
+1. A developer or designer creates a theme folder, such as `themes/theme-3/`.
+2. The theme defines layouts, regions, templates, components, assets, bindings, and fallback data.
+3. A user creates pages or page templates.
+4. A user adds layout sections and places blocks into named regions.
+5. A user creates Views-style displays for listing content, such as news grids, project listings, article detail pages, search results, or related content.
+6. The CMS supplies content records, media, forms, and publish state.
+7. The runtime renders the active theme using either fallback data, exported CMS data, or live CMS data.
+
+The CMS admin is therefore not just a headless content database. It is the authoring shell around a theme-based site builder.
+
+For the implementation gap list and suggested build order, see `docs/cms-drupal-style-change-map.md`.
 
 ## Feasibility
 
@@ -18,8 +36,8 @@ The repository already has the core pieces needed:
 The best architecture is not to merge everything into one process. The cleaner design is:
 
 - CMS owns content models, entries, forms, publishing, and headless APIs.
-- Builder owns page layout, component selection, drag-and-drop composition, and CMS bindings.
-- Theme owns partial templates, static fallback markup, styling, and final HTML output.
+- Builder owns page layout, layout sections, region/block placement, component selection, drag-and-drop composition, View placement, and CMS bindings.
+- Theme owns the Drupal-like theme folder: layouts, regions, templates, components, partials, assets, static fallback markup, binding defaults, and final HTML output.
 
 ## Product Layout
 
@@ -100,22 +118,199 @@ Recommended editor layout:
 
 ### 3. Theme Templates
 
-Theme templates stay in the existing project structure:
+Theme templates should use the `themes/<theme-name>/` folder as the canonical shape. The current target is already visible in:
 
 ```text
-html/
-|-- layouts/
-|-- pages/
-|-- partials/
-|-- data/
-|   |-- cms/
+themes/theme-3/
 ```
 
-Templates should remain usable without CMS data. CMS-bound partials should always include static fallback markup.
+Recommended structure:
 
-### 4. Generated Theme Package
+```text
+themes/theme-3/
+|-- layouts/
+|-- pages/
+|-- regions/
+|-- templates/
+|-- components/
+|-- partials/
+|-- assets/
+|-- bindings/
+|-- data/
+|   |-- fallback/
+|-- theme.json
+|-- README.md
+```
 
-The builder should be able to generate a separated theme folder after the design is complete. This is similar to the Twig model used by many CMS platforms: the theme contains layout and presentation files, while the CMS supplies content.
+The older `html/` structure can still be used as a builder workspace or export bridge, but the long-term mental model should match a CMS theme folder: the active theme lives under `themes/<theme-name>/`, and the CMS renders or exports against that active theme.
+
+### Active Theme Source Of Truth
+
+The active theme folder is the canonical theme contract. CMS settings store both the active theme slug and the resolved active theme path, normally `themes/<theme-name>/`. The CMS reads `theme.json` from that folder for theme metadata, regions, region templates, page template metadata, required collections, and exported View metadata before it falls back to builder database-derived defaults.
+
+Builder component discovery scans the active theme first:
+
+- reusable partials: `themes/<theme-name>/partials/**/*.html`
+- micro components: `themes/<theme-name>/components/**/*.html`, then `themes/<theme-name>/partials/micro/**/*.html`
+- compatibility fallback: `html/partials/**/*.html`
+
+Use `themes/<theme-name>/` for source theme files that define the portable theme contract. Use `html/` for legacy builder output, compatibility with older pages, or generated/static bridge files while runtime composition is being migrated.
+
+Templates should remain usable without CMS data. CMS-bound components and partials should always include static fallback markup.
+
+### 4. Region And Block Layout Model
+
+The builder should support a Drupal-like layout model without becoming Drupal-specific. In this model, layouts define named regions and pages place component blocks into those regions.
+
+Recommended language:
+
+- Region: a named slot in a layout, such as `header`, `hero`, `main`, `sideNav`, `contentAbove`, `contentBelow`, or `footer`.
+- Block: a placed component instance inside a region.
+- Component: the reusable partial/template from the builder library.
+- Block config: instance-level settings for a component, including props, style options, CMS bindings, visibility rules, and editor controls.
+- Page template: a theme-owned template for a route or content type, such as news listing, article detail, project detail, or landing page.
+
+Recommended layout definition:
+
+```json
+{
+  "layoutId": "default-with-sidebar",
+  "label": "Default With Sidebar",
+  "regions": [
+    { "name": "header", "label": "Header", "required": true, "maxBlocks": 1 },
+    { "name": "hero", "label": "Hero" },
+    { "name": "sideNav", "label": "Side Navigation" },
+    { "name": "main", "label": "Main Content", "required": true },
+    { "name": "footer", "label": "Footer", "required": true, "maxBlocks": 1 }
+  ]
+}
+```
+
+Recommended page layout record:
+
+```json
+{
+  "page": "news",
+  "layoutId": "default-with-sidebar",
+  "template": "pages/news-listing.html",
+  "regions": {
+    "header": [
+      {
+        "instanceId": "block_header_primary",
+        "componentPath": "landmark/header.html",
+        "config": {
+          "variant": "transparent",
+          "cmsBinding": null
+        }
+      }
+    ],
+    "hero": [
+      {
+        "instanceId": "block_news_hero",
+        "componentPath": "news/news_hero.html",
+        "config": {
+          "heading": "News",
+          "subtitle": "Latest updates"
+        }
+      }
+    ],
+    "main": [
+      {
+        "instanceId": "block_news_grid",
+        "componentPath": "news/news_grid.html",
+        "config": {
+          "cmsBinding": {
+            "source": "cms",
+            "mode": "collection",
+            "collection": "articles",
+            "selection": {
+              "filter": { "status": "published" },
+              "sort": "published_at:desc",
+              "limit": 12
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+This gives the project a clean bridge between visual building and CMS theming:
+
+- Layout files define the structural regions.
+- Builder pages store which blocks are placed in each region.
+- Components define available config fields and rendering behavior.
+- Theme page templates decide how a content type or route uses those regions.
+- CMS entries supply content, not layout ownership.
+
+### 5. Views-Style Displays
+
+The initial CMS ask includes the ability to create Views, similar to Drupal Views. In Theme 3, a View is a saved content query plus display configuration that can be placed as a block or used as a page route.
+
+Recommended language:
+
+- View: a named query/display definition, such as `latest_news`, `featured_projects`, or `article_related`.
+- Display: a render target for a View, such as block, page, feed, or embed.
+- Query: collection, filters, sorting, pagination, relationships later, and status rules.
+- Row template: the component or partial used for each result.
+- Empty template: fallback display when the query returns no results.
+
+Recommended View definition:
+
+```json
+{
+  "viewId": "featured-projects",
+  "label": "Featured Projects",
+  "collection": "projects",
+  "filters": [
+    { "field": "status", "operator": "=", "value": "published" },
+    { "field": "featured", "operator": "=", "value": true }
+  ],
+  "sort": [{ "field": "sort_order", "direction": "asc" }],
+  "displays": [
+    {
+      "displayId": "block",
+      "type": "block",
+      "label": "Featured Projects Block",
+      "componentPath": "projects/project_grid.html",
+      "limit": 6,
+      "pager": false
+    },
+    {
+      "displayId": "page",
+      "type": "page",
+      "label": "Projects Listing Page",
+      "route": "/projects",
+      "template": "pages/projects-listing.html",
+      "layoutId": "default",
+      "limit": 12,
+      "pager": true
+    }
+  ]
+}
+```
+
+Views can be placed into regions like any other block:
+
+```json
+{
+  "instanceId": "block_featured_projects",
+  "type": "view",
+  "viewId": "featured-projects",
+  "displayId": "block",
+  "region": "main",
+  "config": {
+    "heading": "Featured Projects"
+  }
+}
+```
+
+This should be treated as a first-class builder feature, not just a CMS binding option. A normal user should be able to create a View, choose a display type, place it into a layout region, and preview the result through the active theme.
+
+### 6. Generated Theme Package
+
+The builder should be able to generate or update the separated theme folder after the design is complete. This is similar to Drupal's theme model: the theme contains layout and presentation files, while the CMS supplies content, block placement, and View data.
 
 Recommended command:
 
@@ -131,6 +326,8 @@ themes/
 |   |-- theme.json
 |   |-- layouts/
 |   |-- pages/
+|   |-- regions/
+|   |-- templates/
 |   |-- partials/
 |   |-- components/
 |   |-- assets/
@@ -140,10 +337,11 @@ themes/
 |   |-- data/
 |   |   |-- fallback/
 |   |-- bindings/
+|   |-- views/
 |   |-- README.md
 ```
 
-The generated theme should be portable. It should not depend on the builder UI. Once exported, developers can edit the theme folder directly, add CMS-aware template tags, adjust markup, and connect the theme to the CMS.
+The generated theme should be portable. It should not depend on the builder UI. Once exported, developers can edit the theme folder directly, add CMS-aware template tags, adjust markup, create or refine Views, and connect the theme to the CMS.
 
 Recommended `theme.json`:
 
@@ -158,6 +356,11 @@ Recommended `theme.json`:
     "bindingMode": "cmsBinding",
     "fallback": "static"
   },
+  "regions": {
+    "default": ["header", "hero", "main", "footer"],
+    "default-with-sidebar": ["header", "hero", "sideNav", "main", "footer"]
+  },
+  "views": ["featured-projects", "latest-insights"],
   "assets": {
     "css": ["assets/css/styles.css"],
     "js": ["assets/js/main.js"]
@@ -349,6 +552,7 @@ The CMS should own:
 - Form definitions
 - Form submissions
 - Media records
+- View definitions and query/display settings
 - Content export
 - Headless API responses
 - Content validation
@@ -360,6 +564,9 @@ The builder should own:
 
 - Projects
 - Pages
+- Layout section creation
+- Region-aware block placement
+- View block placement
 - Visual component placement
 - Component ordering
 - Component props
@@ -375,7 +582,9 @@ The builder should not create, update, or delete CMS entries directly. It should
 The theme should own:
 
 - Layout files
+- Region templates
 - Page templates
+- View display templates
 - Partial templates
 - Component markup
 - CSS and JS assets
@@ -489,6 +698,40 @@ html/partials/about/about_cta.html
 ```
 
 The builder stores CMS binding metadata on a component instance.
+
+### Component Definition
+
+Each reusable component should be able to declare the config fields that appear in the builder properties panel. This keeps components editable as widgets instead of raw HTML.
+
+Recommended component manifest:
+
+```json
+{
+  "componentPath": "news/news_grid.html",
+  "label": "News Grid",
+  "category": "News",
+  "allowedRegions": ["main", "contentBelow"],
+  "configSchema": {
+    "fields": [
+      { "name": "heading", "label": "Heading", "type": "text" },
+      { "name": "columns", "label": "Columns", "type": "number", "default": 3 },
+      { "name": "showExcerpt", "label": "Show Excerpt", "type": "boolean", "default": true }
+    ]
+  },
+  "defaultBinding": {
+    "mode": "collection",
+    "collection": "articles",
+    "fieldMap": {
+      "title": "title",
+      "summary": "excerpt",
+      "href": "url",
+      "imageSrc": "image_src"
+    }
+  }
+}
+```
+
+The builder can infer simple config fields from saved props for MVP, then move toward explicit component manifests when the theme export becomes more formal.
 
 ### Record Binding
 
@@ -705,6 +948,7 @@ Recommended component instance shape:
 {
   "instanceId": "component_123",
   "componentPath": "home/projects.html",
+  "region": "main",
   "order": 1,
   "props": {
     "heading": "Selected Work",
@@ -720,12 +964,54 @@ Recommended component instance shape:
 Recommended behavior:
 
 1. Sidebar scans `html/partials/**/*.html`.
-2. User drags a component identity onto the canvas.
-3. Builder creates a component instance.
-4. Canvas renders the partial preview.
-5. Properties panel edits props and binding.
-6. Save stores layout JSON.
-7. Final page generation composes ordered components.
+2. Layout canvas shows the active page regions.
+3. User drags a component identity into a region.
+4. Builder creates a block/component instance for that region.
+5. Canvas renders the partial preview inside the region.
+6. Properties panel edits block config, props, style, visibility, and binding.
+7. Save stores layout JSON grouped by region.
+8. Final page generation composes regions and ordered blocks.
+
+## Page Template Workflow
+
+Theme folders should support page templates for route and content-type patterns.
+
+Examples:
+
+- `pages/home.html`
+- `pages/news-listing.html`
+- `pages/article-detail.html`
+- `pages/project-detail.html`
+- `pages/search-results.html`
+
+Recommended template record:
+
+```json
+{
+  "templateId": "article-detail",
+  "label": "Article Detail",
+  "routePattern": "/news/{slug}",
+  "contentType": "articles",
+  "layoutId": "default-with-sidebar",
+  "regions": {
+    "main": {
+      "locked": false,
+      "defaultBlocks": ["article_header", "article_body", "article_related"]
+    },
+    "sideNav": {
+      "locked": false,
+      "defaultBlocks": ["article_toc", "newsletter_signup"]
+    }
+  }
+}
+```
+
+Page templates should support two editing modes:
+
+- View mode: renders published CMS data through the theme template.
+- Edit mode: shows block outlines, component config, CMS binding, and region placement controls.
+
+This keeps the CMS editor focused on content while allowing designers and developers to adjust page structure safely.
 
 ## Form Builder Workflow
 
@@ -781,15 +1067,22 @@ MVP can run without roles, but the scalable model should support:
 - Add a visual binding editor.
 - Add repeater controls for list/grid sections.
 - Add binding preview data in the properties panel.
+- Add layout regions and region-aware block placement.
+- Add layout section creation in the builder canvas.
+- Add Views-style display creation for listing and detail output.
+- Allow View displays to be placed as blocks in regions.
+- Add component config schemas for editable widget controls.
 
 ### Phase 4: Add Theme Export
 
 - Add `th3 theme export`.
 - Generate a portable `themes/<theme-name>/` folder.
 - Add `theme.json`.
-- Copy layouts, pages, partials, assets, fallback data, and binding metadata.
+- Copy layouts, pages, regions, partials, components, assets, fallback data, and binding metadata.
+- Copy or generate View definitions under `themes/<theme-name>/views/`.
 - Add a CMS theme registration flow.
 - Add validation for required CMS collections.
+- Add page template definitions for listing/detail pages.
 
 ### Phase 5: Add Forms
 
@@ -828,8 +1121,10 @@ MVP can run without roles, but the scalable model should support:
 The CMS design is complete when:
 
 - Editors can create collections and entries without editing files.
-- Designers can drag components and bind them to CMS content.
+- Designers can add layout sections, place blocks into regions, and bind blocks to CMS content.
+- Users can create Views-style listings and place those Views as blocks or page displays.
 - Forms can be created and rendered through builder components.
+- A portable `themes/<theme-name>/` folder is the active theme contract.
 - Published bridge data can generate stable final HTML.
 - External consumers can read published content through a headless API.
 - Static theme templates still work when CMS data is unavailable.

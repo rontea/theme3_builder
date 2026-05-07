@@ -90,6 +90,58 @@ function createCmsRepository(config = {}) {
                 UNIQUE(collection_slug, entry_key)
             )
         `);
+
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS cms_media_assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_name TEXT NOT NULL,
+                stored_name TEXT NOT NULL UNIQUE,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL DEFAULT 0,
+                width INTEGER,
+                height INTEGER,
+                url TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
+
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS cms_forms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'draft',
+                definition_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
+
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS cms_form_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                form_slug TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'new',
+                data_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
+
+        await dbRun(`
+            CREATE TABLE IF NOT EXISTS cms_views (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                view_id TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                description TEXT,
+                collection_slug TEXT NOT NULL,
+                query_json TEXT NOT NULL,
+                displays_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        `);
     }
 
     async function close() {

@@ -80,11 +80,77 @@ async function run() {
         await safeRemove(sandboxRoot);
         await fs.ensureDir(path.join(sandboxRoot, "_builder", "layouts"));
         await fs.ensureDir(path.join(sandboxRoot, "html", "pages"));
+        await fs.ensureDir(path.join(sandboxRoot, "html", "partials", "shared"));
+        await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "partials", "shared"));
+        await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark"));
+        await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "components"));
+        await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions"));
+        await Promise.all([
+            fs.writeFile(path.join(sandboxRoot, "html", "partials", "shared", "card.html"), "<article>Legacy card</article>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "shared", "card.html"), "<article>Active theme card</article>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark", "header.html"), "<header>Theme Header</header>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark", "footer.html"), "<footer>Theme Footer</footer>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "components", "badge.html"), "<span>Badge</span>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "page.html"), "<!doctype html><title>{{ page.title }}</title>{{> regions/header }}<main>{{> regions/main }}</main>{{> regions/footer }}", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "header.html"), "<section data-theme-region=\"header\">{{{ region \"header\" }}}{{> landmark/header }}</section>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "main.html"), "<section data-theme-region=\"main\">{{{ region \"main\" }}}</section>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "footer.html"), "<section data-theme-region=\"footer\">{{{ region \"footer\" }}}{{> landmark/footer }}</section>", "utf8"),
+            fs.writeJson(path.join(sandboxRoot, "themes", "theme-3", "theme.json"), {
+                schemaVersion: 1,
+                name: "Sandbox Theme",
+                slug: "theme-3",
+                version: "9.9.9",
+                requiredCollections: [],
+                regions: ["header", "main", "footer"],
+                regionDefinitions: [
+                    { id: "header", label: "Header", template: "templates/regions/header.html", defaultPartial: "partials/landmark/header.html" },
+                    { id: "main", label: "Main", template: "templates/regions/main.html" },
+                    { id: "footer", label: "Footer", template: "templates/regions/footer.html", defaultPartial: "partials/landmark/footer.html" }
+                ],
+                templates: [{ id: "page", label: "Page", file: "templates/page.html", regions: ["header", "main", "footer"] }],
+                views: [],
+                files: ["templates", "templates/regions", "partials", "components"]
+            }, { spaces: 2 })
+        ]);
 
         const cmsConfig = createThemeCmsConfig({ projectRoot: sandboxRoot });
         cmsRepository = createCmsRepository(cmsConfig);
         await cmsRepository.initSchema();
         cmsService = createCmsService(cmsRepository, { config: cmsConfig });
+
+        const activeThemes = await cmsService.listThemes();
+        assert.equal(activeThemes[0].name, "Sandbox Theme", "Expected CMS to read active theme metadata from theme.json");
+        assert.equal(activeThemes[0].version, "9.9.9", "Expected active theme version from theme.json");
+        assert.deepEqual(activeThemes[0].regions, ["header", "main", "footer"], "Expected active theme regions from theme.json");
+
+        const themeBuilder = new BuilderTask({ projectRoot: sandboxRoot });
+        const themePartials = await themeBuilder.scanPartials();
+        const sharedCard = themePartials.find((item) => item.path.replace(/\\/g, "/") === "shared/card.html");
+        assert.ok(sharedCard, "Expected builder to scan active theme partials");
+        assert.equal(sharedCard.source, "active-theme", "Expected active theme partial to win over legacy html partial");
+        const themeComponents = await themeBuilder.scanMicroComponents();
+        assert.ok(themeComponents.some((item) => item.path === "micro/badge.html" && item.source === "active-theme"), "Expected builder to scan active theme components before legacy micro components");
+        const phase8PagePath = await themeBuilder.createPageFromLayout({
+            pageTitle: "Phase 8 Runtime",
+            regions: {
+                main: [{
+                    id: "phase8-card",
+                    type: "partial",
+                    componentPath: "shared/card.html",
+                    partial: "shared/card.html",
+                    region: "main",
+                    order: 1,
+                    renderedContent: "<article>Runtime block</article>"
+                }]
+            }
+        }, "phase8-runtime");
+        const phase8Html = await fs.readFile(phase8PagePath, "utf8");
+        assert.ok(phase8Html.includes("<title>Phase 8 Runtime</title>"), "Expected active theme page template variables to render");
+        assert.ok(phase8Html.includes("data-theme-region=\"header\""), "Expected header region template to render");
+        assert.ok(phase8Html.includes("<header>Theme Header</header>"), "Expected empty header region to render theme fallback partial");
+        assert.ok(phase8Html.includes("data-theme-region=\"main\""), "Expected main region template to render");
+        assert.ok(phase8Html.includes("<article>Runtime block</article>"), "Expected layout block to be injected into main region");
+        assert.ok(phase8Html.includes("<footer>Theme Footer</footer>"), "Expected empty footer region to render theme fallback partial");
 
         await builder.startServer();
         const { port } = builder.server.address();
@@ -271,6 +337,160 @@ async function run() {
             assert.ok(await fs.pathExists(saveAsLayoutPath), "Expected save-as layout JSON file to exist");
         }
         assert.ok(await fs.pathExists(saveAsPagePath), "Expected save-as HTML page to exist");
+
+        const regionPageName = "phase7-region-model-test";
+        const regionLayout = {
+            project: { name: "Builder Fix Test", createdAt: new Date().toISOString() },
+            pageTitle: "Phase 7 Region Model Test",
+            pageName: regionPageName,
+            createdAt: new Date().toISOString(),
+            meta: { version: 2, layoutModel: "regions", updatedAt: new Date().toISOString() },
+            regions: {
+                header: [
+                    {
+                        id: "region-header",
+                        instanceId: "region-header",
+                        order: 1,
+                        type: "partial",
+                        partial: "landmark/header.html",
+                        componentPath: "landmark/header.html",
+                        name: "header",
+                        region: "header",
+                        blockConfig: {},
+                        cmsBinding: null,
+                        visible: true,
+                        props: {}
+                    }
+                ],
+                main: [
+                    {
+                        id: "region-main-hidden",
+                        instanceId: "region-main-hidden",
+                        order: 1,
+                        type: "partial",
+                        partial: "about/about_cta.html",
+                        componentPath: "about/about_cta.html",
+                        name: "hidden cta",
+                        region: "main",
+                        blockConfig: {},
+                        cmsBinding: null,
+                        visible: false,
+                        props: {},
+                        renderedContent: "<section>HIDDEN REGION BLOCK</section>"
+                    },
+                    {
+                        id: "region-main",
+                        instanceId: "region-main",
+                        order: 2,
+                        type: "partial",
+                        partial: "home/hero.html",
+                        componentPath: "home/hero.html",
+                        name: "hero in main",
+                        region: "main",
+                        blockConfig: { variant: "default" },
+                        cmsBinding: null,
+                        visible: true,
+                        props: {}
+                    }
+                ],
+                footer: [
+                    {
+                        id: "region-footer",
+                        instanceId: "region-footer",
+                        order: 1,
+                        type: "partial",
+                        partial: "landmark/footer.html",
+                        componentPath: "landmark/footer.html",
+                        name: "footer",
+                        region: "footer",
+                        blockConfig: {},
+                        cmsBinding: null,
+                        visible: true,
+                        props: {}
+                    }
+                ]
+            }
+        };
+        const regionSave = await saveLayout(base, {
+            layoutData: regionLayout,
+            pageName: regionPageName,
+            overwrite: true
+        });
+        assert.equal(regionSave.response.status, 200, "Expected region model save to return 200");
+        assert.equal(regionSave.result.success, true, "Expected region model save success=true");
+        createdPageFiles.add(regionSave.result.data.pagePath);
+        const regionHtml = await fs.readFile(regionSave.result.data.pagePath, "utf8");
+        assert.ok(
+            regionHtml.includes('data-theme-region="header"') || regionHtml.includes("{{> header}}"),
+            "Expected region output to include header region block"
+        );
+        assert.ok(
+            regionHtml.includes('data-theme-region="footer"') || regionHtml.includes("{{> footer}}"),
+            "Expected region output to include footer region block"
+        );
+        assert.ok(!regionHtml.includes("HIDDEN REGION BLOCK"), "Expected hidden region block to be omitted from output");
+
+        const regionAliasPageName = "phase1-region-alias-test";
+        const regionAliasSave = await saveLayout(base, {
+            pageName: regionAliasPageName,
+            overwrite: true,
+            layoutData: {
+                project: { name: "Builder Fix Test", createdAt: new Date().toISOString() },
+                pageTitle: "Phase 1 Region Alias Test",
+                pageName: regionAliasPageName,
+                createdAt: new Date().toISOString(),
+                meta: { version: 2, layoutModel: "regions", updatedAt: new Date().toISOString() },
+                regions: {
+                    side_nav: [
+                        {
+                            id: "alias-side-nav",
+                            instanceId: "alias-side-nav",
+                            order: 1,
+                            type: "partial",
+                            partial: "project/project_listing.html",
+                            componentPath: "project/project_listing.html",
+                            name: "side nav alias",
+                            region: "Side Navigation",
+                            props: {}
+                        }
+                    ],
+                    content_above: [
+                        {
+                            id: "alias-content-above",
+                            instanceId: "alias-content-above",
+                            order: 1,
+                            type: "partial",
+                            partial: "home/hero.html",
+                            componentPath: "home/hero.html",
+                            name: "content above alias",
+                            region: "content_above",
+                            props: {}
+                        }
+                    ],
+                    content_below: [
+                        {
+                            id: "alias-content-below",
+                            instanceId: "alias-content-below",
+                            order: 1,
+                            type: "partial",
+                            partial: "about/about_cta.html",
+                            componentPath: "about/about_cta.html",
+                            name: "content below alias",
+                            region: "content_below",
+                            props: {}
+                        }
+                    ]
+                }
+            }
+        });
+        assert.equal(regionAliasSave.response.status, 200, "Expected region alias save to return 200");
+        createdPageFiles.add(regionAliasSave.result.data.pagePath);
+        const regionAliasRead = await requestJson(base, `/api/saved-layout?fileName=${encodeURIComponent(regionAliasSave.result.data.layoutFileName)}`);
+        assert.equal(regionAliasRead.response.status, 200, "Expected alias layout read to return 200");
+        assert.ok(regionAliasRead.result.data.regions["side-navigation"], "Expected side_nav alias to save as side-navigation");
+        assert.ok(regionAliasRead.result.data.regions["content-above"], "Expected content_above alias to save as content-above");
+        assert.ok(regionAliasRead.result.data.regions["content-below"], "Expected content_below alias to save as content-below");
+        assert.equal(regionAliasRead.result.data.regions["side-navigation"][0].region, "side-navigation", "Expected alias block region to be canonical");
 
         // Pages regression: create/list/sync/load/edit flows
         const projectName = "phase0-regression-project";
@@ -495,6 +715,42 @@ async function run() {
             "Expected openai entry in exported supporters entries"
         );
 
+        const cmsForm = await cmsService.createForm({
+            slug: "contact",
+            name: "Contact Form",
+            status: "active",
+            definition: {
+                fields: [
+                    { name: "name", label: "Name", type: "text", required: true },
+                    { name: "email", label: "Email", type: "email", required: true },
+                    { name: "message", label: "Message", type: "textarea", required: true }
+                ],
+                settings: {
+                    successMessage: "Thanks for reaching out.",
+                    storeSubmissions: true,
+                    notificationEmail: "admin@example.com",
+                    submitButtonLabel: "Send"
+                }
+            }
+        });
+        assert.equal(cmsForm.slug, "contact", "Expected CMS form slug");
+        assert.equal(cmsForm.fields.length, 3, "Expected normalized CMS form fields");
+
+        const cmsSubmission = await cmsService.createFormSubmission("contact", {
+            name: "Alice Smith",
+            email: "alice@example.com",
+            message: "I have a question."
+        });
+        assert.equal(cmsSubmission.status, "new", "Expected new form submission status");
+        const cmsSubmissions = await cmsService.listFormSubmissions("contact");
+        assert.equal(cmsSubmissions.length, 1, "Expected stored form submission");
+        const reviewedSubmission = await cmsService.updateFormSubmissionStatus("contact", cmsSubmission.id, "reviewed");
+        assert.equal(reviewedSubmission.status, "reviewed", "Expected reviewed form submission status");
+
+        await fs.ensureDir(path.join(sandboxRoot, "build"));
+        await fs.writeFile(path.join(sandboxRoot, "build", "index.html"), "{{> hero}}\n{{> cta}}\n");
+        await fs.writeFile(path.join(sandboxRoot, "build", "project.html"), "<!doctype html><h1>Rendered project page</h1>\n");
+
         cmsRuntime = await startThemeCmsServer({ projectRoot: sandboxRoot, port: 0 });
         const cmsBase = `http://localhost:${cmsRuntime.server.address().port}`;
         const cmsServeCollections = await requestJson(cmsBase, "/api/cms/collections");
@@ -504,6 +760,36 @@ async function run() {
             cmsServeCollections.result.data.some((item) => item.slug === "supporters"),
             "Expected standalone CMS server to list supporters collection"
         );
+
+        const sitePreviewRes = await fetch(`${cmsBase}/site/`);
+        const sitePreviewHtml = await sitePreviewRes.text();
+        assert.equal(sitePreviewRes.status, 200, "Expected /site/ to return 200");
+        assert.ok(sitePreviewHtml.includes("Rendered project page"), "Expected /site/ to use rendered fallback page");
+        assert.equal(sitePreviewHtml.includes("{{>"), false, "Expected /site/ not to serve raw partial placeholders");
+
+        const publicForm = await requestJson(cmsBase, "/api/forms/contact");
+        assert.equal(publicForm.response.status, 200, "Expected public form endpoint to return 200");
+        assert.equal(publicForm.result.success, true, "Expected public form endpoint success=true");
+        assert.equal(publicForm.result.data.slug, "contact", "Expected public form payload slug");
+
+        const publicSubmission = await requestJson(cmsBase, "/api/forms/contact/submissions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                data: {
+                    name: "Bob Jones",
+                    email: "bob@example.com",
+                    message: "Demo request."
+                }
+            })
+        });
+        assert.equal(publicSubmission.response.status, 200, "Expected public submission endpoint to return 200");
+        assert.equal(publicSubmission.result.success, true, "Expected public submission endpoint success=true");
+
+        const cmsServeSubmissions = await requestJson(cmsBase, "/api/cms/forms/contact/submissions");
+        assert.equal(cmsServeSubmissions.response.status, 200, "Expected CMS submissions endpoint to return 200");
+        assert.equal(cmsServeSubmissions.result.success, true, "Expected CMS submissions endpoint success=true");
+        assert.ok(cmsServeSubmissions.result.data.length >= 2, "Expected CMS submissions endpoint to include stored submissions");
 
         const builderCmsCollections = await requestJson(base, "/api/builder/cms/collections");
         assert.equal(builderCmsCollections.response.status, 200, "Expected builder CMS collections read endpoint to return 200");
@@ -865,6 +1151,418 @@ async function run() {
         assert.ok(phase4CtaHtml.includes("Build something together."), "Expected CTA block render to include CMS heading");
         assert.ok(phase4CtaHtml.includes("Reach Out"), "Expected CTA block render to include CMS button label");
         assert.ok(phase4CtaHtml.includes("mailto:studio@example.com"), "Expected CTA block render to include CMS button URL");
+
+        const phase9TemplatePayload = {
+            templateId: "phase9-cta-detail",
+            label: "Phase 9 CTA Detail",
+            routePattern: "/cta/:slug",
+            contentType: "cta_blocks",
+            layoutId: regionSave.result.data.layoutFileName,
+            regions: {
+                header: { label: "Header", required: true },
+                main: { label: "Main Content", required: true },
+                footer: { label: "Footer", required: true }
+            },
+            lockedRegions: ["header", "footer"],
+            defaultBlocks: {
+                header: [
+                    {
+                        id: "phase9-template-header",
+                        order: 1,
+                        type: "partial",
+                        partial: "landmark/header.html",
+                        componentPath: "landmark/header.html",
+                        name: "header",
+                        props: {}
+                    }
+                ],
+                main: [
+                    {
+                        id: "phase9-template-cta",
+                        order: 1,
+                        type: "partial",
+                        partial: "about/about_cta.html",
+                        componentPath: "about/about_cta.html",
+                        name: "cta",
+                        props: {
+                            cmsBinding: {
+                                source: "cms",
+                                mode: "record",
+                                collection: "cta_blocks",
+                                selection: { filter: { key: "about-cta" } },
+                                fieldMap: {
+                                    heading: "heading",
+                                    buttonLabel: "button_label",
+                                    buttonUrl: "button_url"
+                                },
+                                fallback: "static"
+                            }
+                        }
+                    }
+                ],
+                footer: [
+                    {
+                        id: "phase9-template-footer",
+                        order: 1,
+                        type: "partial",
+                        partial: "landmark/footer.html",
+                        componentPath: "landmark/footer.html",
+                        name: "footer",
+                        props: {}
+                    }
+                ]
+            }
+        };
+        const phase9TemplateSave = await requestJson(base, "/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(phase9TemplatePayload)
+        });
+        assert.equal(phase9TemplateSave.response.status, 200, "Expected template save to return 200");
+        assert.equal(phase9TemplateSave.result.success, true, "Expected template save success=true");
+        assert.equal(phase9TemplateSave.result.data.validation.status, "valid", "Expected valid template record");
+        assert.equal(phase9TemplateSave.result.data.regionsCount, 3, "Expected template regions count");
+
+        const phase9AliasTemplateSave = await requestJson(base, "/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                templateId: "phase9-region-aliases",
+                label: "Phase 9 Region Aliases",
+                routePattern: "/region-aliases",
+                layoutId: regionSave.result.data.layoutFileName,
+                regions: {
+                    "main-content": { label: "Main Content", required: true },
+                    "side-navigation": { label: "Side Navigation", required: false }
+                },
+                lockedRegions: ["side-navigation"],
+                defaultBlocks: {
+                    "main-content": [
+                        {
+                            id: "phase9-alias-project-grid",
+                            order: 1,
+                            type: "partial",
+                            partial: "project/project_listing.html",
+                            componentPath: "project/project_listing.html",
+                            name: "Project Grid",
+                            region: "Main Content",
+                            props: {}
+                        }
+                    ]
+                }
+            })
+        });
+        assert.equal(phase9AliasTemplateSave.response.status, 200, "Expected alias template save to return 200");
+        assert.equal(phase9AliasTemplateSave.result.data.validation.errors.length, 0, "Expected region aliases to avoid validation errors");
+        assert.ok(phase9AliasTemplateSave.result.data.regions["side-navigation"], "Expected side-navigation template region to stay hyphenated");
+        assert.ok(phase9AliasTemplateSave.result.data.defaultBlocks.main, "Expected main-content alias to normalize to main");
+        assert.equal(phase9AliasTemplateSave.result.data.lockedRegions[0], "side-navigation", "Expected locked region alias to be canonical");
+        assert.ok(
+            phase9AliasTemplateSave.result.data.regionsCount >= 2,
+            "Expected normalized alias regions to be counted"
+        );
+
+        const phase9TemplateList = await requestJson(base, "/api/templates");
+        assert.equal(phase9TemplateList.response.status, 200, "Expected template list to return 200");
+        assert.ok(
+            phase9TemplateList.result.data.some((template) => template.templateId === "phase9-cta-detail"),
+            "Expected template list to include saved template"
+        );
+
+        const cmsTemplatesList = await requestJson(cmsBase, "/api/cms/templates");
+        assert.equal(cmsTemplatesList.response.status, 200, "Expected CMS templates list to return 200");
+        assert.equal(cmsTemplatesList.result.success, true, "Expected CMS templates list success=true");
+        assert.ok(
+            cmsTemplatesList.result.data.some((template) => template.templateId === "phase9-cta-detail"),
+            "Expected CMS templates list to read builder template records"
+        );
+
+        const cmsTemplateSave = await requestJson(cmsBase, "/api/cms/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                templateId: "phase2-cms-template-admin",
+                label: "Phase 2 CMS Template Admin",
+                routePattern: "/phase2/{slug}",
+                contentType: "cta_blocks",
+                layoutId: regionSave.result.data.layoutFileName,
+                regions: {
+                    header: { label: "Header", required: true },
+                    "content_above": { label: "Content Above" },
+                    main: { label: "Main", required: true },
+                    footer: { label: "Footer", required: true }
+                },
+                lockedRegions: ["header", "footer"],
+                defaultBlocks: {
+                    "content_above": [
+                        {
+                            id: "phase2-template-hero",
+                            order: 1,
+                            type: "partial",
+                            partial: "home/hero.html",
+                            componentPath: "home/hero.html",
+                            name: "Hero",
+                            props: {}
+                        }
+                    ]
+                }
+            })
+        });
+        assert.equal(cmsTemplateSave.response.status, 200, "Expected CMS template save to return 200");
+        assert.equal(cmsTemplateSave.result.success, true, "Expected CMS template save success=true");
+        assert.equal(cmsTemplateSave.result.data.defaultBlocks["content-above"][0].region, "content-above", "Expected CMS template save to canonicalize region aliases");
+        assert.equal(cmsTemplateSave.result.data.validation.status, "valid", "Expected CMS template validation to pass");
+
+        const cmsTemplateRead = await requestJson(cmsBase, "/api/cms/templates/phase2-cms-template-admin");
+        assert.equal(cmsTemplateRead.response.status, 200, "Expected CMS template read to return 200");
+        assert.equal(cmsTemplateRead.result.data.templateId, "phase2-cms-template-admin", "Expected CMS template readback");
+
+        const cmsViewCreate = await requestJson(cmsBase, "/api/cms/views", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                viewId: "phase3-cta-listing",
+                label: "Phase 3 CTA Listing",
+                description: "Lists active CTA blocks.",
+                collection: "cta_blocks",
+                query: {
+                    status: "published",
+                    filters: { active: true },
+                    sort: [{ field: "heading", direction: "asc" }],
+                    limit: 5
+                },
+                displays: [
+                    { displayId: "block", label: "Block", type: "block" },
+                    { displayId: "page", label: "Page", type: "page", route: "/cta-listing" }
+                ]
+            })
+        });
+        assert.equal(cmsViewCreate.response.status, 200, "Expected CMS View create to return 200");
+        assert.equal(cmsViewCreate.result.success, true, "Expected CMS View create success=true");
+        assert.equal(cmsViewCreate.result.data.viewId, "phase3-cta-listing", "Expected CMS View ID");
+        assert.equal(cmsViewCreate.result.data.validation.status, "valid", "Expected valid CMS View");
+
+        const cmsViewsList = await requestJson(cmsBase, "/api/cms/views");
+        assert.equal(cmsViewsList.response.status, 200, "Expected CMS Views list to return 200");
+        assert.ok(
+            cmsViewsList.result.data.some((view) => view.viewId === "phase3-cta-listing"),
+            "Expected CMS Views list to include created View"
+        );
+
+        const cmsViewRead = await requestJson(cmsBase, "/api/cms/views/phase3-cta-listing");
+        assert.equal(cmsViewRead.response.status, 200, "Expected CMS View read to return 200");
+        assert.equal(cmsViewRead.result.data.collection, "cta_blocks", "Expected CMS View read collection");
+
+        const cmsViewPreview = await requestJson(cmsBase, "/api/cms/views/phase3-cta-listing/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ displayId: "block" })
+        });
+        assert.equal(cmsViewPreview.response.status, 200, "Expected CMS View preview to return 200");
+        assert.equal(cmsViewPreview.result.data.count, 1, "Expected CMS View preview count");
+        assert.equal(cmsViewPreview.result.data.entries[0].entryKey, "about-cta", "Expected CMS View preview entry");
+
+        const builderCmsViews = await requestJson(base, "/api/builder/cms/views");
+        assert.equal(builderCmsViews.response.status, 200, "Expected builder CMS Views read API to return 200");
+        assert.ok(
+            builderCmsViews.result.data.some((view) => view.viewId === "phase3-cta-listing"),
+            "Expected builder CMS Views read API to include created CMS View"
+        );
+
+        const builderCmsViewPreview = await requestJson(base, "/api/builder/cms/views/phase3-cta-listing/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ displayId: "block" })
+        });
+        assert.equal(builderCmsViewPreview.response.status, 200, "Expected builder View preview API to return 200");
+        assert.equal(builderCmsViewPreview.result.data.count, 1, "Expected builder View preview count");
+
+        const builderViewBlockPageName = "phase6-view-block-test";
+        const builderViewBlockSave = await saveLayout(base, {
+            pageName: builderViewBlockPageName,
+            layoutData: {
+                project: { name: "theme_3" },
+                pageName: builderViewBlockPageName,
+                pageTitle: "Phase 6 View Block Test",
+                meta: { version: 2, layoutModel: "regions", updatedAt: new Date().toISOString() },
+                regions: {
+                    main: [
+                        {
+                            id: "phase6-view-block",
+                            instanceId: "phase6-view-block",
+                            order: 1,
+                            type: "view",
+                            viewId: "phase3-cta-listing",
+                            displayId: "block",
+                            name: "CTA Listing View",
+                            region: "main",
+                            config: { wrapper: "listing" },
+                            visibility: "visible",
+                            visible: true
+                        }
+                    ]
+                }
+            }
+        });
+        assert.equal(builderViewBlockSave.response.status, 200, "Expected builder View block layout save to return 200");
+        createdPageFiles.add(builderViewBlockSave.result.data.pagePath);
+        const builderViewBlockHtml = await fs.readFile(builderViewBlockSave.result.data.pagePath, "utf8");
+        assert.ok(builderViewBlockHtml.includes("Build something together."), "Expected View block page to render CMS View data");
+        const builderViewBlockLayout = await requestJson(base, `/api/saved-layout?fileName=${encodeURIComponent(builderViewBlockSave.result.data.layoutFileName)}`);
+        assert.ok(builderViewBlockLayout.result.data.regions.main[0].type === "view", "Expected saved region block type to remain view");
+        assert.equal(builderViewBlockLayout.result.data.regions.main[0].viewId, "phase3-cta-listing", "Expected saved View block viewId");
+        assert.equal(builderViewBlockLayout.result.data.regions.main[0].displayId, "block", "Expected saved View block displayId");
+
+        const invalidBuilderViewDisplay = await saveLayout(base, {
+            pageName: "phase6-invalid-view-display",
+            layoutData: {
+                project: { name: "theme_3" },
+                pageName: "phase6-invalid-view-display",
+                pageTitle: "Phase 6 Invalid View Display",
+                meta: { version: 2, layoutModel: "regions", updatedAt: new Date().toISOString() },
+                regions: {
+                    main: [
+                        {
+                            id: "phase6-view-page-display",
+                            instanceId: "phase6-view-page-display",
+                            order: 1,
+                            type: "view",
+                            viewId: "phase3-cta-listing",
+                            displayId: "page",
+                            name: "Invalid Page Display",
+                            region: "main",
+                            config: {},
+                            visibility: "visible",
+                            visible: true
+                        }
+                    ]
+                }
+            }
+        });
+        assert.equal(invalidBuilderViewDisplay.response.status, 400, "Expected page display View block save to fail validation");
+
+        const cmsViewUpdate = await requestJson(cmsBase, "/api/cms/views/phase3-cta-listing", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ label: "Phase 3 CTA Listing Updated" })
+        });
+        assert.equal(cmsViewUpdate.response.status, 200, "Expected CMS View update to return 200");
+        assert.equal(cmsViewUpdate.result.data.label, "Phase 3 CTA Listing Updated", "Expected CMS View label update");
+
+        const invalidCmsView = await requestJson(cmsBase, "/api/cms/views", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                viewId: "phase3-invalid-view",
+                label: "Invalid View",
+                collection: "cta_blocks",
+                query: {
+                    filters: { missing_field: true },
+                    sort: [{ field: "also_missing", direction: "asc" }]
+                },
+                displays: [
+                    { displayId: "page", type: "page", route: "/phase2/{slug}" },
+                    { displayId: "page", type: "block" }
+                ]
+            })
+        });
+        assert.equal(invalidCmsView.response.status, 400, "Expected invalid CMS View to return 400");
+        assert.equal(invalidCmsView.result.code, "CMS_VIEW_INVALID", "Expected invalid CMS View code");
+        assert.ok(
+            invalidCmsView.result.details.errors.some((item) => item.code === "VIEW_FILTER_FIELD_NOT_FOUND"),
+            "Expected invalid CMS View filter field validation"
+        );
+        assert.ok(
+            invalidCmsView.result.details.errors.some((item) => item.code === "VIEW_DISPLAY_ID_DUPLICATE"),
+            "Expected invalid CMS View duplicate display validation"
+        );
+        assert.ok(
+            invalidCmsView.result.details.errors.some((item) => item.code === "VIEW_PAGE_ROUTE_CONFLICT"),
+            "Expected invalid CMS View route conflict validation"
+        );
+
+        const cmsTemplateDelete = await requestJson(cmsBase, "/api/cms/templates/phase2-cms-template-admin", { method: "DELETE" });
+        assert.equal(cmsTemplateDelete.response.status, 200, "Expected CMS template delete to return 200");
+        assert.equal(cmsTemplateDelete.result.data.deleted, true, "Expected CMS template delete result");
+
+        const phase9TemplatePreview = await requestJson(base, "/api/templates/phase9-cta-detail/preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entryKey: "about-cta" })
+        });
+        assert.equal(phase9TemplatePreview.response.status, 200, "Expected template preview to return 200");
+        assert.equal(phase9TemplatePreview.result.success, true, "Expected template preview success=true");
+        assert.ok(phase9TemplatePreview.result.data.html.includes("Build something together."), "Expected template preview to render selected CMS entry");
+        createdPageFiles.add(phase9TemplatePreview.result.data.pagePath);
+
+        const themeExport = await cmsService.exportTheme({
+            themeName: "Theme 3 Test",
+            includeCompiledAssets: false,
+            overwrite: true
+        });
+        assert.equal(themeExport.validation.valid, true, "Expected theme export validation to pass");
+        const themeManifest = await fs.readJson(themeExport.manifestPath);
+        assert.ok(Array.isArray(themeManifest.regions) && themeManifest.regions.includes("header"), "Expected theme manifest regions");
+        assert.ok(themeManifest.regions.includes("side-navigation"), "Expected theme manifest to use canonical side-navigation region");
+        assert.ok(themeManifest.regions.includes("content-above"), "Expected theme manifest to use canonical content-above region");
+        assert.ok(themeManifest.regions.includes("content-below"), "Expected theme manifest to use canonical content-below region");
+        assert.ok(!themeManifest.regions.includes("side_nav"), "Expected theme manifest not to use underscore side_nav region");
+        assert.ok(Array.isArray(themeManifest.regionDefinitions), "Expected Drupal-style region definitions");
+        assert.ok(themeManifest.templates.some((template) => template.file === "templates/page.html"), "Expected page theme template manifest");
+        assert.equal(themeManifest.counts.views, 1, "Expected theme manifest View count");
+        assert.ok(Array.isArray(themeManifest.views), "Expected theme manifest Views metadata");
+        assert.ok(themeManifest.views.some((view) => view.file === "views/phase3-cta-listing.json"), "Expected theme manifest View file metadata");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "page.html")), "Expected exported page template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "regions", "header.html")), "Expected exported header region template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "regions", "footer.html")), "Expected exported footer region template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "regions", "side-navigation.json")), "Expected exported canonical side-navigation region manifest");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "views", "phase3-cta-listing.json")), "Expected exported View JSON file");
+        const exportedView = await fs.readJson(path.join(themeExport.outputPath, "views", "phase3-cta-listing.json"));
+        assert.equal(exportedView.viewId, "phase3-cta-listing", "Expected exported View ID");
+        assert.equal(exportedView.validation.status, "valid", "Expected exported View validation status");
+        const exportedPageTemplate = await fs.readFile(path.join(themeExport.outputPath, "templates", "page.html"), "utf8");
+        assert.ok(exportedPageTemplate.includes('{{> regions/header }}'), "Expected page template to include header region");
+        assert.ok(exportedPageTemplate.includes('{{> regions/footer }}'), "Expected page template to include footer region");
+        const exportedThemeReadme = await fs.readFile(path.join(themeExport.outputPath, "README.md"), "utf8");
+        assert.ok(exportedThemeReadme.includes("`views/`"), "Expected exported README to mention views directory");
+
+        const publishChecklist = await cmsService.getPublishChecklist();
+        assert.ok(
+            publishChecklist.items.some((item) => item.id === "views" && item.status === "passed"),
+            "Expected publish checklist to include passing View validity"
+        );
+
+        const cmsViewDelete = await requestJson(cmsBase, "/api/cms/views/phase3-cta-listing", { method: "DELETE" });
+        assert.equal(cmsViewDelete.response.status, 200, "Expected CMS View delete to return 200");
+        assert.equal(cmsViewDelete.result.data.deleted, true, "Expected CMS View delete result");
+
+        const phase9InvalidTemplateSave = await requestJson(base, "/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                templateId: "phase9-invalid-template",
+                label: "Invalid Template",
+                routePattern: "/invalid/:slug",
+                layoutId: "missing-layout.json",
+                defaultBlocks: {
+                    header: [
+                        {
+                            id: "wrong-region",
+                            type: "partial",
+                            partial: "landmark/footer.html",
+                            componentPath: "landmark/footer.html",
+                            props: {}
+                        }
+                    ]
+                }
+            })
+        });
+        assert.equal(phase9InvalidTemplateSave.response.status, 200, "Expected invalid template save to return 200 with validation");
+        assert.equal(phase9InvalidTemplateSave.result.data.validation.status, "error", "Expected invalid template validation error state");
+        assert.ok(
+            phase9InvalidTemplateSave.result.data.validation.errors.some((item) => item.code === "TEMPLATE_CONTENT_TYPE_MISSING"),
+            "Expected dynamic route without content type validation"
+        );
 
         const phase4SupportersPageName = "phase4-supporters-test";
         const phase4SupportersPayload = {

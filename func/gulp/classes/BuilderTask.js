@@ -38,6 +38,12 @@ class BuilderTask {
         this.app = null;
         this.server = null;
         this.projectRoot = options.projectRoot || process.cwd();
+        const cmsSettingsPath = path.resolve(this.projectRoot, "theme-cms", "data", "settings.json");
+        const cmsSettings = fs.existsSync(cmsSettingsPath) ? fs.readJsonSync(cmsSettingsPath, { throws: false }) || {} : {};
+        this.activeTheme = String(options.activeTheme || process.env.TH3_ACTIVE_THEME || cmsSettings.activeTheme || "theme-3").trim() || "theme-3";
+        this.activeThemePath = path.resolve(this.projectRoot, options.activeThemePath || process.env.TH3_ACTIVE_THEME_PATH || cmsSettings.activeThemePath || path.join("themes", this.activeTheme));
+        this.activeThemePartialsPath = path.join(this.activeThemePath, "partials");
+        this.activeThemeComponentsPath = path.join(this.activeThemePath, "components");
         this.partialsPath = path.resolve(this.projectRoot, options.partialsPath || "./html/partials");
         this.layoutsPath = path.resolve(this.projectRoot, options.layoutsPath || "./html/layouts");
         this.builderPath = path.resolve(this.projectRoot, options.builderPath || "./_builder/client");
@@ -86,6 +92,44 @@ class BuilderTask {
 
     buildPartialPreview(html) {
         return buildPartialPreview(html);
+    }
+
+    async resolveComponentSourcePath(sourcePath) {
+        const normalized = String(sourcePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+        if (!normalized) {
+            return null;
+        }
+        const candidates = [
+            { root: this.activeThemePartialsPath, relativePath: normalized },
+            { root: this.activeThemeComponentsPath, relativePath: normalized.replace(/^micro\//, "") },
+            { root: this.partialsPath, relativePath: normalized }
+        ];
+        for (const candidate of candidates) {
+            const fullPath = this.resolveSafePath(candidate.root, candidate.relativePath);
+            if (await fs.pathExists(fullPath)) {
+                return fullPath;
+            }
+        }
+        return null;
+    }
+
+    resolveComponentSourcePathSync(sourcePath) {
+        const normalized = String(sourcePath || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+        if (!normalized) {
+            return null;
+        }
+        const candidates = [
+            { root: this.activeThemePartialsPath, relativePath: normalized },
+            { root: this.activeThemeComponentsPath, relativePath: normalized.replace(/^micro\//, "") },
+            { root: this.partialsPath, relativePath: normalized }
+        ];
+        for (const candidate of candidates) {
+            const fullPath = this.resolveSafePath(candidate.root, candidate.relativePath);
+            if (fs.existsSync(fullPath)) {
+                return fullPath;
+            }
+        }
+        return null;
     }
 
     formatCategory(folder) {
@@ -164,6 +208,19 @@ class BuilderTask {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(project_name, page_name)
+            )
+        `);
+
+        await this.dbRun(`
+            CREATE TABLE IF NOT EXISTS builder_templates (
+                template_id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                route_pattern TEXT,
+                content_type TEXT,
+                layout_id TEXT,
+                template_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
         `);
 
@@ -748,6 +805,10 @@ class BuilderTask {
     }
 
     async renderCmsBoundComponent(item) {
+        if (item?.type === "view") {
+            return this.renderCmsViewBlock(item);
+        }
+
         const binding = item?.props?.cmsBinding;
         if (!binding || binding.source !== "cms" || !binding.collection) {
             return typeof item?.renderedContent === "string" && item.renderedContent.trim().length > 0
@@ -756,7 +817,10 @@ class BuilderTask {
         }
 
         const sourcePath = item.componentPath || item.partial;
-        const fullPath = this.resolveSafePath(this.partialsPath, sourcePath);
+        const fullPath = this.resolveComponentSourcePathSync(sourcePath);
+        if (!fullPath) {
+            return null;
+        }
         const staticMarkup = await fs.readFile(fullPath, "utf8");
 
         let resolved = null;
@@ -804,6 +868,59 @@ class BuilderTask {
             });
             return staticMarkup;
         }
+    }
+
+    async renderCmsViewBlock(item = {}) {
+        try {
+            const result = await this.previewCmsView(item.viewId || item.props?.viewId, {
+                displayId: item.displayId || item.props?.displayId
+            });
+            const display = result.display || {};
+            const entries = Array.isArray(result.entries) ? result.entries : [];
+            const title = item.name || result.view?.label || "View";
+            const rows = entries.map((entry) => {
+                const data = entry.data || {};
+                const heading = data.title || data.heading || data.name || entry.entryKey || "Untitled";
+                const summary = data.summary || data.description || data.body || "";
+                const href = data.detail_url || data.detailUrl || data.url || "";
+                const headingHtml = href
+                    ? `<a href="${this.escapeHtmlAttribute(href)}">${this.escapeHtml(String(heading))}</a>`
+                    : this.escapeHtml(String(heading));
+                return `<article class="cms-view-item" data-entry-key="${this.escapeHtmlAttribute(entry.entryKey || "")}">
+  <h3>${headingHtml}</h3>
+  ${summary ? `<p>${this.escapeHtml(String(summary))}</p>` : ""}
+</article>`;
+            }).join("\n");
+
+            return `<section class="cms-view-block" data-view-id="${this.escapeHtmlAttribute(result.view?.viewId || item.viewId || "")}" data-display-id="${this.escapeHtmlAttribute(display.displayId || item.displayId || "")}">
+  <div class="cms-view-block__header">
+    <span>${this.escapeHtml(display.label || display.type || "Block")}</span>
+    <h2>${this.escapeHtml(title)}</h2>
+  </div>
+  <div class="cms-view-block__items">${rows || '<p class="cms-view-empty">No matching content.</p>'}</div>
+</section>`;
+        } catch (err) {
+            logErr.writeLog(err, {
+                customKey: "CMS_VIEW_BLOCK_RENDER_FAILED",
+                context: { viewId: item.viewId || item.props?.viewId, displayId: item.displayId || item.props?.displayId }
+            });
+            return typeof item?.renderedContent === "string" && item.renderedContent.trim().length > 0
+                ? item.renderedContent
+                : `<section class="cms-view-block cms-view-block--fallback"><p>View data unavailable.</p></section>`;
+        }
+    }
+
+    escapeHtml(value = "") {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    escapeHtmlAttribute(value = "") {
+        return this.escapeHtml(value);
     }
 
     async upsertProjectRecord(projectName) {
@@ -1407,13 +1524,131 @@ class BuilderTask {
         return [];
     }
 
-    async fetchLiveCmsJson(endpoint) {
+    async listCmsViews() {
+        const viewDirs = [
+            path.join(this.cmsExportPath, "views"),
+            path.resolve(this.projectRoot, "themes", "theme-3", "views")
+        ];
+        const views = [];
+        const seen = new Set();
+
+        for (const viewDir of viewDirs) {
+            if (!await fs.pathExists(viewDir)) {
+                continue;
+            }
+            const files = await glob(path.join(viewDir, "*.json").replace(/\\/g, "/"));
+            for (const file of files) {
+                try {
+                    const view = await fs.readJson(file);
+                    const normalized = this.normalizeCmsViewRecord(view);
+                    if (normalized.viewId && !seen.has(normalized.viewId)) {
+                        seen.add(normalized.viewId);
+                        views.push(normalized);
+                    }
+                } catch (err) {
+                    logErr.writeLog(err, {
+                        customKey: "BUILDER_CMS_VIEW_READ_FAILED",
+                        context: { file }
+                    });
+                }
+            }
+        }
+
+        if (views.length > 0) {
+            return views;
+        }
+
+        const cmsDatabasePath = (await Promise.all([
+            path.resolve(this.cmsProjectRoot, "theme-cms", "data", "cms.sqlite"),
+            path.resolve(this.cmsProjectRoot, "data", "cms.sqlite")
+        ].map(async (candidate) => await fs.pathExists(candidate) ? candidate : null))).find(Boolean);
+        if (cmsDatabasePath) {
+            const rows = await this.readCmsDbAll(
+                cmsDatabasePath,
+                `SELECT view_id AS viewId, label, description, collection_slug AS collection,
+                    query_json AS queryJson, displays_json AS displaysJson, created_at AS createdAt, updated_at AS updatedAt
+                 FROM cms_views
+                 ORDER BY updated_at DESC, label COLLATE NOCASE ASC`
+            ).catch(() => []);
+            return rows.map((row) => this.normalizeCmsViewRecord({
+                ...row,
+                query: this.parseJsonRecord(row.queryJson, {}),
+                displays: this.parseJsonRecord(row.displaysJson, [])
+            }));
+        }
+
+        if (this.cmsReadMode === "live" && this.cmsBaseUrl) {
+            const result = await this.fetchLiveCmsJson("/api/cms/views");
+            return Array.isArray(result?.data) ? result.data.map((view) => this.normalizeCmsViewRecord(view)) : [];
+        }
+
+        return [];
+    }
+
+    async getCmsView(viewId) {
+        const safeViewId = this.sanitizeCmsSlug(viewId);
+        if (!safeViewId) {
+            throw this.createActionableError("Invalid View ID", 400, "CMS_VIEW_ID_INVALID", { viewId });
+        }
+        const views = await this.listCmsViews();
+        const view = views.find((item) => item.viewId === safeViewId);
+        if (!view) {
+            throw this.createActionableError("CMS View not found", 404, "CMS_VIEW_NOT_FOUND", { viewId: safeViewId });
+        }
+        return view;
+    }
+
+    async previewCmsView(viewId, options = {}) {
+        const safeViewId = this.sanitizeCmsSlug(viewId);
+        const displayId = this.sanitizeCmsSlug(options.displayId || options.display || "");
+        if (this.cmsReadMode === "live" && this.cmsBaseUrl) {
+            const result = await this.fetchLiveCmsJson(`/api/cms/views/${encodeURIComponent(safeViewId)}/preview`, {
+                method: "POST",
+                body: { displayId }
+            });
+            if (result?.data) {
+                return result.data;
+            }
+        }
+
+        const view = await this.getCmsView(safeViewId);
+        const display = displayId
+            ? view.displays.find((item) => item.displayId === displayId)
+            : view.displays[0] || null;
+        if (displayId && !display) {
+            throw this.createActionableError(
+                "CMS View display not found",
+                404,
+                "CMS_VIEW_DISPLAY_NOT_FOUND",
+                { viewId: safeViewId, displayId }
+            );
+        }
+        const entries = this.applyCmsViewQuery(await this.listCmsEntries(view.collection), view.query);
+        const collection = (await this.listCmsCollections()).find((item) => item.slug === view.collection) || null;
+        return {
+            view,
+            display,
+            collection,
+            count: entries.length,
+            entries
+        };
+    }
+
+    async fetchLiveCmsJson(endpoint, options = {}) {
         const baseUrl = String(this.cmsBaseUrl || "").replace(/\/+$/, "");
         if (!baseUrl || typeof fetch !== "function") {
             return null;
         }
 
-        const response = await fetch(`${baseUrl}${endpoint}`);
+        const fetchOptions = {};
+        if (options.method) {
+            fetchOptions.method = options.method;
+        }
+        if (options.body !== undefined) {
+            fetchOptions.headers = { "Content-Type": "application/json" };
+            fetchOptions.body = JSON.stringify(options.body || {});
+        }
+        const response = await fetch(`${baseUrl}${endpoint}`, fetchOptions);
         const result = await response.json();
         if (!response.ok || !result?.success) {
             const err = new Error(result?.error || `CMS request failed: ${endpoint}`);
@@ -1422,6 +1657,560 @@ class BuilderTask {
             throw err;
         }
         return result;
+    }
+
+    readCmsDbAll(databasePath, sql, params = []) {
+        return new Promise((resolve, reject) => {
+            const db = new sqlite3.Database(databasePath, (openErr) => {
+                if (openErr) {
+                    reject(openErr);
+                    return;
+                }
+                db.all(sql, params, (err, rows) => {
+                    db.close();
+                    if (err) {
+                        reject(err);
+                        return;
+                    }
+                    resolve(rows || []);
+                });
+            });
+        });
+    }
+
+    normalizeCmsViewRecord(view = {}) {
+        return {
+            viewId: this.sanitizeCmsSlug(view.viewId || view.id || view.view_id || ""),
+            label: String(view.label || view.name || view.viewId || "").trim(),
+            description: String(view.description || "").trim(),
+            collection: this.sanitizeCmsSlug(view.collection || view.collectionSlug || view.collection_slug || ""),
+            query: view.query && typeof view.query === "object" && !Array.isArray(view.query) ? view.query : {},
+            displays: Array.isArray(view.displays)
+                ? view.displays.map((display) => ({
+                    displayId: this.sanitizeCmsSlug(display.displayId || display.id || display.display_id || ""),
+                    label: String(display.label || display.name || display.displayId || display.id || "").trim(),
+                    type: String(display.type || "block").trim().toLowerCase(),
+                    route: String(display.route || "").trim(),
+                    config: display.config && typeof display.config === "object" && !Array.isArray(display.config) ? display.config : {}
+                })).filter((display) => display.displayId)
+                : [],
+            validation: view.validation || null,
+            createdAt: view.createdAt || null,
+            updatedAt: view.updatedAt || null
+        };
+    }
+
+    getCmsViewEntryField(entry = {}, fieldName = "") {
+        const normalized = String(fieldName || "").replace(/-/g, "").toLowerCase();
+        if (normalized === "entrykey") return entry.entryKey;
+        if (normalized === "status") return entry.status;
+        if (normalized === "sortorder") return entry.sortOrder;
+        if (normalized === "updatedat") return entry.updatedAt;
+        return entry.data?.[fieldName];
+    }
+
+    compareCmsViewValues(left, right) {
+        const leftNumber = Number(left);
+        const rightNumber = Number(right);
+        if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+            return leftNumber - rightNumber;
+        }
+        return String(left ?? "").localeCompare(String(right ?? ""), undefined, {
+            numeric: true,
+            sensitivity: "base"
+        });
+    }
+
+    applyCmsViewQuery(entries = [], query = {}) {
+        const status = String(query.status || "published").toLowerCase();
+        const filters = query.filters && typeof query.filters === "object" && !Array.isArray(query.filters)
+            ? query.filters
+            : {};
+        const sorted = entries
+            .filter((entry) => status === "any" || String(entry.status || "").toLowerCase() === status)
+            .filter((entry) => Object.entries(filters).every(([fieldName, expected]) => {
+                const value = this.getCmsViewEntryField(entry, fieldName);
+                if (Array.isArray(expected)) {
+                    return expected.some((item) => String(item) === String(value));
+                }
+                if (expected && typeof expected === "object" && !Array.isArray(expected)) {
+                    if (expected.operator === "contains") {
+                        return String(value ?? "").toLowerCase().includes(String(expected.value ?? "").toLowerCase());
+                    }
+                    if (expected.operator === "not") {
+                        return String(value) !== String(expected.value);
+                    }
+                    return String(value) === String(expected.value);
+                }
+                return String(value) === String(expected);
+            }))
+            .sort((left, right) => {
+                for (const sortItem of query.sort || []) {
+                    const comparison = this.compareCmsViewValues(
+                        this.getCmsViewEntryField(left, sortItem.field),
+                        this.getCmsViewEntryField(right, sortItem.field)
+                    );
+                    if (comparison !== 0) {
+                        return sortItem.direction === "desc" ? -comparison : comparison;
+                    }
+                }
+                return Number(left.sortOrder || 0) - Number(right.sortOrder || 0)
+                    || String(left.entryKey || "").localeCompare(String(right.entryKey || ""));
+            });
+        const offset = Number.isFinite(Number(query.offset)) ? Math.max(0, Number(query.offset)) : 0;
+        const limit = Number.isFinite(Number(query.limit)) ? Math.max(0, Number(query.limit)) : sorted.length;
+        return sorted.slice(offset, limit ? offset + limit : undefined);
+    }
+
+    getTemplateRegionIds(template = {}) {
+        const regions = template.regions && typeof template.regions === "object" && !Array.isArray(template.regions)
+            ? Object.keys(template.regions).map((region) => this.normalizeBuilderRegionId(region))
+            : [];
+        const defaultBlocks = template.defaultBlocks && typeof template.defaultBlocks === "object" && !Array.isArray(template.defaultBlocks)
+            ? Object.keys(template.defaultBlocks).map((region) => this.normalizeBuilderRegionId(region))
+            : [];
+        return Array.from(new Set([...regions, ...defaultBlocks]));
+    }
+
+    normalizeBuilderRegionId(value, fallback = "main") {
+        const aliases = {
+            main_content: "main",
+            content_main: "main",
+            body: "main",
+            page_body: "main",
+            side_nav: "side-navigation",
+            side_navigation: "side-navigation",
+            sidenav: "side-navigation",
+            sidebar: "side-navigation",
+            side: "side-navigation",
+            content_above: "content-above",
+            contentabove: "content-above",
+            above_content: "content-above",
+            content_below: "content-below",
+            contentbelow: "content-below",
+            below_content: "content-below"
+        };
+        const allowed = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
+        const normalizeToken = (input) => String(input || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "");
+        const raw = normalizeToken(value);
+        const firstToken = raw.includes("_") ? raw.split("_")[0] : raw;
+        const normalized = aliases[raw] || aliases[firstToken] || raw;
+        if (allowed.has(normalized)) {
+            return normalized;
+        }
+        const fallbackRaw = normalizeToken(fallback);
+        const fallbackRegion = aliases[fallbackRaw] || fallbackRaw || "main";
+        return allowed.has(fallbackRegion) ? fallbackRegion : "main";
+    }
+
+    normalizeRegionRecordMap(input = {}) {
+        return Object.entries(input).reduce((acc, [regionId, value]) => {
+            const normalized = this.normalizeBuilderRegionId(regionId);
+            acc[normalized] = {
+                ...(typeof value === "object" && value !== null && !Array.isArray(value) ? value : {}),
+                id: normalized
+            };
+            return acc;
+        }, {});
+    }
+
+    normalizeRegionBlocksMap(input = {}) {
+        return Object.entries(input).reduce((acc, [regionId, blocks]) => {
+            const normalized = this.normalizeBuilderRegionId(regionId);
+            const list = Array.isArray(blocks) ? blocks : [];
+            acc[normalized] = [
+                ...(acc[normalized] || []),
+                ...list.map((block) => ({ ...block, region: this.normalizeBuilderRegionId(block.region || normalized) }))
+            ];
+            return acc;
+        }, {});
+    }
+
+    normalizeLayoutRegionModel(input = {}) {
+        const next = JSON.parse(JSON.stringify(input || {}));
+        if (next.regions && typeof next.regions === "object" && !Array.isArray(next.regions)) {
+            const normalizedRegions = {};
+            Object.entries(next.regions).forEach(([regionId, blocks]) => {
+                const normalized = this.normalizeBuilderRegionId(regionId);
+                const list = Array.isArray(blocks) ? blocks : [];
+                normalizedRegions[normalized] = [
+                    ...(normalizedRegions[normalized] || []),
+                    ...list.map((block, index) => ({
+                        ...block,
+                        region: this.normalizeBuilderRegionId(block.region || normalized),
+                        order: Number.isFinite(Number(block.order)) ? Number(block.order) : index + 1
+                    }))
+                ];
+            });
+            next.regions = normalizedRegions;
+        }
+        if (Array.isArray(next.layout)) {
+            next.layout = next.layout.map((block) => ({
+                ...block,
+                region: this.normalizeBuilderRegionId(block.region, block.region || "main")
+            }));
+        } else if (next.regions && typeof next.regions === "object" && !Array.isArray(next.regions)) {
+            next.layout = Object.values(next.regions).flatMap((blocks) => Array.isArray(blocks) ? blocks : []);
+        }
+        return next;
+    }
+
+    async validateViewBlocks(layoutData = {}) {
+        const blocks = Array.isArray(layoutData.layout) ? layoutData.layout : [];
+        const viewBlocks = blocks.filter((block) => block?.type === "view");
+        if (viewBlocks.length === 0) {
+            return;
+        }
+        const views = await this.listCmsViews();
+        const allowedRegions = new Set(["main", "side-navigation", "content-above", "content-below", "hero"]);
+        viewBlocks.forEach((block, index) => {
+            const viewId = this.sanitizeCmsSlug(block.viewId || block.props?.viewId || "");
+            const displayId = this.sanitizeCmsSlug(block.displayId || block.props?.displayId || "");
+            const region = this.normalizeBuilderRegionId(block.region, "main");
+            const view = views.find((item) => item.viewId === viewId);
+            const display = view?.displays?.find((item) => item.displayId === displayId);
+
+            if (!view) {
+                throw this.createActionableError(
+                    `View block references missing View: ${viewId || "unknown"}`,
+                    400,
+                    "VIEW_BLOCK_VIEW_NOT_FOUND",
+                    { index, viewId }
+                );
+            }
+            if (!display) {
+                throw this.createActionableError(
+                    `View block references missing display: ${displayId || "unknown"}`,
+                    400,
+                    "VIEW_BLOCK_DISPLAY_NOT_FOUND",
+                    { index, viewId, displayId }
+                );
+            }
+            if ((display.type || "block") !== "block") {
+                throw this.createActionableError(
+                    "View block display must be a block display",
+                    400,
+                    "VIEW_BLOCK_DISPLAY_TYPE_INVALID",
+                    { index, viewId, displayId, displayType: display.type }
+                );
+            }
+            if (!allowedRegions.has(region)) {
+                throw this.createActionableError(
+                    `View block cannot be placed in region: ${region}`,
+                    400,
+                    "VIEW_BLOCK_REGION_INVALID",
+                    { index, viewId, displayId, region }
+                );
+            }
+        });
+    }
+
+    normalizeTemplateRecord(input = {}) {
+        const rawId = input.templateId || input.id || input.label || "template";
+        const templateId = this.sanitizePageName(rawId, "template");
+        const label = String(input.label || input.name || templateId).trim() || templateId;
+        const routePattern = String(input.routePattern || input.route || "").trim();
+        const contentType = this.sanitizeCmsSlug(input.contentType || input.content_type || "", "");
+        const layoutId = String(input.layoutId || input.layout_id || "").trim();
+        const lockedRegions = Array.isArray(input.lockedRegions)
+            ? input.lockedRegions.map((region) => this.normalizeBuilderRegionId(region)).filter(Boolean)
+            : [];
+        const regions = input.regions && typeof input.regions === "object" && !Array.isArray(input.regions)
+            ? this.normalizeRegionRecordMap(input.regions)
+            : {};
+        const defaultBlocks = input.defaultBlocks && typeof input.defaultBlocks === "object" && !Array.isArray(input.defaultBlocks)
+            ? this.normalizeRegionBlocksMap(input.defaultBlocks)
+            : {};
+
+        return {
+            templateId,
+            label,
+            description: String(input.description || "").trim(),
+            routePattern,
+            contentType,
+            layoutId,
+            regions,
+            defaultBlocks,
+            lockedRegions,
+            createdAt: input.createdAt || null,
+            updatedAt: input.updatedAt || null
+        };
+    }
+
+    async validateTemplateRecord(template) {
+        const warnings = [];
+        const errors = [];
+        const requiredRegions = ["header", "main", "footer"];
+        const allowedRegions = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
+
+        if (!template.routePattern) {
+            errors.push({ code: "TEMPLATE_ROUTE_MISSING", message: "Template route pattern is required." });
+        }
+        if (template.routePattern && template.routePattern.includes(":") && !template.contentType) {
+            errors.push({ code: "TEMPLATE_CONTENT_TYPE_MISSING", message: "Dynamic routes need a content type." });
+        }
+        if (!template.layoutId) {
+            errors.push({ code: "TEMPLATE_LAYOUT_MISSING", message: "Template layout ID is required." });
+        } else {
+            try {
+                await this.getSavedLayout(template.layoutId);
+            } catch (err) {
+                errors.push({ code: "TEMPLATE_LAYOUT_NOT_FOUND", message: `Layout not found: ${template.layoutId}.` });
+            }
+        }
+
+        const regionIds = this.getTemplateRegionIds(template);
+        requiredRegions.forEach((regionId) => {
+            const blocks = Array.isArray(template.defaultBlocks?.[regionId]) ? template.defaultBlocks[regionId] : [];
+            if (!regionIds.includes(regionId) && blocks.length === 0) {
+                warnings.push({ code: "TEMPLATE_REQUIRED_REGION_EMPTY", message: `Required region has no defaults: ${regionId}.` });
+            }
+        });
+
+        template.lockedRegions.forEach((regionId) => {
+            if (!allowedRegions.has(regionId)) {
+                errors.push({ code: "TEMPLATE_LOCKED_REGION_INVALID", message: `Locked region is not supported: ${regionId}.` });
+            }
+            if (!regionIds.includes(regionId)) {
+                errors.push({ code: "TEMPLATE_LOCKED_REGION_MISSING", message: `Locked region is not defined: ${regionId}.` });
+            }
+        });
+
+        Object.entries(template.defaultBlocks || {}).forEach(([regionId, blocks]) => {
+            if (!allowedRegions.has(regionId)) {
+                errors.push({ code: "TEMPLATE_REGION_UNSUPPORTED", message: `Unsupported default block region: ${regionId}.` });
+                return;
+            }
+            const list = Array.isArray(blocks) ? blocks : [];
+            list.forEach((block, index) => {
+                const sourcePath = block.componentPath || block.partial || "";
+                const inferred = sourcePath ? this.inferAllowedRegionsForComponent(sourcePath, block.type || "partial") : [];
+                if (inferred.length > 0 && !inferred.includes(regionId)) {
+                    errors.push({
+                        code: "TEMPLATE_DEFAULT_BLOCK_REGION_UNSUPPORTED",
+                        message: `Default block ${sourcePath || index + 1} is not supported in ${regionId}.`
+                    });
+                }
+            });
+        });
+
+        const collections = await this.listCmsCollections();
+        const collectionMap = new Map(collections.map((collection) => [collection.slug, collection]));
+        const blocks = Object.values(template.defaultBlocks || {}).flatMap((value) => Array.isArray(value) ? value : []);
+        for (const block of blocks) {
+            const binding = block?.props?.cmsBinding || block?.cmsBinding;
+            if (!binding || binding.source !== "cms" || !binding.collection) {
+                continue;
+            }
+            const collection = collectionMap.get(binding.collection);
+            if (!collection) {
+                errors.push({ code: "TEMPLATE_BINDING_COLLECTION_MISSING", message: `Binding collection missing: ${binding.collection}.` });
+                continue;
+            }
+            const fields = Array.isArray(collection?.schema?.fields) ? collection.schema.fields.map((field) => field.name) : [];
+            Object.values(binding.fieldMap || {}).forEach((fieldName) => {
+                if (fieldName && !fields.includes(fieldName)) {
+                    errors.push({ code: "TEMPLATE_BINDING_FIELD_MISSING", message: `Mapped field missing: ${binding.collection}.${fieldName}.` });
+                }
+            });
+        }
+
+        return {
+            status: errors.length ? "error" : warnings.length ? "warning" : "valid",
+            errors,
+            warnings
+        };
+    }
+
+    inferAllowedRegionsForComponent(componentPath = "", type = "partial") {
+        if (type === "micro") {
+            return ["main", "side-navigation", "content-above", "content-below", "hero"];
+        }
+        const pathValue = String(componentPath || "").toLowerCase();
+        if (/(^|\/)(header|navbar|nav)(\.|\/|$)/.test(pathValue) || pathValue.includes("landmark/header")) return ["header"];
+        if (pathValue.includes("footer") || pathValue.includes("landmark/footer")) return ["footer"];
+        if (pathValue.includes("hero") || pathValue.includes("marquee")) return ["hero", "content-above", "main"];
+        if (pathValue.includes("side") || pathValue.includes("sidebar") || pathValue.includes("navigation")) return ["side-navigation", "main"];
+        if (pathValue.includes("cta")) return ["content-below", "main"];
+        return ["main", "content-above", "content-below"];
+    }
+
+    async enrichTemplateRecord(template) {
+        const validation = await this.validateTemplateRecord(template);
+        const regionIds = this.getTemplateRegionIds(template);
+        return {
+            ...template,
+            regionsCount: regionIds.length,
+            validation
+        };
+    }
+
+    async listTemplates() {
+        const rows = await this.dbAll(`
+            SELECT template_json AS templateJson
+            FROM builder_templates
+            ORDER BY datetime(updated_at) DESC
+        `);
+        const templates = rows.map((row) => this.normalizeTemplateRecord(JSON.parse(row.templateJson)));
+        return Promise.all(templates.map((template) => this.enrichTemplateRecord(template)));
+    }
+
+    async getTemplate(templateId) {
+        const safeTemplateId = this.sanitizePageName(templateId, "");
+        if (!safeTemplateId) {
+            throw this.createActionableError("Invalid template ID", 400, "INVALID_TEMPLATE_ID", { templateId });
+        }
+        const row = await this.dbGet(
+            "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+            [safeTemplateId]
+        );
+        if (!row) {
+            throw this.createActionableError("Template not found", 404, "TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+        }
+        return this.enrichTemplateRecord(this.normalizeTemplateRecord(JSON.parse(row.templateJson)));
+    }
+
+    async saveTemplate(input = {}) {
+        const normalized = this.normalizeTemplateRecord(input);
+        const existing = await this.dbGet(
+            "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+            [normalized.templateId]
+        );
+        const now = new Date().toISOString();
+        const payload = {
+            ...normalized,
+            createdAt: normalized.createdAt || (existing ? JSON.parse(existing.templateJson).createdAt : now),
+            updatedAt: now
+        };
+        const validation = await this.validateTemplateRecord(payload);
+        const serialized = JSON.stringify(payload);
+        await this.dbRun(
+            `
+                INSERT INTO builder_templates (
+                    template_id, label, route_pattern, content_type,
+                    layout_id, template_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(template_id) DO UPDATE SET
+                    label = excluded.label,
+                    route_pattern = excluded.route_pattern,
+                    content_type = excluded.content_type,
+                    layout_id = excluded.layout_id,
+                    template_json = excluded.template_json,
+                    updated_at = excluded.updated_at
+            `,
+            [
+                payload.templateId,
+                payload.label,
+                payload.routePattern,
+                payload.contentType,
+                payload.layoutId,
+                serialized,
+                payload.createdAt,
+                payload.updatedAt
+            ]
+        );
+        return {
+            ...payload,
+            regionsCount: this.getTemplateRegionIds(payload).length,
+            validation
+        };
+    }
+
+    async deleteTemplate(templateId) {
+        const safeTemplateId = this.sanitizePageName(templateId, "");
+        if (!safeTemplateId) {
+            throw this.createActionableError("Invalid template ID", 400, "INVALID_TEMPLATE_ID", { templateId });
+        }
+        const result = await this.dbRun("DELETE FROM builder_templates WHERE template_id = ?", [safeTemplateId]);
+        if (!result || result.changes === 0) {
+            throw this.createActionableError("Template not found", 404, "TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+        }
+        return { templateId: safeTemplateId };
+    }
+
+    mergeTemplateDefaultsIntoLayout(layoutData, template, previewEntry = null) {
+        const next = this.normalizeLayoutRegionModel(layoutData || {});
+        const regions = next.regions && typeof next.regions === "object" && !Array.isArray(next.regions)
+            ? next.regions
+            : {};
+        Object.entries(template.defaultBlocks || {}).forEach(([regionId, blocks]) => {
+            if (!Array.isArray(blocks) || blocks.length === 0) {
+                return;
+            }
+            regions[regionId] = blocks.map((block, index) => ({
+                ...block,
+                region: regionId,
+                order: index + 1,
+                locked: template.lockedRegions.includes(regionId) || Boolean(block.locked)
+            }));
+        });
+        next.regions = regions;
+        next.layout = Object.values(regions).flatMap((blocks) => Array.isArray(blocks) ? blocks : []);
+        next.meta = {
+            ...(next.meta || {}),
+            templateId: template.templateId,
+            templatePreviewEntry: previewEntry ? { entryKey: previewEntry.entryKey, collection: previewEntry.collection } : null
+        };
+        if (previewEntry && template.contentType) {
+            next.layout = next.layout.map((block) => {
+                const binding = block?.props?.cmsBinding || block?.cmsBinding;
+                if (!binding || binding.source !== "cms" || binding.collection !== template.contentType) {
+                    return block;
+                }
+                return {
+                    ...block,
+                    props: {
+                        ...(block.props || {}),
+                        cmsBinding: {
+                            ...binding,
+                            mode: "record",
+                            selection: {
+                                ...(binding.selection || {}),
+                                filter: {
+                                    ...((binding.selection && binding.selection.filter) || {}),
+                                    entryKey: previewEntry.entryKey
+                                }
+                            }
+                        }
+                    }
+                };
+            });
+            next.regions = Object.fromEntries(Object.entries(regions).map(([regionId, blocks]) => [
+                regionId,
+                (Array.isArray(blocks) ? blocks : []).map((block) => {
+                    const blockId = block.id || "";
+                    const blockInstanceId = block.instanceId || "";
+                    return next.layout.find((entry) => {
+                        return (blockId && entry.id === blockId) || (blockInstanceId && entry.instanceId === blockInstanceId);
+                    }) || block;
+                })
+            ]));
+        }
+        return next;
+    }
+
+    async previewTemplate(templateId, options = {}) {
+        const template = await this.getTemplate(templateId);
+        const layoutData = await this.getSavedLayout(template.layoutId);
+        let previewEntry = null;
+        if (template.contentType && options.entryKey) {
+            const entries = await this.listCmsEntries(template.contentType);
+            previewEntry = entries.find((entry) => entry.entryKey === options.entryKey) || null;
+        }
+        const mergedLayout = this.mergeTemplateDefaultsIntoLayout(layoutData, template, previewEntry);
+        const pageName = this.sanitizePageName(`template-preview-${template.templateId}`, "template-preview");
+        const pagePath = await this.createPageFromLayout(mergedLayout, pageName);
+        const html = await fs.readFile(pagePath, "utf8");
+        return {
+            template,
+            entry: previewEntry,
+            pagePath,
+            html
+        };
     }
 
     async getSavedLayout(fileName) {
@@ -1511,12 +2300,17 @@ class BuilderTask {
     }
 
     /**
-     * Scan all partials in the html/partials directory
+     * Scan all active theme partials, falling back to html/partials.
      * @returns {Promise<Array>} Array of partial file objects
      */
     async scanPartials() {
         this.initPartialsSlice();
         return this.partialsService.scanPartials();
+    }
+
+    async scanMicroComponents() {
+        this.initPartialsSlice();
+        return this.partialsService.scanMicroComponents();
     }
 
     /**
@@ -1626,6 +2420,26 @@ class BuilderTask {
     }
 
     validateComponentPath(item, index) {
+        if (item?.type === "view") {
+            if (!this.sanitizeCmsSlug(item.viewId || item.props?.viewId || "")) {
+                throw this.createActionableError(
+                    "View block requires a valid viewId",
+                    400,
+                    "VIEW_BLOCK_VIEW_ID_REQUIRED",
+                    { index, itemId: item.id }
+                );
+            }
+            if (!this.sanitizeCmsSlug(item.displayId || item.props?.displayId || "")) {
+                throw this.createActionableError(
+                    "View block requires a valid displayId",
+                    400,
+                    "VIEW_BLOCK_DISPLAY_ID_REQUIRED",
+                    { index, itemId: item.id, viewId: item.viewId || item.props?.viewId }
+                );
+            }
+            return;
+        }
+
         const sourcePath = item.componentPath || item.partial;
         if (!sourcePath || typeof sourcePath !== "string") {
             throw this.createActionableError(
@@ -1636,9 +2450,8 @@ class BuilderTask {
             );
         }
 
-        // Enforce component source comes from html/partials for page composition.
-        const fullPath = this.resolveSafePath(this.partialsPath, sourcePath);
-        if (!fs.existsSync(fullPath)) {
+        const fullPath = this.resolveComponentSourcePathSync(sourcePath);
+        if (!fullPath) {
             throw this.createActionableError(
                 `Component source does not exist: ${sourcePath}`,
                 400,
@@ -1660,7 +2473,9 @@ class BuilderTask {
                 overwrite: Boolean(options.overwrite),
                 saveAs: Boolean(options.saveAs)
             });
-            this.validateLayoutData(layoutData);
+            const normalizedLayoutData = this.normalizeLayoutRegionModel(layoutData);
+            this.validateLayoutData(normalizedLayoutData);
+            await this.validateViewBlocks(normalizedLayoutData);
             await fs.ensureDir(this.pagesOutputPath);
 
             const safePageName = String(options.pageName || layoutData.pageName || "page")
@@ -1694,11 +2509,12 @@ class BuilderTask {
 
             const now = new Date().toISOString();
             const layoutPayload = {
-                ...layoutData,
+                ...normalizedLayoutData,
                 pageName: safePageName,
                 meta: {
                     version: 1,
-                    createdAt: layoutData?.meta?.createdAt || now,
+                    ...(normalizedLayoutData?.meta || {}),
+                    createdAt: normalizedLayoutData?.meta?.createdAt || now,
                     updatedAt: now
                 }
             };
@@ -1917,7 +2733,64 @@ class BuilderTask {
                     this.sendError(res, err, "BUILDER_CMS_ENTRIES_READ_FAILED");
                 }
             });
+            this.app.get("/api/builder/cms/views", async (req, res) => {
+                try {
+                    const views = await this.listCmsViews();
+                    res.json({ success: true, data: views });
+                } catch (err) {
+                    this.sendError(res, err, "BUILDER_CMS_VIEWS_READ_FAILED");
+                }
+            });
+            this.app.post("/api/builder/cms/views/:viewId/preview", async (req, res) => {
+                try {
+                    const preview = await this.previewCmsView(req.params.viewId, req.body || {});
+                    res.json({ success: true, data: preview });
+                } catch (err) {
+                    this.sendError(res, err, "BUILDER_CMS_VIEW_PREVIEW_FAILED");
+                }
+            });
             this.app.use("/src/images", express.static(this.imagesPath));
+
+            this.app.get("/api/templates", async (req, res) => {
+                try {
+                    const templates = await this.listTemplates();
+                    res.json({ success: true, data: templates });
+                } catch (err) {
+                    this.sendError(res, err, "TEMPLATES_LIST_FAILED");
+                }
+            });
+            this.app.get("/api/templates/:templateId", async (req, res) => {
+                try {
+                    const template = await this.getTemplate(req.params.templateId);
+                    res.json({ success: true, data: template });
+                } catch (err) {
+                    this.sendError(res, err, "TEMPLATE_READ_FAILED");
+                }
+            });
+            this.app.post("/api/templates", async (req, res) => {
+                try {
+                    const template = await this.saveTemplate(req.body || {});
+                    res.json({ success: true, data: template });
+                } catch (err) {
+                    this.sendError(res, err, "TEMPLATE_SAVE_FAILED");
+                }
+            });
+            this.app.delete("/api/templates/:templateId", async (req, res) => {
+                try {
+                    const deleted = await this.deleteTemplate(req.params.templateId);
+                    res.json({ success: true, data: deleted });
+                } catch (err) {
+                    this.sendError(res, err, "TEMPLATE_DELETE_FAILED");
+                }
+            });
+            this.app.post("/api/templates/:templateId/preview", async (req, res) => {
+                try {
+                    const preview = await this.previewTemplate(req.params.templateId, req.body || {});
+                    res.json({ success: true, data: preview });
+                } catch (err) {
+                    this.sendError(res, err, "TEMPLATE_PREVIEW_FAILED");
+                }
+            });
 
             this.initPartialsSlice();
             registerPartialsRoutes(this.app, this.partialsController);

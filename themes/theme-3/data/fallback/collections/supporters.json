@@ -1,0 +1,41 @@
+{
+  "id": 1,
+  "slug": "supporters",
+  "name": "Supporters",
+  "schema": {
+    "fields": [
+      {
+        "name": "name",
+        "label": "Name",
+        "type": "text"
+      },
+      {
+        "name": "tier",
+        "label": "Tier",
+        "type": "text"
+      },
+      {
+        "name": "url",
+        "label": "URL",
+        "type": "text"
+      },
+      {
+        "name": "active",
+        "label": "Active",
+        "type": "boolean"
+      },
+      {
+        "name": "sort_order",
+        "label": "Sort Order",
+        "type": "number"
+      }
+    ]
+  },
+  "createdAt": "2026-04-22T10:46:19.656Z",
+  "updatedAt": "2026-04-22T10:59:44.779Z",
+  "entryCount": 3,
+  "files": {
+    "collection": "collections/supporters.json",
+    "entries": "entries/supporters.json"
+  }
+}

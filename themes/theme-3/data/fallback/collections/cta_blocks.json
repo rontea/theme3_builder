@@ -1,0 +1,41 @@
+{
+  "id": 4,
+  "slug": "cta_blocks",
+  "name": "CTA Blocks",
+  "schema": {
+    "fields": [
+      {
+        "name": "key",
+        "label": "Key",
+        "type": "text"
+      },
+      {
+        "name": "heading",
+        "label": "Heading",
+        "type": "text"
+      },
+      {
+        "name": "button_label",
+        "label": "Button Label",
+        "type": "text"
+      },
+      {
+        "name": "button_url",
+        "label": "Button URL",
+        "type": "text"
+      },
+      {
+        "name": "active",
+        "label": "Active",
+        "type": "boolean"
+      }
+    ]
+  },
+  "createdAt": "2026-04-22T10:46:19.825Z",
+  "updatedAt": "2026-04-22T10:59:44.940Z",
+  "entryCount": 1,
+  "files": {
+    "collection": "collections/cta_blocks.json",
+    "entries": "entries/cta_blocks.json"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "collection": "insights",
+  "generatedAt": "2026-05-07T14:58:36.137Z",
+  "count": 3,
+  "entries": [
+    {
+      "id": 8,
+      "collection": "insights",
+      "entryKey": "future-of-ai-systems",
+      "status": "published",
+      "sortOrder": 1,
+      "data": {
+        "title": "The Future of AI Systems",
+        "slug": "future-of-ai-systems",
+        "category": "Architecture",
+        "image_src": "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800",
+        "image_alt": "The Future of AI Systems",
+        "detail_url": "future-ai-systems.html",
+        "active": true,
+        "sort_order": 1
+      },
+      "createdAt": "2026-04-22T10:46:19.800Z",
+      "updatedAt": "2026-04-22T10:59:44.907Z"
+    },
+    {
+      "id": 9,
+      "collection": "insights",
+      "entryKey": "edge-networks",
+      "status": "published",
+      "sortOrder": 2,
+      "data": {
+        "title": "Edge Networks",
+        "slug": "edge-networks",
+        "category": "Engineering",
+        "image_src": "https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&q=80&w=800",
+        "image_alt": "Edge Networks",
+        "detail_url": "edge-networks.html",
+        "active": true,
+        "sort_order": 2
+      },
+      "createdAt": "2026-04-22T10:46:19.808Z",
+      "updatedAt": "2026-04-22T10:59:44.918Z"
+    },
+    {
+      "id": 10,
+      "collection": "insights",
+      "entryKey": "content-strategy",
+      "status": "published",
+      "sortOrder": 3,
+      "data": {
+        "title": "Content Strategy",
+        "slug": "content-strategy",
+        "category": "Minimalism",
+        "image_src": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800",
+        "image_alt": "Content Strategy",
+        "detail_url": "content-strategy.html",
+        "active": true,
+        "sort_order": 3
+      },
+      "createdAt": "2026-04-22T10:46:19.816Z",
+      "updatedAt": "2026-04-22T10:59:44.927Z"
+    }
+  ]
+}

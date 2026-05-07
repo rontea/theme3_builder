@@ -172,6 +172,6 @@ This document describes the current request/response contracts for builder endpo
 
 - Path traversal is rejected for read/write endpoints using path sanitization.
 - Layout payload is validated (shape, item count, text lengths, byte size limit).
-- Page composition only accepts component sources inside `html/partials`.
+- Page composition resolves component sources from the active theme before the legacy bridge: `themes/<theme-name>/partials`, `themes/<theme-name>/components`, then `html/partials`.
 - `th3 builder` must return `404` for CMS authoring routes such as `/api/cms/collections`.
 - CMS authoring must go through `th3 cms serve` and the standalone CMS `/api/cms/*` routes.

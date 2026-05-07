@@ -1,0 +1,95 @@
+{
+  "collection": "projects",
+  "generatedAt": "2026-05-07T14:58:36.137Z",
+  "count": 4,
+  "entries": [
+    {
+      "id": 4,
+      "collection": "projects",
+      "entryKey": "aimana",
+      "status": "published",
+      "sortOrder": 1,
+      "data": {
+        "title": "AIMANA",
+        "slug": "aimana",
+        "category": "AI Animation",
+        "summary": "AIMANA AI is an all-in-one creative platform for generation, management, and transformation.",
+        "image_src": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=1200",
+        "image_alt": "AIMANA",
+        "detail_url": "aimana.html",
+        "year": "2024",
+        "featured": true,
+        "active": true,
+        "sort_order": 1
+      },
+      "createdAt": "2026-04-22T10:46:19.741Z",
+      "updatedAt": "2026-04-22T10:59:44.844Z"
+    },
+    {
+      "id": 5,
+      "collection": "projects",
+      "entryKey": "theme-3-builder",
+      "status": "published",
+      "sortOrder": 2,
+      "data": {
+        "title": "THEME_3 Builder",
+        "slug": "theme-3-builder",
+        "category": "Cloud Systems",
+        "summary": "Next-generation cloud infrastructure visualization for real-time edge computing networks.",
+        "image_src": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=1200",
+        "image_alt": "THEME_3 Builder",
+        "detail_url": "voyager.html",
+        "year": "2024",
+        "featured": true,
+        "active": true,
+        "sort_order": 2
+      },
+      "createdAt": "2026-04-22T10:46:19.758Z",
+      "updatedAt": "2026-04-22T10:59:44.859Z"
+    },
+    {
+      "id": 6,
+      "collection": "projects",
+      "entryKey": "neural-canvas",
+      "status": "published",
+      "sortOrder": 3,
+      "data": {
+        "title": "NEURAL CANVAS",
+        "slug": "neural-canvas",
+        "category": "Engineering",
+        "summary": "Visual tooling for rapid experiments in generative product interfaces.",
+        "image_src": "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=800",
+        "image_alt": "Neural Canvas",
+        "detail_url": "neural.html",
+        "year": "2023",
+        "featured": false,
+        "active": true,
+        "sort_order": 3
+      },
+      "createdAt": "2026-04-22T10:46:19.768Z",
+      "updatedAt": "2026-04-22T10:59:44.871Z"
+    },
+    {
+      "id": 7,
+      "collection": "projects",
+      "entryKey": "oscillate",
+      "status": "published",
+      "sortOrder": 4,
+      "data": {
+        "title": "OSCILLATE",
+        "slug": "oscillate",
+        "category": "Product",
+        "summary": "Product experiments in interaction systems and motion-heavy storytelling.",
+        "image_src": "https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&q=80&w=1200",
+        "image_alt": "Oscillate",
+        "detail_url": "oscillate.html",
+        "year": "2023",
+        "featured": false,
+        "active": true,
+        "sort_order": 4
+      },
+      "createdAt": "2026-04-22T10:46:19.779Z",
+      "updatedAt": "2026-04-22T10:59:44.882Z"
+    }
+  ]
+}

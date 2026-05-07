@@ -32,7 +32,8 @@ const commands = [
     { name: 'icons-bootstrap', desc: 'Compile icons bootstrap' },
     { name: 'move-res', desc: 'Move resources folder or file to build based on dest' },
     { name: 'builder', desc: 'Launch Visual Drag-and-Drop Builder (use --port to specify port, --open to auto-open browser)' },
-    { name: 'cms', desc: 'Run Theme CMS commands (serve, export, migrate-content)' }
+    { name: 'cms', desc: 'Run Theme CMS commands (serve, export, migrate-content)' },
+    { name: 'theme', desc: 'Run Theme package commands (export)' }
 ];
 
 function showHelp() {
@@ -48,6 +49,7 @@ function showHelp() {
     console.log('  th3 builder              Launch visual builder');
     console.log('  th3 builder --port 8080  Launch builder on port 8080');
     console.log('  th3 cms export           Publish CMS JSON bridge files');
+    console.log('  th3 theme export         Generate a portable theme package');
     console.log('  th3 cms migrate-content  Seed Phase 5 CMS collections/entries');
     console.log('  th3 build-init           Build all assets\n');
 }
@@ -394,9 +396,13 @@ yargs(hideBin(process.argv))
     if (argv.action === "serve") {
         try {
             const cmsPort = resolveCmsPort(argv.port);
+            const defaultBuilderPort = resolveBuilderPort();
             const runtime = await startThemeCmsServer({
                 port: cmsPort,
-                projectRoot
+                projectRoot,
+                cmsBaseUrl: `http://localhost:${cmsPort}`,
+                cmsAdminUrl: `http://localhost:${cmsPort}/cms`,
+                builderPreviewUrl: `http://localhost:${defaultBuilderPort}`
             });
             const cmsUrl = `http://localhost:${cmsPort}/cms`;
             console.log(`Theme CMS server started on ${cmsUrl}`);
@@ -545,6 +551,85 @@ yargs(hideBin(process.argv))
         } finally {
             await repository.close();
         }
+    }
+})
+.command('theme <action>', "Run Theme package commands", (yargs) => {
+    return yargs
+        .positional('action', {
+            describe: "Theme action to run",
+            choices: ["export"]
+        })
+        .option('project-root', {
+            type: 'string',
+            default: process.cwd(),
+            description: "Project root used to resolve CMS, builder, html, and theme paths"
+        })
+        .option('theme-name', {
+            type: 'string',
+            default: 'Theme 3',
+            description: "Theme name written to theme.json"
+        })
+        .option('output', {
+            type: 'string',
+            description: "Output folder for the portable theme package"
+        })
+        .option('include-compiled-assets', {
+            type: 'boolean',
+            default: true,
+            description: "Copy compiled/source CSS, JS, and images into assets/"
+        })
+        .option('include-fallback-data', {
+            type: 'boolean',
+            default: true,
+            description: "Write CMS fallback data into data/fallback/"
+        })
+        .option('include-draft-bindings', {
+            type: 'boolean',
+            default: false,
+            description: "Mark draft binding metadata as included"
+        })
+        .option('overwrite', {
+            type: 'boolean',
+            default: false,
+            description: "Overwrite an existing theme export folder"
+        });
+}, async (argv) => {
+    const { createThemeCmsConfig, createCmsRepository, createCmsService } = require('../theme-cms/server');
+    const projectRoot = path.resolve(String(argv.projectRoot || process.cwd()));
+    const config = createThemeCmsConfig({ projectRoot });
+    const repository = createCmsRepository(config);
+    const service = createCmsService(repository, { config });
+
+    try {
+        await repository.initSchema();
+        const result = await service.exportTheme({
+            themeName: argv.themeName,
+            outputPath: argv.output,
+            includeCompiledAssets: Boolean(argv.includeCompiledAssets),
+            includeFallbackData: Boolean(argv.includeFallbackData),
+            includeDraftBindings: Boolean(argv.includeDraftBindings),
+            overwrite: Boolean(argv.overwrite)
+        });
+
+        console.log(`Theme export completed at ${result.generatedAt}`);
+        console.log(`Output: ${result.outputPath}`);
+        console.log(`Manifest: ${result.manifestPath}`);
+        console.log(`Layouts: ${result.totals.layouts}`);
+        console.log(`Templates: ${result.totals.templates}`);
+        console.log(`Views: ${result.totals.views}`);
+        console.log(`Bindings: ${result.totals.bindings}`);
+        console.log(`Validation: ${result.validation.valid ? "valid" : "has errors"}`);
+        if (result.validation.errors.length || result.validation.warnings.length) {
+            [...result.validation.errors, ...result.validation.warnings].forEach((item) => {
+                console.log(`- ${item.code}: ${item.message}`);
+            });
+        }
+    } catch (err) {
+        console.error('Theme export failed:', err);
+        logErr.writeLog(err, { customKey: 'THEME_EXPORT_ERROR' });
+        process.exitCode = 1;
+    } finally {
+        await repository.close();
     }
 })
 .fail((msg, err, yargs) => {

@@ -1,0 +1,66 @@
+{
+  "project": {
+    "name": "theme_3",
+    "createdAt": "2026-03-06T01:37:40.996Z"
+  },
+  "pageName": "about",
+  "pageTitle": "about",
+  "createdAt": "2026-03-06T01:37:56.316Z",
+  "meta": {
+    "version": 1,
+    "createdAt": "2026-03-06T01:37:57.263Z",
+    "updatedAt": "2026-03-06T01:37:57.263Z"
+  },
+  "layout": [
+    {
+      "id": "instance-1772761072271-ch0mo1sn3",
+      "order": 1,
+      "type": "partial",
+      "partial": "about/about_header.html",
+      "componentPath": "about/about_header.html",
+      "name": "about_header",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 pt-20 md:pt-32 mb-16 md:mb-24\">\n    <div class=\"max-w-3xl reveal\">\n        <span class=\"text-[10px] font-bold tracking-widest-xl uppercase text-gray-400 mb-6 block\">Introduction</span>\n        <h1 class=\"font-heading text-6xl md:text-9xl font-bold tracking-ultra-tight leading-tight-08 mb-8 uppercase\">ABOUT</h1>\n        <p class=\"text-xl md:text-2xl text-gray-500 dark:text-gray-400 leading-relaxed font-light\">Defining digital boundaries through a lens of minimalism and precision. Crafting interfaces that feel as good as they look.</p>\n    </div>\n</div>"
+    },
+    {
+      "id": "instance-1772761072277-4u5rczej0",
+      "order": 2,
+      "type": "partial",
+      "partial": "about/about_feature_image.html",
+      "componentPath": "about/about_feature_image.html",
+      "name": "about_feature_image",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 mb-32\">\n    <div class=\"reveal\">\n        <div class=\"relative aspect-[21/9] rounded-[2rem] md:rounded-[3rem] overflow-hidden bg-gray-100 dark:bg-zinc-900 shadow-2xl group\">\n            <img src=\"https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&amp;fit=crop&amp;q=80&amp;w=2000\" alt=\"About RonTea Workspace\" class=\"w-full h-full object-cover transition-transform duration-[2s] group-hover:scale-105\">\n            <div class=\"absolute inset-0 bg-black/5 pointer-events-none\"></div>\n        </div>\n    </div>\n</div>"
+    },
+    {
+      "id": "instance-1772761072283-w276rblyp",
+      "order": 3,
+      "type": "partial",
+      "partial": "about/about_story.html",
+      "componentPath": "about/about_story.html",
+      "name": "about_story",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 mb-32\">\n    <div class=\"grid grid-cols-1 md:grid-cols-12 gap-12 md:gap-24 reveal\">\n        <div class=\"md:col-span-8\">\n            <h2 class=\"font-heading text-4xl md:text-6xl font-bold tracking-ultra-tight uppercase leading-none mb-10\">THE STORY</h2>\n            <div class=\"space-y-8\">\n                <p class=\"text-gray-500 dark:text-gray-400 text-xl md:text-2xl font-light leading-relaxed\">\n                    I am a designer and creative developer based in London. My work focuses on the intersection of human-centric design and technical innovation, aiming to build products that resonate on a deeper level.\n                </p>\n                <p class=\"text-gray-500 dark:text-gray-400 text-lg md:text-xl font-light leading-relaxed\">\n                    With over a decade of experience, I've had the privilege of working with global brands and ambitious startups to define their visual languages and digital architectures. I believe that simplicity is the ultimate sophistication.\n                </p>\n            </div>\n        </div>\n        <div class=\"md:col-span-4 space-y-12 border-l border-black/5 dark:border-white/5 pl-8 md:pl-12\">\n            <div>\n                <p class=\"text-[10px] font-bold text-gray-400 uppercase tracking-widest-xl mb-4\">Core Expertise</p>\n                <ul class=\"font-heading font-bold text-lg uppercase space-y-2\">\n                    <li>Art Direction</li>\n                    <li>Creative Engineering</li>\n                    <li>Generative UI</li>\n                    <li>Digital Strategy</li>\n                </ul>\n            </div>\n            <div>\n                <p class=\"text-[10px] font-bold text-gray-400 uppercase tracking-widest-xl mb-4\">Location</p>\n                <p class=\"font-heading font-bold text-lg uppercase\">London, UK / Remote</p>\n            </div>\n        </div>\n    </div>\n</div>"
+    },
+    {
+      "id": "instance-1772761072288-1f6nk7wwp",
+      "order": 4,
+      "type": "partial",
+      "partial": "about/about_values.html",
+      "componentPath": "about/about_values.html",
+      "name": "about_values",
+      "props": {},
+      "renderedContent": "<div class=\"max-w-[1440px] mx-auto px-8 md:px-20 mb-20\">\n    <div class=\"grid grid-cols-1 md:grid-cols-3 gap-12 border-t border-black/5 dark:border-white/5 pt-20 reveal\">\n        <div class=\"space-y-4\">\n            <h3 class=\"font-heading font-bold text-xl uppercase\">Precision</h3>\n            <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed\">Every pixel serves a purpose. I obsess over the details to ensure a seamless experience.</p>\n        </div>\n        <div class=\"space-y-4\">\n            <h3 class=\"font-heading font-bold text-xl uppercase\">Innovation</h3>\n            <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed\">Leveraging the latest in AI and edge computing to push the boundaries of what's possible on the web.</p>\n        </div>\n        <div class=\"space-y-4\">\n            <h3 class=\"font-heading font-bold text-xl uppercase\">Humanity</h3>\n            <p class=\"text-gray-500 dark:text-gray-400 font-light leading-relaxed\">Technology should empower, not overwhelm. I design for people, not just for screens.</p>\n        </div>\n    </div>\n</div>"
+    },
+    {
+      "id": "instance-1772761072293-1ruxrvl19",
+      "order": 5,
+      "type": "partial",
+      "partial": "about/about_cta.html",
+      "componentPath": "about/about_cta.html",
+      "name": "about_cta",
+      "props": {},
+      "renderedContent": "<section class=\"py-40 bg-white dark:bg-[#0a0a0a] border-t border-black/5 dark:border-white/5\">\n    <div class=\"max-w-[1440px] mx-auto px-8 text-center reveal\">\n        <h2 class=\"font-heading text-5xl md:text-8xl font-bold tracking-ultra-tight uppercase leading-none mb-12\">Let's start a <br> conversation.</h2>\n        <a href=\"mailto:hello@rontea.com\" class=\"inline-block text-[10px] font-bold tracking-widest-xl uppercase border-b-2 border-black dark:border-white pb-2 hover:opacity-50 transition-opacity\">Contact Me</a>\n    </div>\n</section>"
+    }
+  ]
+}

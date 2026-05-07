@@ -1,0 +1,23 @@
+{
+  "collection": "cta_blocks",
+  "generatedAt": "2026-05-07T14:58:36.137Z",
+  "count": 1,
+  "entries": [
+    {
+      "id": 11,
+      "collection": "cta_blocks",
+      "entryKey": "about-cta",
+      "status": "published",
+      "sortOrder": 1,
+      "data": {
+        "key": "about-cta",
+        "heading": "Let's start a conversation.",
+        "button_label": "Contact Me",
+        "button_url": "mailto:hello@rontea.com",
+        "active": true
+      },
+      "createdAt": "2026-04-22T10:46:19.834Z",
+      "updatedAt": "2026-04-22T11:21:14.878Z"
+    }
+  ]
+}

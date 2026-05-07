@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "name": "Theme 3",
+  "slug": "theme-3",
+  "version": "1.0.0",
+  "exportedAt": "2026-05-07T14:58:36.137Z",
+  "source": {
+    "projectRoot": "C:\\Projects\\RRapid_Tools\\theme3_builder",
+    "cmsDatabase": "C:\\Projects\\RRapid_Tools\\theme3_builder\\theme-cms\\data\\cms.sqlite",
+    "builderDatabase": "C:\\Projects\\RRapid_Tools\\theme3_builder\\_builder\\layouts\\builder.sqlite"
+  },
+  "requiredCollections": [],
+  "regions": [
+    "header",
+    "hero",
+    "side-navigation",
+    "content-above",
+    "main",
+    "content-below",
+    "footer"
+  ],
+  "regionDefinitions": [
+    {
+      "id": "header",
+      "label": "Header",
+      "required": true,
+      "template": "templates/regions/header.html",
+      "defaultPartial": "partials/landmark/header.html"
+    },
+    {
+      "id": "hero",
+      "label": "Hero",
+      "required": false,
+      "template": "templates/regions/hero.html",
+      "defaultPartial": null
+    },
+    {
+      "id": "side-navigation",
+      "label": "Side Navigation",
+      "required": false,
+      "template": "templates/regions/side-navigation.html",
+      "defaultPartial": null
+    },
+    {
+      "id": "content-above",
+      "label": "Content Above",
+      "required": false,
+      "template": "templates/regions/content-above.html",
+      "defaultPartial": null
+    },
+    {
+      "id": "content-below",
+      "label": "Content Below",
+      "required": false,
+      "template": "templates/regions/content-below.html",
+      "defaultPartial": null
+    },
+    {
+      "id": "main",
+      "label": "Main",
+      "required": true,
+      "template": "templates/regions/main.html",
+      "defaultPartial": null
+    },
+    {
+      "id": "footer",
+      "label": "Footer",
+      "required": true,
+      "template": "templates/regions/footer.html",
+      "defaultPartial": "partials/landmark/footer.html"
+    }
+  ],
+  "templates": [
+    {
+      "id": "page",
+      "label": "Default Page",
+      "type": "page",
+      "file": "templates/page.html",
+      "regions": [
+        "header",
+        "hero",
+        "side-navigation",
+        "content-above",
+        "main",
+        "content-below",
+        "footer"
+      ]
+    }
+  ],
+  "counts": {
+    "layouts": 6,
+    "templates": 1,
+    "builderTemplates": 0,
+    "themeTemplates": 1,
+    "regions": 7,
+    "bindings": 0,
+    "requiredCollections": 0
+  },
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "warnings": [],
+    "counts": {
+      "layouts": 6,
+      "templates": 1,
+      "builderTemplates": 0,
+      "themeTemplates": 1,
+      "regions": 7,
+      "bindings": 0,
+      "requiredCollections": 0
+    }
+  },
+  "files": [
+    "templates",
+    "templates/regions",
+    "layouts",
+    "pages",
+    "regions",
+    "partials",
+    "components",
+    "assets",
+    "data/fallback",
+    "bindings"
+  ]
+}

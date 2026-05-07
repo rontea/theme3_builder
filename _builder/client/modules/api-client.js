@@ -157,6 +157,48 @@
             return this.requestJson(`/api/builder/cms/entries?collection=${encodeURIComponent(collection)}`);
         }
 
+        listCmsViews() {
+            return this.requestJson("/api/builder/cms/views");
+        }
+
+        previewCmsView(viewId, displayId) {
+            return this.requestJson(`/api/builder/cms/views/${encodeURIComponent(viewId)}/preview`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ displayId })
+            });
+        }
+
+        listTemplates() {
+            return this.requestJson("/api/templates");
+        }
+
+        getTemplate(templateId) {
+            return this.requestJson(`/api/templates/${encodeURIComponent(templateId)}`);
+        }
+
+        saveTemplate(template) {
+            return this.requestJson("/api/templates", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(template || {})
+            });
+        }
+
+        deleteTemplate(templateId) {
+            return this.requestJson(`/api/templates/${encodeURIComponent(templateId)}`, {
+                method: "DELETE"
+            });
+        }
+
+        previewTemplate(templateId, options = {}) {
+            return this.requestJson(`/api/templates/${encodeURIComponent(templateId)}/preview`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(options || {})
+            });
+        }
+
         async getPreviewStyles() {
             try {
                 const result = await this.requestJson("/api/preview-styles");

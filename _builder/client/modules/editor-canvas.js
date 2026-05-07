@@ -43,6 +43,23 @@
                 });
             }
 
+            if (ctx.viewsList) {
+                ctx.viewsSortable = new Sortable(ctx.viewsList, {
+                    group: { name: "builder", pull: "clone", put: false },
+                    draggable: ".component-item",
+                    sort: false,
+                    animation: 150,
+                    ghostClass: "sortable-ghost",
+                    chosenClass: "sortable-chosen",
+                    onStart: (evt) => {
+                        ctx.currentDragPartialPath = evt?.item?.dataset?.path || "";
+                    },
+                    onEnd: () => {
+                        this.clearDragPreviewIndicator(ctx);
+                    }
+                });
+            }
+
             ctx.canvasSortable = new Sortable(ctx.canvasDropZone, {
                 group: { name: "builder", pull: false, put: ["builder"] },
                 animation: 150,
@@ -81,13 +98,27 @@
             const item = evt.item;
             const type = item.dataset.type || evt.clone?.dataset?.type;
             const componentPath = item.dataset.path || evt.clone?.dataset?.path;
+            const rawRegion = evt.to?.dataset?.regionId
+                || (ctx.activeRegionFilter && ctx.activeRegionFilter !== "all" ? ctx.activeRegionFilter : "")
+                || ctx.inferRegionForComponent?.(componentPath)
+                || "main";
+            const region = ctx.normalizeRegionId?.(rawRegion, ctx.inferRegionForComponent?.(componentPath) || "main") || "main";
+            const allowedRegions = String(item.dataset.allowedRegions || evt.clone?.dataset?.allowedRegions || "")
+                .split(",")
+                .map((value) => ctx.normalizeRegionId?.(value, value.trim()) || value.trim())
+                .filter(Boolean);
+            if (allowedRegions.length && !allowedRegions.includes(region)) {
+                item.remove();
+                ctx.showToast(`Component cannot be placed in ${ctx.getRegionDefinition?.(region)?.name || region}`, "warning");
+                return;
+            }
             item.remove();
-            this.createCanvasItem(ctx, type, componentPath);
+            this.createCanvasItem(ctx, type, componentPath, { region });
         },
 
         async createCanvasItem(ctx, type, componentPath, options = {}) {
             try {
-                if (type !== "partial" && type !== "micro") {
+                if (type !== "partial" && type !== "micro" && type !== "view") {
                     throw new Error("Unsupported component type");
                 }
 
@@ -98,6 +129,12 @@
                 const instance = await ctx.createComponentInstance(type, componentPath);
                 if (options.canvas && typeof options.canvas === "object") {
                     instance.canvas = { ...(instance.canvas || {}), ...options.canvas };
+                }
+                if (ctx.builderMode === "page") {
+                    instance.region = ctx.normalizeRegionId?.(options.region, ctx.inferRegionForComponent?.(componentPath) || "main") || "main";
+                    instance.order = ctx.getActiveComponents().filter((entry) => entry.region === instance.region).length + 1;
+                    instance.visible = instance.visible !== false;
+                    instance.blockConfig = instance.blockConfig || {};
                 }
                 ctx.getActiveComponents().push(instance);
 
@@ -111,8 +148,127 @@
 
         renderCanvasFromState(ctx) {
             ctx.canvasDropZone.innerHTML = "";
+            if (ctx.builderMode === "page" && !this.isFreeformMode(ctx) && Array.isArray(ctx.layoutRegions)) {
+                this.renderRegionCanvas(ctx);
+                this.updateCanvasState(ctx);
+                return;
+            }
             ctx.getActiveComponents().forEach((item) => this.renderCanvasItem(ctx, item, { container: ctx.canvasDropZone }));
             this.updateCanvasState(ctx);
+        },
+
+        renderRegionCanvas(ctx) {
+            const grouped = ctx.getComponentsByRegion(ctx.getActiveComponents());
+            ctx.layoutRegions.forEach((region) => {
+                const section = document.createElement("section");
+                const blocks = grouped[region.id] || [];
+                const isMissing = region.required && blocks.filter((item) => item.visible !== false).length === 0;
+                section.className = `builder-region${isMissing ? " has-warning" : ""}${region.locked ? " is-locked" : ""}`;
+                section.dataset.regionId = region.id;
+                section.innerHTML = `
+                    <div class="builder-region-header">
+                        <div>
+                            <span class="builder-region-kicker">${region.required ? "Required" : "Optional"}</span>
+                            <h4>${region.name}</h4>
+                        </div>
+                        <span class="builder-region-status">${region.locked ? "Locked" : isMissing ? "Missing required block" : `${blocks.length} block${blocks.length === 1 ? "" : "s"}`}</span>
+                    </div>
+                    <div class="builder-region-drop-zone" data-region-id="${region.id}"></div>
+                `;
+                const dropZone = section.querySelector(".builder-region-drop-zone");
+                if (!blocks.length) {
+                    dropZone.innerHTML = `
+                        <div class="builder-region-empty">
+                            <strong>${region.name} Region</strong>
+                            <span>${region.locked ? "This region is locked by the template." : "Drop compatible components here."}</span>
+                        </div>
+                    `;
+                } else {
+                    blocks.forEach((item) => this.renderCanvasItem(ctx, item, { container: dropZone }));
+                }
+                ctx.canvasDropZone.appendChild(section);
+                if (!region.locked) {
+                    this.enableRegionSortable(ctx, dropZone);
+                }
+            });
+        },
+
+        enableRegionSortable(ctx, dropZone) {
+            if (!dropZone || dropZone.__regionSortable) {
+                return;
+            }
+            dropZone.__regionSortable = new Sortable(dropZone, {
+                group: { name: "builder", pull: true, put: ["builder"] },
+                animation: 150,
+                ghostClass: "sortable-ghost",
+                chosenClass: "sortable-chosen",
+                ignore: "input, textarea, select, option, [contenteditable='true']",
+                handle: ".canvas-item-header",
+                draggable: ".canvas-item:not(.is-nested)",
+                onAdd: (evt) => {
+                    const instanceId = evt.item?.dataset?.instanceId;
+                    if (instanceId) {
+                        this.moveItemToRegion(ctx, instanceId, evt.to?.dataset?.regionId || "main", evt.newIndex);
+                        return;
+                    }
+                    this.handleDrop(ctx, evt);
+                },
+                onUpdate: (evt) => this.updateRegionOrder(ctx, evt.to?.dataset?.regionId || "main"),
+                onRemove: () => this.updateCanvasState(ctx)
+            });
+        },
+
+        moveItemToRegion(ctx, instanceId, regionId, newIndex = null) {
+            const location = ctx.findComponentLocation(instanceId);
+            if (!location || location.item.locked) {
+                this.renderCanvasFromState(ctx);
+                return;
+            }
+            const targetRegion = ctx.normalizeRegionId?.(regionId, "main") || "main";
+            const allowedRegions = ctx.getAllowedRegionsForComponent?.(location.item.componentPath, location.item.type) || [];
+            if (allowedRegions.length && !allowedRegions.includes(targetRegion)) {
+                ctx.showToast(`Block cannot move to ${ctx.getRegionDefinition?.(targetRegion)?.name || targetRegion}`, "warning");
+                this.renderCanvasFromState(ctx);
+                return;
+            }
+            ctx.pushHistory();
+            location.item.region = targetRegion;
+            const components = ctx.getActiveComponents();
+            const others = components.filter((item) => item.instanceId !== instanceId);
+            const targetItems = others.filter((item) => item.region === targetRegion);
+            const insertAt = Number.isFinite(Number(newIndex)) ? Math.max(0, Math.min(Number(newIndex), targetItems.length)) : targetItems.length;
+            targetItems.splice(insertAt, 0, location.item);
+            const next = ctx.layoutRegions.flatMap((region) => {
+                const list = region.id === targetRegion
+                    ? targetItems
+                    : others.filter((item) => item.region === region.id);
+                return list.map((item, index) => ({ ...item, order: index + 1 }));
+            });
+            ctx.setActiveComponents(next);
+            this.renderCanvasFromState(ctx);
+            ctx.refreshLivePreview();
+        },
+
+        updateRegionOrder(ctx, regionId) {
+            ctx.pushHistory();
+            const ids = Array.from(ctx.canvasDropZone.querySelectorAll(`.builder-region-drop-zone[data-region-id="${regionId}"] .canvas-item:not(.is-nested)`))
+                .map((element) => element.dataset.instanceId)
+                .filter(Boolean);
+            const components = ctx.getActiveComponents();
+            const lookup = new Map(components.map((item) => [item.instanceId, item]));
+            const ordered = ids.map((id, index) => {
+                const item = lookup.get(id);
+                return item ? { ...item, region: regionId, order: index + 1 } : null;
+            }).filter(Boolean);
+            const next = ctx.layoutRegions.flatMap((region) => {
+                if (region.id === regionId) return ordered;
+                return components
+                    .filter((item) => item.region === region.id)
+                    .map((item, index) => ({ ...item, order: index + 1 }));
+            });
+            ctx.setActiveComponents(next);
+            this.renderCanvasFromState(ctx);
+            ctx.refreshLivePreview();
         },
 
         renderCanvasItem(ctx, item, options = {}) {
@@ -120,18 +276,26 @@
             const isNested = Boolean(options.isNested);
             const div = document.createElement("div");
             div.className = `canvas-item${isNested ? " is-nested" : ""}`;
+            div.classList.toggle("is-hidden-block", item.visible === false);
             div.dataset.instanceId = item.instanceId;
             div.dataset.type = item.type;
             div.dataset.path = item.componentPath;
+            div.dataset.region = item.region || "main";
+            div.dataset.visible = String(item.visible !== false);
             div.innerHTML = `
                 <div class="canvas-item-header">
                     <div class="canvas-item-info">
                         <i class="fas fa-${item.type === "partial" ? "puzzle-piece" : item.type === "micro" ? "cube" : "layer-group"}"></i>
                         <span class="item-name">${item.name}</span>
                         <span class="item-path">${item.componentPath}</span>
+                        <span class="item-path">${ctx.getRegionDefinition?.(item.region)?.name || item.region || "Main"}</span>
+                        ${item.visible === false ? '<span class="item-path">Hidden</span>' : ''}
                     </div>
                     <div class="canvas-item-actions">
                         <button class="btn-duplicate" title="Duplicate"><i class="fas fa-copy"></i></button>
+                        <button class="btn-move-up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+                        <button class="btn-move-down" title="Move down"><i class="fas fa-arrow-down"></i></button>
+                        <button class="btn-hide" title="${item.visible === false ? "Show block" : "Hide block"}"><i class="fas fa-${item.visible === false ? "eye" : "eye-slash"}"></i></button>
                         ${item.type === "partial" ? '<button class="btn-code" title="Edit Code"><i class="fas fa-code"></i></button>' : ''}
                         <button class="btn-toggle-view" title="Collapse view" aria-expanded="true">
                             <i class="fas fa-chevron-up" aria-hidden="true"></i>
@@ -152,6 +316,18 @@
             div.querySelector(".btn-duplicate").addEventListener("click", (e) => {
                 e.stopPropagation();
                 ctx.duplicateCanvasItem(item.instanceId);
+            });
+            div.querySelector(".btn-move-up")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                ctx.moveCanvasItem(item.instanceId, -1);
+            });
+            div.querySelector(".btn-move-down")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                ctx.moveCanvasItem(item.instanceId, 1);
+            });
+            div.querySelector(".btn-hide")?.addEventListener("click", (e) => {
+                e.stopPropagation();
+                ctx.toggleCanvasItemVisibility(item.instanceId);
             });
             const codeButton = div.querySelector(".btn-code");
             if (codeButton) {
@@ -639,15 +815,36 @@
             const height = Number(size.height) || 180;
             const rawX = evt.clientX - rect.left + scrollLeft - Math.min(width / 2, 140);
             const rawY = evt.clientY - rect.top + scrollTop - 24;
-            return {
+            return this.clampCanvasPlacement(ctx, {
                 x: Math.max(0, Math.round(rawX)),
                 y: Math.max(0, Math.round(rawY)),
+                width
+            });
+        },
+
+        clampCanvasPlacement(ctx, placement = {}, element = null) {
+            const zone = ctx?.canvasDropZone;
+            const zoneWidth = Math.floor(zone?.clientWidth || zone?.getBoundingClientRect?.().width || 0);
+            const measuredWidth = Math.round(element?.getBoundingClientRect?.().width || 0);
+            const requestedWidth = Number(placement.width) || measuredWidth || 320;
+            const minWidth = zoneWidth > 0 ? Math.min(220, zoneWidth) : 220;
+            const width = zoneWidth > 0
+                ? Math.max(minWidth, Math.min(Math.round(requestedWidth), zoneWidth))
+                : Math.max(minWidth, Math.round(requestedWidth));
+            const maxX = zoneWidth > 0 ? Math.max(0, zoneWidth - width) : null;
+            const rawX = Number(placement.x);
+            const rawY = Number(placement.y);
+            const x = Number.isFinite(rawX) ? Math.max(0, Math.round(rawX)) : 0;
+            return {
+                x: maxX === null ? x : Math.min(x, maxX),
+                y: Number.isFinite(rawY) ? Math.max(0, Math.round(rawY)) : 0,
                 width
             };
         },
 
         ensureCanvasPlacement(ctx, item, element) {
             if (item.canvas && Number.isFinite(item.canvas.x) && Number.isFinite(item.canvas.y)) {
+                item.canvas = this.clampCanvasPlacement(ctx, item.canvas, element);
                 return item.canvas;
             }
             const items = ctx.getActiveComponents();
@@ -655,7 +852,7 @@
             const next = typeof ctx.getDefaultCanvasPlacement === "function"
                 ? ctx.getDefaultCanvasPlacement(index, element)
                 : { x: 24 + (index % 3) * 48, y: 24 + index * 48, width: 320 };
-            item.canvas = { ...next };
+            item.canvas = this.clampCanvasPlacement(ctx, next, element);
             return item.canvas;
         },
 
@@ -670,11 +867,12 @@
                 element.style.width = "";
                 return;
             }
-            const placement = this.ensureCanvasPlacement(ctx, item, element);
+            const placement = this.clampCanvasPlacement(ctx, this.ensureCanvasPlacement(ctx, item, element), element);
+            item.canvas = { ...(item.canvas || {}), ...placement };
             const width = Number(placement.width) || 320;
             element.style.left = `${Math.max(0, Math.round(placement.x || 0))}px`;
             element.style.top = `${Math.max(0, Math.round(placement.y || 0))}px`;
-            element.style.width = `${Math.max(220, Math.round(width))}px`;
+            element.style.width = `${Math.max(1, Math.round(width))}px`;
         },
 
         enableFreeformItemDragging(ctx, item, element, options = {}) {
@@ -707,8 +905,13 @@
                 const onMove = (moveEvt) => {
                     const scrollLeft = ctx.canvas?.scrollLeft || 0;
                     const scrollTop = ctx.canvas?.scrollTop || 0;
-                    const nextX = Math.max(0, Math.round(moveEvt.clientX - zoneRect.left + scrollLeft - pointerOffsetX));
-                    const nextY = Math.max(0, Math.round(moveEvt.clientY - zoneRect.top + scrollTop - pointerOffsetY));
+                    const nextPlacement = this.clampCanvasPlacement(ctx, {
+                        x: Math.round(moveEvt.clientX - zoneRect.left + scrollLeft - pointerOffsetX),
+                        y: Math.round(moveEvt.clientY - zoneRect.top + scrollTop - pointerOffsetY),
+                        width: Number(item.canvas?.width) || Math.round(rect.width || 320)
+                    }, element);
+                    const nextX = nextPlacement.x;
+                    const nextY = nextPlacement.y;
                     if (!historyPushed && (Math.abs(nextX - startX) > 2 || Math.abs(nextY - startY) > 2)) {
                         ctx.pushHistory();
                         historyPushed = true;
@@ -718,7 +921,7 @@
                         ...(item.canvas || {}),
                         x: nextX,
                         y: nextY,
-                        width: Number(item.canvas?.width) || Math.round(rect.width || 320)
+                        width: nextPlacement.width
                     };
                     element.classList.add("is-freeform-dragging");
                     this.applyCanvasItemPosition(ctx, item, element);

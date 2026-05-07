@@ -1,0 +1,55 @@
+{
+  "collection": "supporters",
+  "generatedAt": "2026-05-07T14:58:36.137Z",
+  "count": 3,
+  "entries": [
+    {
+      "id": 1,
+      "collection": "supporters",
+      "entryKey": "openai",
+      "status": "published",
+      "sortOrder": 1,
+      "data": {
+        "name": "OpenAI",
+        "tier": "founding",
+        "url": "https://openai.com",
+        "active": true,
+        "sort_order": 1
+      },
+      "createdAt": "2026-04-22T10:46:19.679Z",
+      "updatedAt": "2026-04-22T10:59:44.793Z"
+    },
+    {
+      "id": 2,
+      "collection": "supporters",
+      "entryKey": "anthropic",
+      "status": "published",
+      "sortOrder": 2,
+      "data": {
+        "name": "Anthropic",
+        "tier": "visionary",
+        "url": "https://anthropic.com",
+        "active": true,
+        "sort_order": 2
+      },
+      "createdAt": "2026-04-22T10:46:19.694Z",
+      "updatedAt": "2026-04-22T10:59:44.804Z"
+    },
+    {
+      "id": 3,
+      "collection": "supporters",
+      "entryKey": "community-friends",
+      "status": "published",
+      "sortOrder": 3,
+      "data": {
+        "name": "Community Friends",
+        "tier": "community",
+        "url": "https://example.com/community",
+        "active": true,
+        "sort_order": 3
+      },
+      "createdAt": "2026-04-22T10:46:19.708Z",
+      "updatedAt": "2026-04-22T10:59:44.818Z"
+    }
+  ]
+}

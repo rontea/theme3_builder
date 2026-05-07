@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{ page.lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}</title>
+  {{{ assets.styles }}}
+</head>
+<body class="{{ page.bodyClass }}">
+  {{> regions/header }}
+  <main id="main-content" data-theme-region-group="main">
+    {{> regions/hero }}
+    {{> regions/side-navigation }}
+    {{> regions/content-above }}
+    {{> regions/main }}
+    {{> regions/content-below }}
+  </main>
+  {{> regions/footer }}
+  {{{ assets.scripts }}}
+</body>
+</html>

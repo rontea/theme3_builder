@@ -1,11 +1,12 @@
 {
   "version": 1,
-  "generatedAt": "2026-04-22T10:59:44.967Z",
+  "generatedAt": "2026-05-07T14:58:36.128Z",
   "source": {
-    "databasePath": "C:\\Design\\theme_3-main\\theme-cms\\data\\cms.sqlite"
+    "databasePath": "C:\\Projects\\RRapid_Tools\\theme3_builder\\theme-cms\\data\\cms.sqlite"
   },
   "statusFilter": [
-    "published"
+    "published",
+    "draft"
   ],
   "totals": {
     "collections": 4,
