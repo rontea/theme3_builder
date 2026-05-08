@@ -65,7 +65,7 @@
                     </button>
                     <button id="openBuilder" class="nav-item" type="button" data-view="builder">
                         <span class="nav-icon" aria-hidden="true">◇</span>
-                        <span>Builder</span>
+                        <span>Region Blocks</span>
                     </button>
                     <button class="nav-item" type="button" data-view="templates">
                         <span class="nav-icon" aria-hidden="true">▥</span>
@@ -235,17 +235,6 @@
 
                 <section class="view" data-view-panel="builder">
                     <div class="cms-builder-shell">
-                        <aside class="cms-builder-library">
-                            <div class="cms-builder-pane-header">
-                                <div>
-                                    <p class="eyebrow">Builder</p>
-                                    <h3>Blocks</h3>
-                                </div>
-                                <input id="cmsBuilderSearch" class="search-input" type="search" placeholder="Search blocks..." aria-label="Search blocks">
-                            </div>
-                            <div id="cmsBuilderLibrary" class="cms-builder-library-list"></div>
-                        </aside>
-
                         <section class="cms-builder-canvas">
                             <div class="cms-builder-toolbar">
                                 <div>
@@ -256,6 +245,7 @@
                                     <select id="cmsBuilderTemplateSelect" aria-label="Select template"></select>
                                     <button id="cmsBuilderNew" class="btn btn-secondary" type="button">New Layout</button>
                                     <button id="cmsBuilderSave" class="btn btn-primary" type="button">Save Layout</button>
+                                    <button id="cmsBuilderViewSite" class="btn btn-secondary" type="button" target="_blank">View Website</button>
                                 </div>
                             </div>
                             <div id="cmsBuilderState" class="state-region"></div>
@@ -1299,6 +1289,23 @@
         </div>
     </div>
 
+    <div id="cmsBlockPickerModal" class="modal cms-block-picker-modal" role="dialog" aria-modal="true" aria-labelledby="cmsBlockPickerTitle" aria-describedby="cmsBlockPickerDescription" hidden>
+        <div class="modal-backdrop" data-cms-block-picker-close></div>
+        <div class="modal-panel cms-block-picker-panel">
+            <div class="panel-header">
+                <div>
+                    <p class="eyebrow">Partials</p>
+                    <h2 id="cmsBlockPickerTitle">Choose Partial</h2>
+                    <p id="cmsBlockPickerDescription" class="sr-only">Search and choose a theme partial to add to the selected region.</p>
+                </div>
+                <button class="icon-button" type="button" aria-label="Close partial picker" data-cms-block-picker-close>Ã—</button>
+            </div>
+            <div class="cms-block-picker-toolbar">
+                <input id="cmsBlockPickerSearch" class="search-input" type="search" placeholder="Search partials..." aria-label="Search partials">
+            </div>
+            <div id="cmsBlockPickerList" class="cms-block-picker-list"></div>
+        </div>
+    </div>
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
     <div id="confirmDialog" class="modal confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle" aria-describedby="confirmDialogDescription" hidden>
         <div class="modal-backdrop" data-confirm-cancel></div>
@@ -1387,6 +1394,7 @@
             </div>
         </div>
     </div>
+    <script src="/_builder/client/vendor/Sortable.min.js"></script>
     <script src="./app.js"></script>
 </body>
 </html>

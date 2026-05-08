@@ -23,6 +23,12 @@ async function requestJson(base, endpoint, options = {}) {
     return { response, result };
 }
 
+async function requestText(base, endpoint, options = {}) {
+    const response = await fetch(`${base}${endpoint}`, options);
+    const text = await response.text();
+    return { response, text };
+}
+
 function createHeaderFooterLayout(pageName, pageTitle, projectName) {
     return {
         project: { name: projectName, createdAt: new Date().toISOString() },
@@ -82,16 +88,24 @@ async function run() {
         await fs.ensureDir(path.join(sandboxRoot, "html", "pages"));
         await fs.ensureDir(path.join(sandboxRoot, "html", "partials", "shared"));
         await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "partials", "shared"));
+        await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "partials", "home"));
         await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark"));
         await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "components"));
         await fs.ensureDir(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions"));
+        await fs.ensureDir(path.join(sandboxRoot, "src", "css"));
+        await fs.ensureDir(path.join(sandboxRoot, "src", "js"));
+        await fs.ensureDir(path.join(sandboxRoot, "src", "images"));
         await Promise.all([
+            fs.writeFile(path.join(sandboxRoot, "src", "css", "styles.css"), "html.dark body { color: white; }", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "src", "js", "main.js"), "document.documentElement.dataset.themeRuntime = 'loaded';", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "src", "images", "theme-icon.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"5\"/></svg>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "html", "partials", "shared", "card.html"), "<article>Legacy card</article>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "shared", "card.html"), "<article>Active theme card</article>", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "home", "hero.html"), "<figure><img src=\"img/theme-icon.svg\" srcset=\"img/theme-icon.svg 1x, ./img/theme-icon.svg 2x\" alt=\"Theme Icon\"></figure>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark", "header.html"), "<header>Theme Header</header>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "partials", "landmark", "footer.html"), "<footer>Theme Footer</footer>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "components", "badge.html"), "<span>Badge</span>", "utf8"),
-            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "page.html"), "<!doctype html><title>{{ page.title }}</title>{{> regions/header }}<main>{{> regions/main }}</main>{{> regions/footer }}", "utf8"),
+            fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "page.html"), "<!doctype html><head><title>{{ page.title }}</title>{{{ assets.styles }}}</head><body>{{> regions/header }}<main>{{> regions/main }}</main>{{> regions/footer }}{{{ assets.scripts }}}</body>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "header.html"), "<section data-theme-region=\"header\">{{{ region \"header\" }}}{{> landmark/header }}</section>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "main.html"), "<section data-theme-region=\"main\">{{{ region \"main\" }}}</section>", "utf8"),
             fs.writeFile(path.join(sandboxRoot, "themes", "theme-3", "templates", "regions", "footer.html"), "<section data-theme-region=\"footer\">{{{ region \"footer\" }}}{{> landmark/footer }}</section>", "utf8"),
@@ -1316,6 +1330,23 @@ async function run() {
         const cmsTemplateRead = await requestJson(cmsBase, "/api/cms/templates/phase2-cms-template-admin");
         assert.equal(cmsTemplateRead.response.status, 200, "Expected CMS template read to return 200");
         assert.equal(cmsTemplateRead.result.data.templateId, "phase2-cms-template-admin", "Expected CMS template readback");
+        const cmsTemplatePreview = await requestText(cmsBase, "/api/cms/templates/phase2-cms-template-admin/preview");
+        assert.equal(cmsTemplatePreview.response.status, 200, "Expected CMS template preview to return 200");
+        assert.ok(cmsTemplatePreview.text.includes('href="/site/css/styles.css"'), "Expected template preview CSS to resolve through /site");
+        assert.ok(cmsTemplatePreview.text.includes('src="/site/js/main.js"'), "Expected template preview JS to resolve through /site");
+        assert.ok(cmsTemplatePreview.text.includes('src="/site/img/theme-icon.svg"'), "Expected template preview images to resolve through /site");
+        assert.ok(cmsTemplatePreview.text.includes('srcset="/site/img/theme-icon.svg 1x, /site/img/theme-icon.svg 2x"'), "Expected template preview srcset images to resolve through /site");
+        const savedThemeBuild = path.join(sandboxRoot, "themes", "theme-3", "build");
+        assert.ok(await fs.pathExists(path.join(savedThemeBuild, "src", "js", "main.js")), "Expected saved region block build to include source JS");
+        assert.ok(await fs.pathExists(path.join(savedThemeBuild, "js", "main.js")), "Expected saved region block build to include runtime JS");
+        assert.ok(await fs.pathExists(path.join(savedThemeBuild, "src", "images", "theme-icon.svg")), "Expected saved region block build to include source images");
+        assert.ok(await fs.pathExists(path.join(savedThemeBuild, "img", "theme-icon.svg")), "Expected saved region block build to include runtime images");
+        const cmsMediaAfterTemplateSave = await requestJson(cmsBase, "/api/cms/media");
+        assert.equal(cmsMediaAfterTemplateSave.response.status, 200, "Expected media list after template save to return 200");
+        assert.ok(
+            cmsMediaAfterTemplateSave.result.data.some((item) => item.fileName === "theme-icon.svg" && String(item.url || "").startsWith("/uploads/")),
+            "Expected saved region block images to be imported into CMS media"
+        );
 
         const cmsViewCreate = await requestJson(cmsBase, "/api/cms/views", {
             method: "POST",
@@ -1508,23 +1539,23 @@ async function run() {
         assert.ok(themeManifest.regions.includes("content-below"), "Expected theme manifest to use canonical content-below region");
         assert.ok(!themeManifest.regions.includes("side_nav"), "Expected theme manifest not to use underscore side_nav region");
         assert.ok(Array.isArray(themeManifest.regionDefinitions), "Expected Drupal-style region definitions");
-        assert.ok(themeManifest.templates.some((template) => template.file === "templates/page.html"), "Expected page theme template manifest");
+        assert.ok(themeManifest.templates.some((template) => template.file === "build/templates/page.html"), "Expected page theme template manifest");
         assert.equal(themeManifest.counts.views, 1, "Expected theme manifest View count");
         assert.ok(Array.isArray(themeManifest.views), "Expected theme manifest Views metadata");
-        assert.ok(themeManifest.views.some((view) => view.file === "views/phase3-cta-listing.json"), "Expected theme manifest View file metadata");
-        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "page.html")), "Expected exported page template");
-        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "regions", "header.html")), "Expected exported header region template");
-        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "templates", "regions", "footer.html")), "Expected exported footer region template");
-        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "regions", "side-navigation.json")), "Expected exported canonical side-navigation region manifest");
-        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "views", "phase3-cta-listing.json")), "Expected exported View JSON file");
-        const exportedView = await fs.readJson(path.join(themeExport.outputPath, "views", "phase3-cta-listing.json"));
+        assert.ok(themeManifest.views.some((view) => view.file === "build/views/phase3-cta-listing.json"), "Expected theme manifest View file metadata");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "build", "templates", "page.html")), "Expected exported page template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "build", "templates", "regions", "header.html")), "Expected exported header region template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "build", "templates", "regions", "footer.html")), "Expected exported footer region template");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "build", "regions", "side-navigation.json")), "Expected exported canonical side-navigation region manifest");
+        assert.ok(await fs.pathExists(path.join(themeExport.outputPath, "build", "views", "phase3-cta-listing.json")), "Expected exported View JSON file");
+        const exportedView = await fs.readJson(path.join(themeExport.outputPath, "build", "views", "phase3-cta-listing.json"));
         assert.equal(exportedView.viewId, "phase3-cta-listing", "Expected exported View ID");
         assert.equal(exportedView.validation.status, "valid", "Expected exported View validation status");
-        const exportedPageTemplate = await fs.readFile(path.join(themeExport.outputPath, "templates", "page.html"), "utf8");
+        const exportedPageTemplate = await fs.readFile(path.join(themeExport.outputPath, "build", "templates", "page.html"), "utf8");
         assert.ok(exportedPageTemplate.includes('{{> regions/header }}'), "Expected page template to include header region");
         assert.ok(exportedPageTemplate.includes('{{> regions/footer }}'), "Expected page template to include footer region");
         const exportedThemeReadme = await fs.readFile(path.join(themeExport.outputPath, "README.md"), "utf8");
-        assert.ok(exportedThemeReadme.includes("`views/`"), "Expected exported README to mention views directory");
+        assert.ok(exportedThemeReadme.includes("`build/views/`"), "Expected exported README to mention views directory");
 
         const publishChecklist = await cmsService.getPublishChecklist();
         assert.ok(

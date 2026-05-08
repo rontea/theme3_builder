@@ -25,6 +25,33 @@ async function findSiteEntryFile(siteRootPath) {
     return null;
 }
 
+async function resolveSiteRootPath(config, service) {
+    const roots = [];
+    const addRoot = (candidate) => {
+        if (candidate && !roots.includes(candidate)) {
+            roots.push(candidate);
+        }
+    };
+
+    try {
+        const settings = await service.getSettings();
+        const activeThemePath = settings?.paths?.activeThemePath || config.activeThemePath;
+        addRoot(path.join(activeThemePath, "build"));
+    } catch (_error) {
+        addRoot(path.join(config.activeThemePath, "build"));
+    }
+
+    addRoot(config.buildPath);
+    addRoot(config.pagesPath);
+
+    for (const root of roots) {
+        if (root && await fs.pathExists(root)) {
+            return root;
+        }
+    }
+    return config.pagesPath;
+}
+
 async function createThemeCmsApp(options = {}) {
     const config = createThemeCmsConfig(options);
     const app = express();
@@ -35,10 +62,11 @@ async function createThemeCmsApp(options = {}) {
         cmsService: service
     });
 
-    app.use(cors());
-    app.use(express.json({ limit: options.bodyLimit || "10mb" }));
-    app.use("/cms", express.static(config.adminPath));
-    app.use("/uploads", express.static(config.uploadsPath));
+     app.use(cors());
+     app.use(express.json({ limit: options.bodyLimit || "10mb" }));
+     app.use("/cms", express.static(config.adminPath));
+     app.use("/_builder", express.static(path.join(config.projectRoot, "_builder")));
+     app.use("/uploads", express.static(config.uploadsPath));
     app.get("/cms", (req, res) => {
         res.sendFile(path.resolve(config.adminPath, "index.html"));
     });
@@ -54,11 +82,11 @@ async function createThemeCmsApp(options = {}) {
         }
         next();
     });
-    const siteRootPath = await fs.pathExists(config.buildPath) ? config.buildPath : config.pagesPath;
     app.get(/^\/site$/, (req, res) => {
         res.redirect("/site/");
     });
     app.get("/site/", async (req, res, next) => {
+        const siteRootPath = await resolveSiteRootPath(config, service);
         const entryFile = await findSiteEntryFile(siteRootPath);
         if (entryFile) {
             res.sendFile(entryFile);
@@ -67,6 +95,7 @@ async function createThemeCmsApp(options = {}) {
         next();
     });
     app.get("/site/index.html", async (req, res, next) => {
+        const siteRootPath = await resolveSiteRootPath(config, service);
         const entryFile = await findSiteEntryFile(siteRootPath);
         if (entryFile) {
             res.sendFile(entryFile);
@@ -74,7 +103,10 @@ async function createThemeCmsApp(options = {}) {
         }
         next();
     });
-    app.use("/site", express.static(siteRootPath, { index: false }));
+    app.use("/site", async (req, res, next) => {
+        const siteRootPath = await resolveSiteRootPath(config, service);
+        express.static(siteRootPath, { index: false })(req, res, next);
+    });
     registerCmsRoutes(app, controller);
 
     return {

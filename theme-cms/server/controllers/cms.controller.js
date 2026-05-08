@@ -227,6 +227,16 @@ function createCmsController(options = {}) {
                 sendError(res, err, "CMS_TEMPLATE_DELETE_FAILED");
             }
         },
+        previewTemplate: async (req, res) => {
+            logBoundary("route", "GET /api/cms/templates/:templateId/preview");
+            try {
+                const item = await cmsService.previewTemplate(req.params.templateId);
+                res.set("Content-Type", "text/html; charset=utf-8");
+                res.send(item.html);
+            } catch (err) {
+                sendError(res, err, "CMS_TEMPLATE_PREVIEW_FAILED");
+            }
+        },
         listViews: async (req, res) => {
             logBoundary("route", "GET /api/cms/views");
             try {

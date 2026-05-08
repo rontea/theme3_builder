@@ -1,0 +1,10 @@
+name: Theme 3
+type: theme
+description: 'Theme 3 CMS theme regions.'
+core_version_requirement: '>=9.2'
+base theme: false
+regions:
+  header: 'Header'
+  hero: 'Hero'
+  main: 'Main'
+  footer: 'Footer'

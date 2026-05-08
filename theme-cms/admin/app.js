@@ -132,6 +132,7 @@
             this.selectedTemplateId = null;
             this.templatesSearchQuery = "";
             this.cmsBuilderSearchQuery = "";
+            this.cmsBuilderPartialSearchQuery = "";
             this.cmsBuilderSelectedTemplateId = null;
             this.cmsBuilderSelectedBlockId = null;
             this.cmsBuilderActiveRegion = "main";
@@ -354,10 +355,14 @@
             this.templateValidation = document.getElementById("templateValidation");
             this.cmsBuilderSearch = document.getElementById("cmsBuilderSearch");
             this.cmsBuilderLibrary = document.getElementById("cmsBuilderLibrary");
-            this.cmsBuilderTemplateSelect = document.getElementById("cmsBuilderTemplateSelect");
-            this.cmsBuilderNewButton = document.getElementById("cmsBuilderNew");
-            this.cmsBuilderSaveButton = document.getElementById("cmsBuilderSave");
-            this.cmsBuilderState = document.getElementById("cmsBuilderState");
+            this.cmsBlockPickerModal = document.getElementById("cmsBlockPickerModal");
+            this.cmsBlockPickerSearch = document.getElementById("cmsBlockPickerSearch");
+            this.cmsBlockPickerList = document.getElementById("cmsBlockPickerList");
+             this.cmsBuilderTemplateSelect = document.getElementById("cmsBuilderTemplateSelect");
+             this.cmsBuilderNewButton = document.getElementById("cmsBuilderNew");
+             this.cmsBuilderSaveButton = document.getElementById("cmsBuilderSave");
+             this.cmsBuilderViewSiteButton = document.getElementById("cmsBuilderViewSite");
+             this.cmsBuilderState = document.getElementById("cmsBuilderState");
             this.cmsBuilderTitle = document.getElementById("cmsBuilderTitle");
             this.cmsBuilderRegions = document.getElementById("cmsBuilderRegions");
             this.cmsBuilderPropertiesTitle = document.getElementById("cmsBuilderPropertiesTitle");
@@ -522,14 +527,22 @@
                 this.cmsBuilderSearchQuery = this.cmsBuilderSearch.value || "";
                 this.renderCmsBuilderLibrary();
             });
+            this.cmsBlockPickerSearch?.addEventListener("input", () => {
+                this.cmsBuilderPartialSearchQuery = this.cmsBlockPickerSearch.value || "";
+                this.renderCmsBlockPicker();
+            });
+            this.cmsBlockPickerModal?.querySelectorAll("[data-cms-block-picker-close]").forEach((button) => {
+                button.addEventListener("click", () => this.closeCmsBlockPicker());
+            });
             this.cmsBuilderTemplateSelect?.addEventListener("change", () => {
                 this.cmsBuilderSelectedTemplateId = this.cmsBuilderTemplateSelect.value || null;
                 this.cmsBuilderSelectedBlockId = null;
                 this.renderCmsBuilder();
             });
-            this.cmsBuilderNewButton?.addEventListener("click", () => this.createCmsBuilderDraft());
-            this.cmsBuilderSaveButton?.addEventListener("click", () => this.saveCmsBuilderLayout());
-            this.viewsRefreshButton?.addEventListener("click", () => this.loadViews());
+             this.cmsBuilderNewButton?.addEventListener("click", () => this.createCmsBuilderDraft());
+             this.cmsBuilderSaveButton?.addEventListener("click", () => this.saveCmsBuilderLayout());
+             this.cmsBuilderViewSiteButton?.addEventListener("click", () => this.viewCmsBuilderSite());
+             this.viewsRefreshButton?.addEventListener("click", () => this.loadViews());
             this.viewNewButton?.addEventListener("click", () => this.createViewDraft());
             this.viewsSearch?.addEventListener("input", () => {
                 this.viewsSearchQuery = this.viewsSearch.value || "";
@@ -569,6 +582,8 @@
                         this.closeThemeExportDialog();
                     } else if (this.mediaPickerModal && !this.mediaPickerModal.hidden) {
                         this.closeMediaPicker();
+                    } else if (this.cmsBlockPickerModal && !this.cmsBlockPickerModal.hidden) {
+                        this.closeCmsBlockPicker();
                     } else if (this.mediaDetail && !this.mediaDetail.hidden && window.matchMedia("(max-width: 820px)").matches) {
                         this.closeMediaDetail();
                     }
@@ -2386,7 +2401,7 @@
         }
 
         getOpenModal() {
-            return [this.confirmDialog, this.themeExportModal, this.mediaPickerModal].find((modal) => modal && !modal.hidden) || null;
+            return [this.confirmDialog, this.themeExportModal, this.mediaPickerModal, this.cmsBlockPickerModal].find((modal) => modal && !modal.hidden) || null;
         }
 
         getFocusableElements(root) {
@@ -3944,17 +3959,77 @@
             }
         }
 
-        getCmsBuilderComponents() {
-            return [
-                { name: "Navbar", componentPath: "partials/landmark/header.html", allowedRegions: ["header"], ready: true },
-                { name: "Hero Section", componentPath: "partials/micro/content/hero.html", allowedRegions: ["hero", "content-above"], ready: true },
-                { name: "Page Title", componentPath: "partials/micro/content/page-title.html", allowedRegions: ["hero", "main", "content-above"], ready: false },
-                { name: "Project Grid", componentPath: "partials/micro/content/project-grid.html", allowedRegions: ["main", "content-below"], ready: true },
-                { name: "Rich Text", componentPath: "partials/micro/content/rich-text.html", allowedRegions: ["main", "side-navigation", "content-above", "content-below"], ready: false },
-                { name: "CTA Block", componentPath: "partials/micro/content/cta.html", allowedRegions: ["main", "content-below"], ready: true },
-                { name: "Sidebar Menu", componentPath: "partials/micro/navigation/sidebar-menu.html", allowedRegions: ["side-navigation"], ready: true },
-                { name: "Footer Link Grid", componentPath: "partials/landmark/footer.html", allowedRegions: ["footer"], ready: true }
-            ];
+         getCmsBuilderComponents() {
+             const theme = this.getSelectedTheme?.() || this.themes[0] || {};
+             const partials = Array.isArray(theme.partials) ? theme.partials : [];
+             if (partials.length) {
+                 return partials.map((partial) => {
+                     const componentPath = partial.componentPath || partial.partial || "";
+                     return {
+                         name: partial.name || this.humanizeLabel(componentPath.split("/").pop()?.replace(/\.html?$/i, "") || "Partial"),
+                         componentPath,
+                         partial: componentPath,
+                         group: partial.group || "",
+                         allowedRegions: Array.isArray(partial.allowedRegions) ? partial.allowedRegions : [],
+                         ready: partial.ready !== false
+                     };
+                 }).filter((partial) => partial.componentPath && !partial.componentPath.includes('/micro/'));
+             }
+             return [
+                 { name: "Navbar", componentPath: "partials/landmark/header.html", allowedRegions: ["header"], ready: true },
+                 { name: "Hero Section", componentPath: "partials/home/hero.html", allowedRegions: ["hero", "content-above"], ready: true },
+                 { name: "Project Grid", componentPath: "partials/home/projects.html", allowedRegions: ["main", "content-below"], ready: true },
+                 { name: "CTA Block", componentPath: "partials/home/cta.html", allowedRegions: ["main", "content-below"], ready: true },
+                 { name: "Footer Link Grid", componentPath: "partials/landmark/footer.html", allowedRegions: ["footer"], ready: true }
+             ];
+         }
+
+        openCmsBlockPicker(regionId = "main") {
+            if (!this.cmsBlockPickerModal) {
+                this.addCmsBuilderBlock();
+                return;
+            }
+            this.cmsBuilderActiveRegion = regionId || "main";
+            this.cmsBuilderPartialSearchQuery = "";
+            if (this.cmsBlockPickerSearch) {
+                this.cmsBlockPickerSearch.value = "";
+            }
+            this.lastFocusedElement = document.activeElement;
+            this.renderCmsBlockPicker();
+            this.cmsBlockPickerModal.hidden = false;
+            window.setTimeout(() => this.cmsBlockPickerSearch?.focus(), 0);
+        }
+
+        closeCmsBlockPicker() {
+            if (this.cmsBlockPickerModal) {
+                this.cmsBlockPickerModal.hidden = true;
+            }
+            this.restoreFocus();
+        }
+
+        renderCmsBlockPicker() {
+            if (!this.cmsBlockPickerList) return;
+            const query = String(this.cmsBuilderPartialSearchQuery || "").trim().toLowerCase();
+            const components = this.getCmsBuilderComponents().filter((component) => {
+                const haystack = `${component.name} ${component.componentPath} ${component.group || ""}`.toLowerCase();
+                return !query || haystack.includes(query);
+            });
+            this.cmsBlockPickerList.innerHTML = components.map((component) => `
+                <button class="cms-builder-component" type="button" data-cms-builder-pick-partial="${this.escapeAttribute(component.componentPath)}">
+                    <span class="cms-builder-component-icon" aria-hidden="true">+</span>
+                    <span>
+                        <strong>${this.escapeHtml(component.name)}</strong>
+                        <small>${this.escapeHtml(component.componentPath)}</small>
+                        ${component.group ? `<em>${this.escapeHtml(component.group)}</em>` : ""}
+                    </span>
+                </button>
+            `).join("") || `<div class="empty-state"><span>No partials match the search.</span></div>`;
+            this.cmsBlockPickerList.querySelectorAll("[data-cms-builder-pick-partial]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    this.addCmsBuilderBlock(button.dataset.cmsBuilderPickPartial || "");
+                    this.closeCmsBlockPicker();
+                });
+            });
         }
 
         async loadCmsBuilder() {
@@ -3963,10 +4038,10 @@
                 this.cmsBuilderState.innerHTML = `<div class="loading-state">Loading CMS block layouts...</div>`;
             }
             try {
-                if (this.templates.length === 0 || this.themes.length === 0) {
+                {
                     const [templatesResult, themesResult] = await Promise.all([
-                        this.requestJson("/api/cms/templates"),
-                        this.themes.length ? Promise.resolve({ data: this.themes }) : this.requestJson("/api/cms/themes")
+                        this.templates.length ? Promise.resolve({ data: this.templates }) : this.requestJson("/api/cms/templates"),
+                        this.requestJson("/api/cms/themes")
                     ]);
                     this.templates = Array.isArray(templatesResult?.data) ? templatesResult.data : [];
                     this.themes = Array.isArray(themesResult?.data) ? themesResult.data : this.themes;
@@ -4060,7 +4135,7 @@
                     const selected = blockId === this.cmsBuilderSelectedBlockId;
                     return `
                         <div class="cms-builder-block ${selected ? "is-selected" : ""}" data-cms-builder-block="${this.escapeAttribute(blockId)}" data-region="${this.escapeAttribute(region.id)}">
-                            <button class="cms-builder-grip" type="button" data-cms-builder-move="${this.escapeAttribute(blockId)}" data-direction="up" aria-label="Move up">^</button>
+                            <button class="cms-builder-grip" type="button" aria-label="Drag to reorder">⋮⋮</button>
                             <div>
                                 <strong>${this.escapeHtml(block.name || block.componentPath || block.partial || "Block")}</strong>
                                 <small>${this.escapeHtml(block.componentPath || block.partial || "")}</small>
@@ -4074,25 +4149,47 @@
                         <header>
                             <div>
                                 <strong>${this.escapeHtml(region.label)}</strong>
-                                <span>${region.required ? "Required" : "Optional"} region</span>
+                                <span>Region</span>
                             </div>
-                            <button class="btn btn-secondary btn-small" type="button" data-cms-builder-region-add="${this.escapeAttribute(region.id)}">Add Block</button>
                         </header>
-                        <div class="cms-builder-region-body ${blocks.length ? "" : "is-empty"}">
+                        <div class="cms-builder-region-body ${blocks.length ? "" : "is-empty"}" data-region-blocks-container="${this.escapeAttribute(region.id)}">
                             ${blocks.length ? blockHtml : `<span>Drop or add blocks to ${this.escapeHtml(region.label)}.</span>`}
+                            <button class="btn btn-secondary btn-small cms-builder-region-add" type="button" data-cms-builder-region-add="${this.escapeAttribute(region.id)}">Add Block</button>
                         </div>
                     </article>
                 `;
             }).join("");
+            
+            // Initialize Sortable for each region.
+            this.cmsBuilderRegions.querySelectorAll("[data-region-blocks-container]").forEach((container) => {
+                if (container.sortable) {
+                    container.sortable.destroy();
+                }
+                if (typeof window.Sortable !== "undefined") {
+                    container.sortable = window.Sortable.create(container, {
+                        animation: 150,
+                        group: "cms-builder-region-blocks",
+                        handle: ".cms-builder-grip",
+                        draggable: ".cms-builder-block",
+                        filter: ".cms-builder-region-add",
+                        preventOnFilter: false,
+                        ghostClass: "sortable-ghost",
+                        chosenClass: "sortable-chosen",
+                        dragClass: "sortable-drag",
+                        onEnd: (evt) => this.handleBlockSort(evt, container.dataset.regionBlocksContainer)
+                    });
+                }
+            });
+            
             this.cmsBuilderRegions.querySelectorAll("[data-cms-builder-region-add]").forEach((button) => {
                 button.addEventListener("click", () => {
                     this.cmsBuilderActiveRegion = button.dataset.cmsBuilderRegionAdd || "main";
-                    this.addCmsBuilderBlock();
+                    this.openCmsBlockPicker(this.cmsBuilderActiveRegion);
                 });
             });
             this.cmsBuilderRegions.querySelectorAll("[data-cms-builder-block]").forEach((block) => {
                 block.addEventListener("click", (event) => {
-                    if (event.target.closest("[data-cms-builder-remove], [data-cms-builder-move]")) return;
+                    if (event.target.closest("[data-cms-builder-remove], [data-cms-builder-move], .cms-builder-grip")) return;
                     this.cmsBuilderSelectedBlockId = block.dataset.cmsBuilderBlock;
                     this.renderCmsBuilder();
                 });
@@ -4135,10 +4232,13 @@
         addCmsBuilderBlock(componentName = "") {
             const template = this.getCmsBuilderTemplate();
             if (!template) return;
-            const component = this.getCmsBuilderComponents().find((item) => item.name === componentName) || this.getCmsBuilderComponents()[0];
-            const region = (component.allowedRegions || []).includes(this.cmsBuilderActiveRegion)
+            const components = this.getCmsBuilderComponents();
+            const component = components.find((item) => item.name === componentName || item.componentPath === componentName) || components[0];
+            if (!component) return;
+            const allowedRegions = Array.isArray(component.allowedRegions) ? component.allowedRegions : [];
+            const region = allowedRegions.includes(this.cmsBuilderActiveRegion)
                 ? this.cmsBuilderActiveRegion
-                : (component.allowedRegions || [this.cmsBuilderActiveRegion || "main"])[0];
+                : (allowedRegions[0] || this.cmsBuilderActiveRegion || "main");
             const block = {
                 id: `block-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 name: component.name,
@@ -4183,6 +4283,60 @@
             const [block] = found.blocks.splice(found.index, 1);
             found.blocks.splice(targetIndex, 0, block);
             found.blocks.forEach((item, index) => { item.order = index + 1; });
+            this.renderCmsBuilder();
+        }
+
+        handleBlockSort(evt, regionId) {
+            const template = this.getCmsBuilderTemplate();
+            if (!template || !template.defaultBlocks) return;
+
+            const targetRegionId = evt.to?.dataset.regionBlocksContainer || regionId || "main";
+            const sourceRegionId = evt.from?.dataset.regionBlocksContainer || targetRegionId;
+            const movedBlockId = evt.item?.dataset.cmsBuilderBlock || "";
+            const moved = movedBlockId ? this.findCmsBuilderBlock(movedBlockId)?.block : null;
+            const previousTargetBlocks = Array.isArray(template.defaultBlocks[targetRegionId])
+                ? template.defaultBlocks[targetRegionId].filter((block) => block?.id !== movedBlockId)
+                : [];
+            const byId = new Map(previousTargetBlocks.map((block) => [block.id, block]));
+
+            if (moved) {
+                Object.keys(template.defaultBlocks).forEach((candidateRegionId) => {
+                    const blocks = template.defaultBlocks[candidateRegionId];
+                    if (Array.isArray(blocks)) {
+                        template.defaultBlocks[candidateRegionId] = blocks.filter((block) => block?.id !== movedBlockId);
+                    }
+                });
+                byId.set(moved.id, moved);
+            }
+
+            const orderedIds = Array.from(evt.to?.querySelectorAll(".cms-builder-block") || [])
+                .map((el) => el.dataset.cmsBuilderBlock)
+                .filter(Boolean);
+            const usedIds = new Set();
+            const orderedBlocks = orderedIds
+                .map((blockId) => {
+                    const block = byId.get(blockId);
+                    if (block) usedIds.add(blockId);
+                    return block || null;
+                })
+                .filter(Boolean);
+
+            previousTargetBlocks.forEach((block) => {
+                if (block?.id && !usedIds.has(block.id)) {
+                    orderedBlocks.push(block);
+                }
+            });
+            template.defaultBlocks[targetRegionId] = orderedBlocks;
+            [sourceRegionId, targetRegionId].forEach((candidateRegionId) => {
+                const blocks = template.defaultBlocks[candidateRegionId];
+                if (Array.isArray(blocks)) {
+                    blocks.forEach((block, index) => {
+                        block.region = candidateRegionId;
+                        block.order = index + 1;
+                    });
+                }
+            });
+
             this.renderCmsBuilder();
         }
 
@@ -4263,6 +4417,16 @@
             }
         }
 
+        viewCmsBuilderSite() {
+            const templateId = this.cmsBuilderSelectedTemplateId || this.selectedTemplateId;
+            if (!templateId) {
+                this.toast("Save a template first to preview.", "warning");
+                return;
+            }
+            const previewUrl = `/api/cms/templates/${encodeURIComponent(templateId)}/preview`;
+            window.open(previewUrl, "_blank", "noopener, noreferrer");
+        }
+
         async loadTemplates() {
             if (this.templatesState) {
                 this.templatesState.innerHTML = `<div class="loading-state">Loading templates...</div>`;
@@ -4304,12 +4468,16 @@
         }
 
         getTemplateRegionIds(template = null) {
-            const regionIds = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
             const theme = this.getSelectedTheme?.() || this.themes[0] || {};
+            const themeRegionIds = Array.isArray(theme.regions) ? theme.regions : [];
+            if (themeRegionIds.length) {
+                return themeRegionIds;
+            }
+            const regionIds = new Set(themeRegionIds.length ? themeRegionIds : ["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
             (theme.regions || []).forEach((region) => regionIds.add(region));
             Object.keys(template?.regions || {}).forEach((region) => regionIds.add(region));
             Object.keys(template?.defaultBlocks || {}).forEach((region) => regionIds.add(region));
-            const order = ["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"];
+            const order = themeRegionIds.length ? themeRegionIds : ["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"];
             return Array.from(regionIds).sort((left, right) => {
                 const leftRank = order.includes(left) ? order.indexOf(left) : order.length;
                 const rightRank = order.includes(right) ? order.indexOf(right) : order.length;

@@ -30,6 +30,7 @@ coverage/
 tmp/
 *.tmp
 *.swp
+*.kilo
 
 #error
 

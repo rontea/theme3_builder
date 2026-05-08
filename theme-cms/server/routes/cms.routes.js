@@ -21,10 +21,11 @@ function registerCmsRoutes(app, cmsController) {
     app.get("/api/cms/themes", cmsController.listThemes);
     app.post("/api/cms/themes/export", cmsController.exportTheme);
 
-    app.get("/api/cms/templates", cmsController.listTemplates);
-    app.get("/api/cms/templates/:templateId", cmsController.getTemplate);
-    app.post("/api/cms/templates", cmsController.saveTemplate);
-    app.delete("/api/cms/templates/:templateId", cmsController.deleteTemplate);
+     app.get("/api/cms/templates", cmsController.listTemplates);
+     app.get("/api/cms/templates/:templateId", cmsController.getTemplate);
+     app.post("/api/cms/templates", cmsController.saveTemplate);
+     app.delete("/api/cms/templates/:templateId", cmsController.deleteTemplate);
+     app.get("/api/cms/templates/:templateId/preview", cmsController.previewTemplate);
 
     app.get("/api/cms/views", cmsController.listViews);
     app.post("/api/cms/views", cmsController.createView);

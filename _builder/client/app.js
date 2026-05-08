@@ -6253,6 +6253,41 @@ class VisualBuilder {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${pageName}</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      <script src="https://cdn.tailwindcss.com"><\/script>
+      <script>
+          tailwind.config = {
+              darkMode: 'class',
+              theme: {
+                  extend: {
+                      fontFamily: {
+                          sans: ['Inter', 'sans-serif'],
+                          heading: ['Space Grotesk', 'sans-serif']
+                      },
+                      lineHeight: {
+                          'tight-08': '0.8',
+                          'tight-09': '0.9'
+                      },
+                      letterSpacing: {
+                          'ultra-tight': '-0.06em',
+                          'widest-xl': '0.5em'
+                      },
+                      colors: {
+                          background: {
+                              light: '#fafafa',
+                              dark: '#0a0a0a'
+                          },
+                          text: {
+                              light: '#1a1a1a',
+                              dark: '#f0f0f0'
+                          }
+                      }
+                  }
+              }
+          };
+      <\/script>
       <link rel="stylesheet" href="../../../build/css/styles.css">
       <style>
           ${presetVars}

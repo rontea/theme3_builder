@@ -3,7 +3,7 @@
   "name": "Theme 3",
   "slug": "theme-3",
   "version": "1.0.0",
-  "exportedAt": "2026-05-07T14:58:36.137Z",
+  "exportedAt": "2026-05-08T16:10:39.830Z",
   "source": {
     "projectRoot": "C:\\Projects\\RRapid_Tools\\theme3_builder",
     "cmsDatabase": "C:\\Projects\\RRapid_Tools\\theme3_builder\\theme-cms\\data\\cms.sqlite",
@@ -13,10 +13,7 @@
   "regions": [
     "header",
     "hero",
-    "side-navigation",
-    "content-above",
     "main",
-    "content-below",
     "footer"
   ],
   "regionDefinitions": [
@@ -24,75 +21,163 @@
       "id": "header",
       "label": "Header",
       "required": true,
-      "template": "templates/regions/header.html",
-      "defaultPartial": "partials/landmark/header.html"
+      "template": "build/templates/regions/header.html",
+      "defaultPartial": null,
+      "source": "site-layout"
     },
     {
       "id": "hero",
       "label": "Hero",
       "required": false,
-      "template": "templates/regions/hero.html",
-      "defaultPartial": null
-    },
-    {
-      "id": "side-navigation",
-      "label": "Side Navigation",
-      "required": false,
-      "template": "templates/regions/side-navigation.html",
-      "defaultPartial": null
-    },
-    {
-      "id": "content-above",
-      "label": "Content Above",
-      "required": false,
-      "template": "templates/regions/content-above.html",
-      "defaultPartial": null
-    },
-    {
-      "id": "content-below",
-      "label": "Content Below",
-      "required": false,
-      "template": "templates/regions/content-below.html",
-      "defaultPartial": null
+      "template": "build/templates/regions/hero.html",
+      "defaultPartial": null,
+      "source": "site-layout"
     },
     {
       "id": "main",
       "label": "Main",
       "required": true,
-      "template": "templates/regions/main.html",
-      "defaultPartial": null
+      "template": "build/templates/regions/main.html",
+      "defaultPartial": null,
+      "source": "site-layout"
     },
     {
       "id": "footer",
       "label": "Footer",
       "required": true,
-      "template": "templates/regions/footer.html",
-      "defaultPartial": "partials/landmark/footer.html"
+      "template": "build/templates/regions/footer.html",
+      "defaultPartial": null,
+      "source": "site-layout"
     }
   ],
   "templates": [
     {
-      "id": "page",
-      "label": "Default Page",
+      "id": "site-layout-1778187351885",
+      "label": "New Site Block Layout",
       "type": "page",
-      "file": "templates/page.html",
+      "file": "build/templates/page.html",
+      "layoutFile": "build/layouts/site-layout-1778187351885.json",
+      "templateFile": "build/pages/site-layout-1778187351885.template.json",
       "regions": [
         "header",
         "hero",
-        "side-navigation",
-        "content-above",
         "main",
-        "content-below",
         "footer"
       ]
     }
   ],
+  "views": [],
+  "partials": [
+    {
+      "name": "Marquee",
+      "componentPath": "partials/home/marquee.html",
+      "region": "hero"
+    },
+    {
+      "name": "Hero",
+      "componentPath": "partials/home/hero.html",
+      "region": "hero"
+    },
+    {
+      "name": "Projects",
+      "componentPath": "partials/home/projects.html",
+      "region": "main"
+    }
+  ],
+  "assets": {
+    "sourceRoot": "C:\\Projects\\RRapid_Tools\\theme3_builder\\src",
+    "runtimeRoot": "build",
+    "styles": [
+      "build/assets/css/test.css",
+      "build/assets/resources/prismjs/css/prism.css",
+      "build/assets/scss/designrontea/_components.scss",
+      "build/assets/scss/designrontea/_layout.scss",
+      "build/assets/scss/designrontea/_main-theme.scss",
+      "build/assets/scss/designrontea/_master.scss",
+      "build/assets/scss/designrontea/_portfolio.scss",
+      "build/assets/scss/designrontea/_rontea-styles.scss",
+      "build/assets/scss/designrontea/_theme-base.scss",
+      "build/assets/scss/designrontea/_utilities.scss",
+      "build/assets/scss/designrontea/_variables.scss",
+      "build/assets/scss/designrontea/portfolio.scss",
+      "build/assets/scss/styles.scss",
+      "build/css/styles.css",
+      "build/css/test.css",
+      "build/src/css/test.css",
+      "build/src/scss/designrontea/_components.scss",
+      "build/src/scss/designrontea/_layout.scss",
+      "build/src/scss/designrontea/_main-theme.scss",
+      "build/src/scss/designrontea/_master.scss",
+      "build/src/scss/designrontea/_portfolio.scss",
+      "build/src/scss/designrontea/_rontea-styles.scss",
+      "build/src/scss/designrontea/_theme-base.scss",
+      "build/src/scss/designrontea/_utilities.scss",
+      "build/src/scss/designrontea/_variables.scss",
+      "build/src/scss/designrontea/portfolio.scss",
+      "build/src/scss/styles.scss"
+    ],
+    "scripts": [
+      "build/assets/js/main.js",
+      "build/assets/resources/prismjs/js/prism.js",
+      "build/js/main.js",
+      "build/src/js/main.js"
+    ],
+    "images": [
+      "build/assets/images/fav.png",
+      "build/assets/images/logo.png",
+      "build/assets/images/rrtea.png",
+      "build/assets/images/th3.png",
+      "build/img/fav.png",
+      "build/img/logo.png",
+      "build/img/rrtea.png",
+      "build/img/th3.png",
+      "build/src/images/fav.png",
+      "build/src/images/logo.png",
+      "build/src/images/rrtea.png",
+      "build/src/images/th3.png"
+    ],
+    "resources": [
+      "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff",
+      "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff2",
+      "build/src/resources/prismjs/css/prism.css",
+      "build/src/resources/prismjs/js/prism.js"
+    ],
+    "config": [
+      "build/src/config/config.json",
+      "build/src/config/config2.json"
+    ],
+    "sourceFiles": [
+      "build/src/config/config.json",
+      "build/src/config/config2.json",
+      "build/src/css/test.css",
+      "build/src/images/fav.png",
+      "build/src/images/logo.png",
+      "build/src/images/rrtea.png",
+      "build/src/images/th3.png",
+      "build/src/js/main.js",
+      "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff",
+      "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff2",
+      "build/src/resources/prismjs/css/prism.css",
+      "build/src/resources/prismjs/js/prism.js",
+      "build/src/scss/designrontea/_components.scss",
+      "build/src/scss/designrontea/_layout.scss",
+      "build/src/scss/designrontea/_main-theme.scss",
+      "build/src/scss/designrontea/_master.scss",
+      "build/src/scss/designrontea/_portfolio.scss",
+      "build/src/scss/designrontea/_rontea-styles.scss",
+      "build/src/scss/designrontea/_theme-base.scss",
+      "build/src/scss/designrontea/_utilities.scss",
+      "build/src/scss/designrontea/_variables.scss",
+      "build/src/scss/designrontea/portfolio.scss",
+      "build/src/scss/styles.scss"
+    ]
+  },
   "counts": {
-    "layouts": 6,
+    "layouts": 1,
     "templates": 1,
-    "builderTemplates": 0,
-    "themeTemplates": 1,
-    "regions": 7,
+    "views": 0,
+    "regions": 4,
+    "partials": 3,
     "bindings": 0,
     "requiredCollections": 0
   },
@@ -101,25 +186,86 @@
     "errors": [],
     "warnings": [],
     "counts": {
-      "layouts": 6,
+      "layouts": 1,
       "templates": 1,
-      "builderTemplates": 0,
-      "themeTemplates": 1,
-      "regions": 7,
+      "views": 0,
+      "regions": 4,
+      "partials": 3,
       "bindings": 0,
       "requiredCollections": 0
     }
   },
   "files": [
-    "templates",
-    "templates/regions",
-    "layouts",
-    "pages",
-    "regions",
-    "partials",
-    "components",
-    "assets",
-    "data/fallback",
-    "bindings"
-  ]
+    "build/assets/config/config.json",
+    "build/assets/config/config2.json",
+    "build/assets/css/test.css",
+    "build/assets/images/fav.png",
+    "build/assets/images/logo.png",
+    "build/assets/images/rrtea.png",
+    "build/assets/images/th3.png",
+    "build/assets/js/main.js",
+    "build/assets/resources/bootstrap-icons/fonts/bootstrap-icons.woff",
+    "build/assets/resources/bootstrap-icons/fonts/bootstrap-icons.woff2",
+    "build/assets/resources/prismjs/css/prism.css",
+    "build/assets/resources/prismjs/js/prism.js",
+    "build/assets/scss/designrontea/_components.scss",
+    "build/assets/scss/designrontea/_layout.scss",
+    "build/assets/scss/designrontea/_main-theme.scss",
+    "build/assets/scss/designrontea/_master.scss",
+    "build/assets/scss/designrontea/_portfolio.scss",
+    "build/assets/scss/designrontea/_rontea-styles.scss",
+    "build/assets/scss/designrontea/_theme-base.scss",
+    "build/assets/scss/designrontea/_utilities.scss",
+    "build/assets/scss/designrontea/_variables.scss",
+    "build/assets/scss/designrontea/portfolio.scss",
+    "build/assets/scss/styles.scss",
+    "build/css/styles.css",
+    "build/css/test.css",
+    "build/img/fav.png",
+    "build/img/logo.png",
+    "build/img/rrtea.png",
+    "build/img/th3.png",
+    "build/index.html",
+    "build/js/main.js",
+    "build/layouts/site-layout-1778187351885.json",
+    "build/pages/site-layout-1778187351885.template.json",
+    "build/partials/home/hero.html",
+    "build/partials/home/marquee.html",
+    "build/partials/home/projects.html",
+    "build/partials/landmark/footer.html",
+    "build/partials/landmark/header.html",
+    "build/regions/footer.json",
+    "build/regions/header.json",
+    "build/regions/hero.json",
+    "build/regions/main.json",
+    "build/src/config/config.json",
+    "build/src/config/config2.json",
+    "build/src/css/test.css",
+    "build/src/images/fav.png",
+    "build/src/images/logo.png",
+    "build/src/images/rrtea.png",
+    "build/src/images/th3.png",
+    "build/src/js/main.js",
+    "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff",
+    "build/src/resources/bootstrap-icons/fonts/bootstrap-icons.woff2",
+    "build/src/resources/prismjs/css/prism.css",
+    "build/src/resources/prismjs/js/prism.js",
+    "build/src/scss/designrontea/_components.scss",
+    "build/src/scss/designrontea/_layout.scss",
+    "build/src/scss/designrontea/_main-theme.scss",
+    "build/src/scss/designrontea/_master.scss",
+    "build/src/scss/designrontea/_portfolio.scss",
+    "build/src/scss/designrontea/_rontea-styles.scss",
+    "build/src/scss/designrontea/_theme-base.scss",
+    "build/src/scss/designrontea/_utilities.scss",
+    "build/src/scss/designrontea/_variables.scss",
+    "build/src/scss/designrontea/portfolio.scss",
+    "build/src/scss/styles.scss",
+    "build/templates/page.html",
+    "build/templates/regions/footer.html",
+    "build/templates/regions/header.html",
+    "build/templates/regions/hero.html",
+    "build/templates/regions/main.html"
+  ],
+  "updatedAt": "2026-05-08T17:15:25.411Z"
 }

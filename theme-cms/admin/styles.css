@@ -1793,7 +1793,7 @@ textarea {
 
 .cms-builder-shell {
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr) 320px;
+    grid-template-columns: minmax(0, 1fr) 320px;
     height: calc(100vh - 78px);
     min-height: 680px;
     overflow: hidden;
@@ -1887,6 +1887,12 @@ textarea {
     border-radius: 7px;
     background: #f1f5f9;
     color: var(--muted);
+    cursor: grab;
+    user-select: none;
+}
+
+.cms-builder-grip:active {
+    cursor: grabbing;
 }
 
 .cms-builder-component strong,
@@ -1975,6 +1981,41 @@ textarea {
     font-size: 13px;
 }
 
+.cms-builder-region-add {
+    justify-self: start;
+}
+
+.cms-builder-region-body.is-empty .cms-builder-region-add {
+    justify-self: center;
+}
+
+.cms-block-picker-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(760px, calc(100vw - 32px));
+    max-height: min(760px, calc(100vh - 32px));
+}
+
+.cms-block-picker-toolbar {
+    border-bottom: 1px solid var(--line);
+    padding: 14px;
+    background: var(--surface);
+}
+
+.cms-block-picker-toolbar .search-input {
+    width: 100%;
+}
+
+.cms-block-picker-list {
+    display: grid;
+    align-content: start;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+}
+
 .cms-builder-block {
     cursor: pointer;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
@@ -1983,6 +2024,24 @@ textarea {
 .cms-builder-block.is-selected {
     border-color: #4f46e5;
     box-shadow: 0 0 0 1px #4f46e5;
+}
+
+/* Sortable.js drag states */
+.cms-builder-block.sortable-chosen {
+    opacity: 0.9;
+    background: var(--surface-soft);
+}
+
+.cms-builder-block.sortable-ghost {
+    opacity: 0.4;
+    border: 2px dashed var(--accent);
+    background: var(--accent-soft);
+}
+
+.cms-builder-block.sortable-drag {
+    cursor: grabbing;
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
+    transform: rotate(2deg);
 }
 
 .template-editor-grid,

@@ -2,6 +2,7 @@
 
 const fs = require("fs-extra");
 const path = require("path");
+const crypto = require("crypto");
 const sqlite3 = require("sqlite3");
 const { src, dest } = require("gulp");
 const panini = require("panini");
@@ -1105,6 +1106,7 @@ function createCmsService(cmsRepository, options = {}) {
             const storedSettings = await readStoredSettingsForTheme(serviceConfig, this.getDefaultSettings());
             const activeTheme = resolveActiveThemeInfo(serviceConfig, storedSettings);
             const activeThemeManifest = await readActiveThemeManifest(activeTheme);
+            const partials = await listThemePartials(activeTheme.themePath, serviceConfig);
             const collections = await this.listCollections();
             const collectionMap = new Map(collections.map((collection) => [collection.slug, collection]));
             const entries = {};
@@ -1136,17 +1138,17 @@ function createCmsService(cmsRepository, options = {}) {
                 }
 
                 try {
-                    const templateRows = await readBuilderDbAll(
-                        serviceConfig.builderDatabasePath,
-                        "SELECT template_json AS templateJson FROM builder_templates ORDER BY updated_at DESC"
-                    );
-                    templates = templateRows.map((row) => safeJsonParse(row.templateJson, null)).filter(Boolean);
+const templateRows = await readBuilderDbAll(
+                         serviceConfig.builderDatabasePath,
+                         "SELECT template_json AS templateJson FROM builder_templates ORDER BY updated_at DESC"
+                     );
+                     templates = templateRows.map((row) => normalizeCmsTemplateRecord(safeJsonParse(row.templateJson, {})));
                 } catch (_error) {
                     templates = [];
                 }
             }
 
-            const bindingRecords = collectBindingRecords(layouts, templates);
+const bindingRecords = collectBindingRecords(layouts, templates);
             const requiredCollections = Array.from(new Set([
                 ...(activeThemeManifest?.requiredCollections || []),
                 ...getBindingCollections(bindingRecords),
@@ -1154,13 +1156,21 @@ function createCmsService(cmsRepository, options = {}) {
                 ...views.map((view) => view.collection).filter(Boolean)
             ])).sort();
 
-            const regions = sortThemeRegions(Array.from(new Set([
-                ...(activeThemeManifest?.regions || []),
-                ...(!activeThemeManifest?.regions?.length ? ["header", "hero", "main", "side-navigation", "content-above", "content-below", "footer"] : []),
-                ...layouts.flatMap((layout) => Object.keys(layout.layout?.regions || {})),
-                ...templates.flatMap((template) => Object.keys(template.regions || {})),
-                ...templates.flatMap((template) => Object.keys(template.defaultBlocks || {}))
-            ])));
+            const manifestRegions = Array.isArray(activeThemeManifest?.regions) ? activeThemeManifest.regions : [];
+            const regions = manifestRegions.length
+                ? Array.from(new Set(manifestRegions.map((regionId) => normalizeThemeRegionId(regionId, regionId))))
+                : sortThemeRegions(Array.from(new Set([
+                    "header",
+                    "hero",
+                    "main",
+                    "side-navigation",
+                    "content-above",
+                    "content-below",
+                    "footer",
+                    ...layouts.flatMap((layout) => Object.keys(layout.layout?.regions || {})),
+                    ...templates.flatMap((template) => Object.keys(template.regions || {})),
+                    ...templates.flatMap((template) => Object.keys(template.defaultBlocks || {}))
+                ])));
             const themeTemplates = Array.isArray(activeThemeManifest?.templates) && activeThemeManifest.templates.length
                 ? activeThemeManifest.templates
                 : createThemeTemplateManifest(regions);
@@ -1187,6 +1197,7 @@ function createCmsService(cmsRepository, options = {}) {
                 layouts,
                 templates,
                 themeTemplates,
+                partials,
                 bindingRecords,
                 requiredCollections,
                 regions,
@@ -1360,6 +1371,14 @@ function createCmsService(cmsRepository, options = {}) {
                     payload.updatedAt
                 ]
             );
+
+            // Write build file to active theme
+            try {
+                await this.writeTemplateBuildFile(payload.templateId);
+            } catch (err) {
+                console.error("Failed to write template build file:", err);
+            }
+
             return {
                 ...payload,
                 regionsCount: getTemplateRegionIds(payload).length,
@@ -1384,37 +1403,259 @@ function createCmsService(cmsRepository, options = {}) {
             return { templateId: safeTemplateId, deleted: true };
         },
 
-        async validateTemplateRecord(template = {}) {
+        async previewTemplate(templateId) {
+            const safeTemplateId = sanitizeCmsSlug(templateId);
+            if (!safeTemplateId) {
+                throw createActionableError("Invalid template ID", 400, "CMS_TEMPLATE_ID_INVALID", { templateId });
+            }
+
+            const templateRow = await readBuilderDbGet(
+                serviceConfig.builderDatabasePath,
+                "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+                [safeTemplateId]
+            );
+            if (!templateRow) {
+                throw createActionableError("Template not found", 404, "CMS_TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+            }
+
+            const template = normalizeCmsTemplateRecord(safeJsonParse(templateRow.templateJson, {}));
+            const activeTheme = resolveActiveThemeInfo(serviceConfig);
+            const themePath = activeTheme.themePath;
+            if (!themePath || !await fs.pathExists(themePath)) {
+                throw createActionableError("Active theme folder not found", 404, "THEME_ACTIVE_FOLDER_MISSING", { themePath });
+            }
+
+            const html = await this.renderTemplateToHtml(template, themePath, { assetBase: "/site/" });
+            return { html, templateId: safeTemplateId };
+        },
+
+        async writeTemplateBuildFile(templateId) {
+            const safeTemplateId = sanitizeCmsSlug(templateId);
+            if (!safeTemplateId) {
+                throw createActionableError("Invalid template ID", 400, "CMS_TEMPLATE_ID_INVALID", { templateId });
+            }
+
+            const templateRow = await readBuilderDbGet(
+                serviceConfig.builderDatabasePath,
+                "SELECT template_json AS templateJson FROM builder_templates WHERE template_id = ?",
+                [safeTemplateId]
+            );
+            if (!templateRow) {
+                throw createActionableError("Template not found", 404, "CMS_TEMPLATE_NOT_FOUND", { templateId: safeTemplateId });
+            }
+
+            const activeTheme = resolveActiveThemeInfo(serviceConfig);
+            const themePath = activeTheme.themePath;
+            if (!themePath || !await fs.pathExists(themePath)) {
+                throw createActionableError("Active theme folder not found", 404, "THEME_ACTIVE_FOLDER_MISSING", { themePath });
+            }
+
+            const buildDir = getThemeBuildPath(themePath);
+            const layoutsDir = path.join(buildDir, "layouts");
+            await fs.ensureDir(layoutsDir);
+
+            const template = safeJsonParse(templateRow.templateJson, {});
+            const normalized = normalizeCmsTemplateRecord(template);
+            const output = {
+                templateId: normalized.templateId,
+                label: normalized.label,
+                routePattern: normalized.routePattern,
+                contentType: normalized.contentType,
+                layoutId: normalized.layoutId,
+                regions: normalized.regions,
+                defaultBlocks: normalized.defaultBlocks,
+                lockedRegions: normalized.lockedRegions,
+                updatedAt: new Date().toISOString()
+            };
+
+            const filePath = path.join(layoutsDir, `${safeTemplateId}.json`);
+            await fs.writeJson(filePath, output, { spaces: 2 });
+            await syncTemplateBuildPartials(normalized, buildDir, serviceConfig);
+            await syncCompleteSourceTree(buildDir, serviceConfig);
+
+            // Generate and write index.html
+            const html = await this.renderTemplateToHtml(template, themePath);
+            await fs.writeFile(path.join(buildDir, "index.html"), html, "utf8");
+
+            await syncTemplateBuildAssets(html, buildDir, serviceConfig);
+            await importThemeBuildImagesToMedia(buildDir, serviceConfig, cmsRepository);
+            await updateActiveThemeAssetManifest(themePath, buildDir, serviceConfig);
+
+            console.log(`[CMS] Wrote template build file: ${filePath}`);
+            console.log(`[CMS] Wrote build index.html: ${path.join(buildDir, 'index.html')}`);
+            return { filePath, templateId: safeTemplateId };
+        },
+
+        async renderTemplateToHtml(template, themePath, options = {}) {
+            const runtimeThemePath = await getThemeRuntimePath(themePath);
+            const rawDefaultBlocks = template.defaultBlocks || {};
+            const normalizedBlocks = {};
+            Object.entries(rawDefaultBlocks).forEach(([rawRegionId, blocks]) => {
+                const norm = normalizeThemeRegionId(rawRegionId, rawRegionId);
+                normalizedBlocks[norm] = [
+                    ...(normalizedBlocks[norm] || []),
+                    ...(Array.isArray(blocks) ? blocks : [])
+                ];
+            });
+            const regionIds = Object.keys(normalizedBlocks);
+            const sortedRegionIds = sortThemeRegions(regionIds);
+
+            const resolvePartial = async (relativePath, seen = new Set()) => {
+                const cleaned = String(relativePath || "").trim();
+                if (!cleaned) return "";
+                if (seen.has(cleaned)) return `<!-- recursive: ${cleaned} -->`;
+                const nextSeen = new Set(seen);
+                nextSeen.add(cleaned);
+
+                const candidates = [
+                    path.join(runtimeThemePath, cleaned),
+                    path.join(runtimeThemePath, "partials", cleaned),
+                    path.join(runtimeThemePath, "components", cleaned.replace(/^micro\//, "")),
+                    path.join(themePath, cleaned),
+                    path.join(themePath, "partials", cleaned),
+                    path.join(themePath, "components", cleaned.replace(/^micro\//, "")),
+                    path.join(serviceConfig.partialsPath || "", cleaned)
+                ];
+                let fullPath = null;
+                for (const candidate of candidates) {
+                    if (await fs.pathExists(candidate)) {
+                        fullPath = candidate;
+                        break;
+                    }
+                }
+                if (!fullPath) {
+                    return `<!-- missing: ${cleaned} -->`;
+                }
+
+                let content = await fs.readFile(fullPath, "utf8");
+
+                // Resolve nested {{> partial}} includes
+                const includeRegex = /{{>\s*([a-zA-Z0-9_./-]+)\s*}}/g;
+                const tokens = [];
+                let match;
+                while ((match = includeRegex.exec(content)) !== null) {
+                    tokens.push(match[1]);
+                }
+                const resolvedMap = new Map();
+                for (const token of tokens) {
+                    if (!resolvedMap.has(token)) {
+                        const tokenDir = path.dirname(cleaned);
+                        const resolved = token.startsWith("/") ? token : path.join(tokenDir, token);
+                        resolvedMap.set(token, await resolvePartial(resolved, nextSeen));
+                    }
+                }
+                for (const [token, replacement] of resolvedMap) {
+                    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const tokenRegex = new RegExp(`{{>\\s*${escaped}\\s*}}`, 'g');
+                    content = content.replace(tokenRegex, replacement);
+                }
+
+                return content;
+            };
+
+            const renderBlock = async (block) => {
+                const componentPath = block.componentPath || block.partial || "";
+                return await resolvePartial(componentPath);
+            };
+
+            const pageTemplateCandidates = [
+                path.join(runtimeThemePath, "templates/page.html"),
+                path.join(themePath, "templates/page.html")
+            ];
+            const pageTemplatePath = pageTemplateCandidates.find((candidate) => candidate && fs.existsSync(candidate));
+            if (!pageTemplatePath) {
+                throw createActionableError("Theme page template not found", 404, "THEME_TEMPLATE_MISSING", { file: "build/templates/page.html" });
+            }
+            const pageTemplate = await fs.readFile(pageTemplatePath, "utf8");
+
+            const renderedRegions = {};
+            for (const regionId of sortedRegionIds) {
+                const blocks = Array.isArray(normalizedBlocks[regionId]) ? normalizedBlocks[regionId] : [];
+                const blockPromises = blocks.map((block) => renderBlock(block));
+                const blockMarkups = await Promise.all(blockPromises);
+                const regionTemplateCandidates = [
+                    path.join(runtimeThemePath, `templates/regions/${regionId}.html`),
+                    path.join(themePath, `templates/regions/${regionId}.html`)
+                ];
+                const regionTemplatePath = regionTemplateCandidates.find((candidate) => candidate && fs.existsSync(candidate));
+                let regionShell = "";
+                if (regionTemplatePath) {
+                    regionShell = await fs.readFile(regionTemplatePath, "utf8");
+                } else {
+                    regionShell = `<section data-theme-region="${regionId}" data-theme-region-label="${regionId}">\n{{{ region "${regionId}" }}}\n</section>`;
+                }
+                const blockMarkup = blockMarkups.filter(Boolean).join("\n");
+                let regionMarkup = regionShell.replace(/\{\{\{\s*region\s+["'][a-zA-Z0-9_-]+["']\s*\}\}\}/g, blockMarkup);
+                renderedRegions[regionId] = regionMarkup;
+            }
+
+            let html = pageTemplate.replace(/{{>\s*regions\/([a-zA-Z0-9_-]+)\s*}}/g, (_match, regionId) => {
+                return renderedRegions[normalizeThemeRegionId(regionId, regionId)] || "";
+            });
+            const extra = sortedRegionIds
+                .filter((regionId) => !new RegExp(`{{>\\s*regions/${regionId}\\s*}}`).test(pageTemplate))
+                .map((regionId) => renderedRegions[regionId])
+                .filter(Boolean);
+            if (extra.length) {
+                html += `\n${extra.join("\n")}`;
+            }
+
+            // Asset injection prefers the theme-local build assets and falls back to the static site build.
+            const projectBuildPath = serviceConfig.buildPath || path.join(serviceConfig.projectRoot || process.cwd(), "build");
+            const sourcePath = serviceConfig.sourcePath || "";
+            const assetBase = String(options.assetBase || "").replace(/\/?$/, options.assetBase ? "/" : "");
+            const assetUrl = (relativePath) => `${assetBase}${relativePath.replace(/^\/+/, "")}`;
+            let stylesTag = "";
+            let scriptsTag = "";
+            try {
+                const themeCssPath = path.join(runtimeThemePath, "css", "styles.css");
+                const cssPath = path.join(projectBuildPath, "css", "styles.css");
+                const sourceCssPath = path.join(sourcePath, "css", "styles.css");
+                const sourceScssPath = path.join(sourcePath, "scss", "styles.scss");
+                if (await fs.pathExists(themeCssPath) || await fs.pathExists(cssPath) || await fs.pathExists(sourceCssPath) || await fs.pathExists(sourceScssPath)) {
+                    stylesTag = `<link rel="stylesheet" href="${assetUrl("css/styles.css")}">`;
+                } else if (await fs.pathExists(cssPath)) {
+                    stylesTag = '<link rel="stylesheet" href="/site/css/styles.css">';
+                }
+            } catch (_) {}
+            try {
+                const themeJsPath = path.join(runtimeThemePath, "js", "main.js");
+                const jsPath = path.join(projectBuildPath, "js", "main.js");
+                const sourceJsPath = path.join(sourcePath, "js", "main.js");
+                if (await fs.pathExists(themeJsPath) || await fs.pathExists(jsPath) || await fs.pathExists(sourceJsPath)) {
+                    scriptsTag = `<script src="${assetUrl("js/main.js")}"></script>`;
+                } else if (await fs.pathExists(jsPath)) {
+                    scriptsTag = '<script src="/site/js/main.js"></script>';
+                }
+            } catch (_) {}
+
+html = html
+                .replace(/\{\{\s*page\.lang\s*\}\}/g, "en")
+                .replace(/\{\{\s*page\.title\s*\}\}/g, template.label || "Preview")
+                .replace(/\{\{\s*page\.bodyClass\s*\}\}/g, `page-${sanitizeCmsSlug(template.templateId || "preview")}`)
+                .replace(/\{\{\{\s*assets\.styles\s*\}\}\}/g, stylesTag)
+                .replace(/\{\{\{\s*assets\.scripts\s*\}\}\}/g, scriptsTag);
+            if (assetBase) {
+                html = rewritePreviewAssetUrls(html, assetBase);
+            }
+
+            return html;
+        },
+
+        async validateTemplateRecord(template) {
             const warnings = [];
             const errors = [];
             const requiredRegions = ["header", "main", "footer"];
             const allowedRegions = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
 
-            if (!template.templateId) {
-                errors.push({ code: "TEMPLATE_ID_MISSING", message: "Template ID is required." });
-            }
             if (!template.routePattern) {
                 errors.push({ code: "TEMPLATE_ROUTE_MISSING", message: "Template route pattern is required." });
             }
-            if (template.routePattern && /[:{]/.test(template.routePattern) && !template.contentType) {
+            if (template.routePattern && template.routePattern.includes(":") && !template.contentType) {
                 errors.push({ code: "TEMPLATE_CONTENT_TYPE_MISSING", message: "Dynamic routes need a content type." });
             }
             if (!template.layoutId) {
                 errors.push({ code: "TEMPLATE_LAYOUT_MISSING", message: "Template layout ID is required." });
-            } else if (await fs.pathExists(serviceConfig.builderDatabasePath)) {
-                const layout = await readBuilderDbGet(
-                    serviceConfig.builderDatabasePath,
-                    "SELECT file_name AS fileName FROM builder_layouts WHERE file_name = ?",
-                    [template.layoutId]
-                ).catch(() => null);
-                if (!layout) {
-                    warnings.push({ code: "TEMPLATE_LAYOUT_NOT_FOUND", message: `Saved layout was not found: ${template.layoutId}.` });
-                }
-            }
-
-            const collectionMap = new Map((await this.listCollections()).map((collection) => [collection.slug, collection]));
-            if (template.contentType && !collectionMap.has(template.contentType)) {
-                errors.push({ code: "TEMPLATE_CONTENT_TYPE_MISSING_COLLECTION", message: `Content type collection is missing: ${template.contentType}.` });
             }
 
             const regionIds = getTemplateRegionIds(template);
@@ -1425,7 +1666,8 @@ function createCmsService(cmsRepository, options = {}) {
                 }
             });
 
-            template.lockedRegions.forEach((regionId) => {
+            const lockedRegions = Array.isArray(template.lockedRegions) ? template.lockedRegions : [];
+            lockedRegions.forEach((regionId) => {
                 if (!allowedRegions.has(regionId)) {
                     errors.push({ code: "TEMPLATE_LOCKED_REGION_INVALID", message: `Locked region is not supported: ${regionId}.` });
                 }
@@ -1435,27 +1677,11 @@ function createCmsService(cmsRepository, options = {}) {
             });
 
             Object.entries(template.defaultBlocks || {}).forEach(([regionId, blocks]) => {
-                if (!allowedRegions.has(regionId)) {
+                const normalizedRegionId = normalizeThemeRegionId(regionId, regionId);
+                if (!allowedRegions.has(normalizedRegionId)) {
                     errors.push({ code: "TEMPLATE_REGION_UNSUPPORTED", message: `Unsupported default block region: ${regionId}.` });
                     return;
                 }
-                (Array.isArray(blocks) ? blocks : []).forEach((block) => {
-                    const binding = block?.props?.cmsBinding || block?.cmsBinding;
-                    if (!binding || binding.source !== "cms" || !binding.collection) {
-                        return;
-                    }
-                    const collection = collectionMap.get(binding.collection);
-                    if (!collection) {
-                        errors.push({ code: "TEMPLATE_BINDING_COLLECTION_MISSING", message: `Binding collection missing: ${binding.collection}.` });
-                        return;
-                    }
-                    const fieldNames = new Set(getSchemaFields(collection).map((field) => field.name));
-                    Object.values(binding.fieldMap || {}).forEach((fieldName) => {
-                        if (fieldName && !fieldNames.has(String(fieldName))) {
-                            errors.push({ code: "TEMPLATE_BINDING_FIELD_MISSING", message: `Mapped field missing: ${binding.collection}.${fieldName}.` });
-                        }
-                    });
-                });
             });
 
             return {
@@ -1497,6 +1723,7 @@ function createCmsService(cmsRepository, options = {}) {
                 layouts: source.layouts,
                 templates: source.templates,
                 themeTemplates: source.themeTemplates,
+                partials: source.partials,
                 views: source.views,
                 bindings: source.bindingRecords,
                 validation,
@@ -1514,6 +1741,7 @@ function createCmsService(cmsRepository, options = {}) {
             const generatedAt = new Date().toISOString();
             const defaultOutputRoot = serviceConfig.themeExportPath || path.join(process.cwd(), "themes");
             const outputPath = path.resolve(options.outputPath || path.join(defaultOutputRoot, themeSlug));
+            const buildPath = getThemeBuildPath(outputPath);
 
             if (!isPathInside(serviceConfig.projectRoot || process.cwd(), outputPath)) {
                 throw createActionableError("Theme export output must stay inside the project root", 400, "THEME_EXPORT_PATH_INVALID", { outputPath });
@@ -1522,12 +1750,14 @@ function createCmsService(cmsRepository, options = {}) {
                 if (!options.overwrite) {
                     throw createActionableError("Theme export output already exists", 409, "THEME_EXPORT_EXISTS", { outputPath });
                 }
-                await fs.emptyDir(outputPath);
+                await fs.emptyDir(buildPath);
+                await removeLegacyThemeRuntimeDirs(outputPath);
             }
             await fs.ensureDir(outputPath);
+            await fs.ensureDir(buildPath);
 
             const dirs = ["templates", "templates/regions", "layouts", "pages", "regions", "views", "partials", "components", "assets", "data/fallback", "bindings"];
-            await Promise.all(dirs.map((dir) => fs.ensureDir(path.join(outputPath, dir))));
+            await Promise.all(dirs.map((dir) => fs.ensureDir(path.join(buildPath, dir))));
 
             const copyIfExists = async (from, to) => {
                 if (from && await fs.pathExists(from)) {
@@ -1537,23 +1767,30 @@ function createCmsService(cmsRepository, options = {}) {
                 return false;
             };
 
-            await copyIfExists(serviceConfig.pagesPath, path.join(outputPath, "pages"));
-            await copyIfExists(serviceConfig.layoutsPath, path.join(outputPath, "layouts", "html"));
-            await copyIfExists(serviceConfig.partialsPath, path.join(outputPath, "partials"));
-            await copyIfExists(path.join(serviceConfig.partialsPath || "", "micro"), path.join(outputPath, "components"));
+            await copyIfExists(serviceConfig.pagesPath, path.join(buildPath, "pages"));
+            await copyIfExists(serviceConfig.layoutsPath, path.join(buildPath, "layouts", "html"));
+            await copyIfExists(serviceConfig.partialsPath, path.join(buildPath, "partials"));
+            await copyIfExists(path.join(serviceConfig.partialsPath || "", "micro"), path.join(buildPath, "components"));
 
             if (options.includeCompiledAssets !== false) {
-                await copyIfExists(path.join(serviceConfig.sourcePath || "", "css"), path.join(outputPath, "assets", "css"));
-                await copyIfExists(path.join(serviceConfig.sourcePath || "", "js"), path.join(outputPath, "assets", "js"));
-                await copyIfExists(path.join(serviceConfig.sourcePath || "", "images"), path.join(outputPath, "assets", "images"));
+                await copyIfExists(serviceConfig.sourcePath, path.join(buildPath, "src"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "css"), path.join(buildPath, "assets", "css"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "js"), path.join(buildPath, "assets", "js"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "images"), path.join(buildPath, "assets", "images"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "resources"), path.join(buildPath, "assets", "resources"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "scss"), path.join(buildPath, "assets", "scss"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "config"), path.join(buildPath, "assets", "config"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "css"), path.join(buildPath, "css"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "js"), path.join(buildPath, "js"));
+                await copyIfExists(path.join(serviceConfig.sourcePath || "", "images"), path.join(buildPath, "img"));
             }
 
             for (const layout of source.layouts) {
-                await fs.writeJson(path.join(outputPath, "layouts", layout.fileName), layout.layout, { spaces: 2 });
+                await fs.writeJson(path.join(buildPath, "layouts", layout.fileName), layout.layout, { spaces: 2 });
             }
             for (const template of source.templates) {
                 const templateId = slugifyThemeName(template.templateId || template.label || "template");
-                await fs.writeJson(path.join(outputPath, "pages", `${templateId}.template.json`), template, { spaces: 2 });
+                await fs.writeJson(path.join(buildPath, "pages", `${templateId}.template.json`), template, { spaces: 2 });
             }
             const exportedViews = [];
             for (const view of source.views || []) {
@@ -1564,12 +1801,12 @@ function createCmsService(cmsRepository, options = {}) {
                     ...normalizeCmsViewRecord(view),
                     validation: viewValidation
                 };
-                await fs.writeJson(path.join(outputPath, viewFile), viewExport, { spaces: 2 });
+                await fs.writeJson(path.join(buildPath, viewFile), viewExport, { spaces: 2 });
                 exportedViews.push({
                     id: viewExport.viewId,
                     label: viewExport.label,
                     collection: viewExport.collection,
-                    file: viewFile,
+                    file: `build/${viewFile}`,
                     displays: viewExport.displays.map((display) => ({
                         id: display.displayId,
                         label: display.label,
@@ -1579,32 +1816,34 @@ function createCmsService(cmsRepository, options = {}) {
                     validation: viewValidation.status
                 });
             }
-            await fs.writeFile(path.join(outputPath, "templates", "page.html"), buildThemePageTemplate(source.regionDefinitions), "utf8");
+await fs.writeFile(path.join(buildPath, "templates", "page.html"), buildThemePageTemplate(source.regionDefinitions), "utf8");
             for (const region of source.regionDefinitions) {
                 await fs.writeFile(
-                    path.join(outputPath, "templates", "regions", `${region.id}.html`),
+                    path.join(buildPath, "templates", "regions", `${region.id}.html`),
                     buildThemeRegionTemplate(region),
                     "utf8"
                 );
             }
-            for (const regionId of source.regions) {
+            const canonicalRegions = ["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"];
+            const allRegions = [...new Set([...canonicalRegions, ...source.regions])];
+            for (const regionId of allRegions) {
                 const regionLayouts = source.layouts.map((layout) => ({
                     layoutId: layout.fileName,
                     blocks: getLayoutRegionBlocks(layout.layout, regionId)
                 })).filter((item) => item.blocks.length > 0);
-                await fs.writeJson(path.join(outputPath, "regions", `${regionId}.json`), {
+                await fs.writeJson(path.join(buildPath, "regions", `${regionId}.json`), {
                     id: regionId,
                     layouts: regionLayouts
                 }, { spaces: 2 });
             }
-            await fs.writeJson(path.join(outputPath, "bindings", "cms-bindings.json"), {
+            await fs.writeJson(path.join(buildPath, "bindings", "cms-bindings.json"), {
                 generatedAt,
                 includeDraftBindings: Boolean(options.includeDraftBindings),
                 bindings: source.bindingRecords
             }, { spaces: 2 });
 
             if (options.includeFallbackData !== false) {
-                await writeExportBundle(path.join(outputPath, "data", "fallback"), {
+                await writeExportBundle(path.join(buildPath, "data", "fallback"), {
                     generatedAt,
                     manifest: {
                         version: 1,
@@ -1637,11 +1876,11 @@ function createCmsService(cmsRepository, options = {}) {
                         count: source.entries[collection.slug]?.length || 0,
                         file: `entries/${collection.slug}.json`
                     })),
-                    entriesByCollection: source.entries
+entriesByCollection: source.entries
                 });
             }
 
-            const themeJson = {
+let themeJson = {
                 schemaVersion: 1,
                 name: themeName,
                 slug: themeSlug,
@@ -1653,15 +1892,38 @@ function createCmsService(cmsRepository, options = {}) {
                     builderDatabase: serviceConfig.builderDatabasePath
                 },
                 requiredCollections: source.requiredCollections,
-                regions: source.regions,
-                regionDefinitions: source.regionDefinitions,
-                templates: source.themeTemplates,
+                regions: allRegions,
+                regionDefinitions: source.regionDefinitions.map((region) => ({
+                    ...region,
+                    template: `build/templates/regions/${region.id}.html`,
+                    defaultPartial: region.defaultPartial ? `build/${region.defaultPartial}` : null
+                })),
+                templates: source.themeTemplates.map((template) => ({
+                    ...template,
+                    file: template.file ? `build/${String(template.file).replace(/^build\//, "")}` : "build/templates/page.html"
+                })),
                 views: exportedViews,
+                assets: await getThemeSourceAssetManifest(buildPath, serviceConfig),
                 counts: validation.counts,
                 validation,
-                files: dirs
+                files: Array.from(new Set([
+                    ...dirs.map((dir) => `build/${dir}`),
+                    ...(await listThemeBuildFiles(buildPath))
+                ])).sort()
             };
             await fs.writeJson(path.join(outputPath, "theme.json"), themeJson, { spaces: 2 });
+            const refreshedSource = await this.readThemeSource().catch(() => null);
+            if (refreshedSource) {
+                const refreshedValidation = await this.validateTheme({ source: refreshedSource }).catch(() => null);
+                if (refreshedValidation) {
+                    themeJson = {
+                        ...themeJson,
+                        counts: refreshedValidation.counts,
+                        validation: refreshedValidation
+                    };
+                    await fs.writeJson(path.join(outputPath, "theme.json"), themeJson, { spaces: 2 });
+                }
+            }
             await fs.writeFile(path.join(outputPath, "README.md"), `# ${themeName}
 
 Exported from Theme 3 CMS on ${generatedAt}.
@@ -1669,23 +1931,23 @@ Exported from Theme 3 CMS on ${generatedAt}.
 ## Package Contents
 
 - \`theme.json\` package metadata and validation summary.
-- \`templates/page.html\` and \`templates/regions/*.html\` Drupal-style theme templates.
-- \`layouts/\` builder layout JSON and copied HTML layouts.
-- \`pages/\` static pages plus page template JSON.
-- \`regions/\` named region manifests.
-- \`views/\` Views-style listing and page display definitions.
-- \`partials/\` and \`components/\` reusable HTML components.
-- \`assets/\` copied source assets when enabled.
-- \`data/fallback/\` CMS fallback JSON when enabled.
-- \`bindings/\` CMS binding metadata.
+- \`build/templates/page.html\` and \`build/templates/regions/*.html\` Drupal-style theme templates.
+- \`build/layouts/\` builder layout JSON and copied HTML layouts.
+- \`build/pages/\` static pages plus page template JSON.
+- \`build/regions/\` named region manifests.
+- \`build/views/\` Views-style listing and page display definitions.
+- \`build/partials/\` and \`build/components/\` reusable HTML components.
+- \`build/assets/\`, \`build/css/\`, \`build/js/\`, and \`build/img/\` copied source assets when enabled.
+- \`build/data/fallback/\` CMS fallback JSON when enabled.
+- \`build/bindings/\` CMS binding metadata.
 `);
 
             return {
                 generatedAt,
                 outputPath,
                 manifestPath: path.join(outputPath, "theme.json"),
-                validation,
-                totals: validation.counts
+                validation: themeJson.validation,
+                totals: themeJson.counts
             };
         },
 
@@ -1848,21 +2110,26 @@ Exported from Theme 3 CMS on ${generatedAt}.
                 status: checklist.valid ? "success" : "warning",
                 steps,
                 checklist,
-                buildPath: staticOutput.outputPath,
+                buildPath: getThemeBuildPath(themeExport.outputPath),
+                staticBuildPath: staticOutput.outputPath,
                 siteUrl: "/site/"
             };
         },
 
         async getPublishStatus() {
             const checklist = await this.getPublishChecklist();
+            const storedSettings = await readStoredSettingsForTheme(serviceConfig, this.getDefaultSettings());
+            const activeTheme = resolveActiveThemeInfo(serviceConfig, storedSettings);
+            const activeThemeBuildPath = getThemeBuildPath(activeTheme.themePath);
+            const statusBuildPath = await fs.pathExists(activeThemeBuildPath) ? activeThemeBuildPath : serviceConfig.buildPath;
             const buildManifest = await getNewestMtime([
-                path.join(serviceConfig.buildPath || "", "index.html"),
-                serviceConfig.buildPath
+                path.join(statusBuildPath || "", "index.html"),
+                statusBuildPath
             ]);
             return {
                 generatedAt: new Date().toISOString(),
                 checklist,
-                buildPath: serviceConfig.buildPath,
+                buildPath: statusBuildPath,
                 siteUrl: "/site/",
                 lastBuildAt: buildManifest ? buildManifest.toISOString() : null
             };
@@ -2321,6 +2588,341 @@ async function copyIfExists(from, to) {
     return false;
 }
 
+function getThemeBuildPath(themePath = "") {
+    return path.join(themePath || "", "build");
+}
+
+async function getThemeRuntimePath(themePath = "") {
+    const buildPath = getThemeBuildPath(themePath);
+    return buildPath && await fs.pathExists(buildPath) ? buildPath : themePath;
+}
+
+async function removeLegacyThemeRuntimeDirs(themePath = "") {
+    const legacyDirs = ["templates", "layouts", "pages", "regions", "views", "partials", "components", "assets", "data", "bindings"];
+    await Promise.all(legacyDirs.map(async (dir) => {
+        const target = path.join(themePath, dir);
+        if (target && await fs.pathExists(target)) {
+            await fs.remove(target);
+        }
+    }));
+}
+
+function getTemplatePartialPaths(template = {}) {
+    const paths = new Set();
+    Object.values(template.defaultBlocks || {}).forEach((blocks) => {
+        if (!Array.isArray(blocks)) {
+            return;
+        }
+        blocks.forEach((block) => {
+            const componentPath = String(block?.componentPath || block?.partial || "").replace(/\\/g, "/").trim();
+            if (!componentPath || path.isAbsolute(componentPath) || componentPath.includes("..")) {
+                return;
+            }
+            if (!componentPath.startsWith("partials/") || componentPath.startsWith("partials/micro/")) {
+                return;
+            }
+            paths.add(componentPath);
+        });
+    });
+    return Array.from(paths).sort();
+}
+
+async function syncTemplateBuildPartials(template = {}, buildDir = "", serviceConfig = {}) {
+    const partialPaths = getTemplatePartialPaths(template);
+    const targetRoot = path.join(buildDir || "", "partials");
+    await fs.emptyDir(targetRoot);
+
+    for (const partialPath of partialPaths) {
+        const sourceRelative = partialPath.replace(/^partials\//, "");
+        const from = path.join(serviceConfig.partialsPath || "", sourceRelative);
+        const to = path.join(buildDir, partialPath);
+        if (await fs.pathExists(from)) {
+            await fs.ensureDir(path.dirname(to));
+            await fs.copy(from, to, { overwrite: true, errorOnExist: false });
+        }
+    }
+}
+
+async function copyFirstExisting(candidates = [], targetPath = "") {
+    for (const candidate of candidates) {
+        if (candidate && await fs.pathExists(candidate)) {
+            await fs.ensureDir(path.dirname(targetPath));
+            await fs.copy(candidate, targetPath, { overwrite: true, errorOnExist: false });
+            return true;
+        }
+    }
+    return false;
+}
+
+function getLocalAssetRefs(html = "") {
+    const refs = new Set(["css/styles.css", "js/main.js"]);
+    const attrRegex = /\b(?:src|href)=["']([^"']+)["']/gi;
+    let match;
+    while ((match = attrRegex.exec(String(html || ""))) !== null) {
+        const value = String(match[1] || "").trim().replace(/\\/g, "/");
+        if (!value || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("//") || value.startsWith("#") || value.startsWith("mailto:")) {
+            continue;
+        }
+        const cleaned = value
+            .replace(/^\/site\//, "")
+            .replace(/^\/+/, "")
+            .replace(/^\.\//, "");
+        if (cleaned.includes("..") || path.isAbsolute(cleaned)) {
+            continue;
+        }
+        if (/^(css|js|img|assets\/images|assets\/icons|assets\/resources|uploads)\//.test(cleaned)) {
+            refs.add(cleaned);
+        }
+    }
+    return Array.from(refs).sort();
+}
+
+function isExternalAssetUrl(value = "") {
+    return /^(?:[a-z][a-z0-9+.-]*:|\/\/|#|mailto:|tel:|data:|blob:)/i.test(String(value || "").trim());
+}
+
+function normalizeLocalAssetUrl(value = "") {
+    return String(value || "")
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/^\/site\//, "")
+        .replace(/^\/+/, "")
+        .replace(/^\.\//, "")
+        .replace(/^(?:\.\.\/)+(?:src\/)?images\//, "img/");
+}
+
+function shouldRewritePreviewAssetUrl(value = "") {
+    if (!value || isExternalAssetUrl(value)) {
+        return false;
+    }
+    const cleaned = normalizeLocalAssetUrl(value);
+    return /^(?:css|js|img|assets\/images|assets\/icons|assets\/resources|uploads|src\/images)\//.test(cleaned);
+}
+
+function toPreviewAssetUrl(value = "", assetBase = "/site/") {
+    const base = String(assetBase || "/site/").replace(/\/?$/, "/");
+    const cleaned = normalizeLocalAssetUrl(value).replace(/^src\/images\//, "img/");
+    return `${base}${cleaned}`;
+}
+
+function rewritePreviewAssetUrls(html = "", assetBase = "/site/") {
+    let output = String(html || "").replace(/\b(src|href)=("([^"]*)"|'([^']*)')/gi, (match, attr, quoted, doubleValue, singleValue) => {
+        const value = doubleValue ?? singleValue ?? "";
+        if (!shouldRewritePreviewAssetUrl(value)) {
+            return match;
+        }
+        const quote = quoted.startsWith("'") ? "'" : "\"";
+        return `${attr}=${quote}${toPreviewAssetUrl(value, assetBase)}${quote}`;
+    });
+
+    output = output.replace(/\bsrcset=("([^"]*)"|'([^']*)')/gi, (match, quoted, doubleValue, singleValue) => {
+        const value = doubleValue ?? singleValue ?? "";
+        const rewritten = value.split(",").map((candidate) => {
+            const parts = candidate.trim().split(/\s+/);
+            if (!parts[0] || !shouldRewritePreviewAssetUrl(parts[0])) {
+                return candidate.trim();
+            }
+            return [toPreviewAssetUrl(parts[0], assetBase), ...parts.slice(1)].join(" ");
+        }).join(", ");
+        const quote = quoted.startsWith("'") ? "'" : "\"";
+        return `srcset=${quote}${rewritten}${quote}`;
+    });
+
+    return output;
+}
+
+async function syncTemplateBuildAssets(html = "", buildDir = "", serviceConfig = {}) {
+    await Promise.all(["assets", "css", "js", "img", "src"].map(async (dir) => {
+        const target = path.join(buildDir, dir);
+        if (await fs.pathExists(target)) {
+            await fs.remove(target);
+        }
+    }));
+
+    const projectBuildPath = serviceConfig.buildPath || path.join(serviceConfig.projectRoot || process.cwd(), "build");
+    const sourcePath = serviceConfig.sourcePath || "";
+    await syncCompleteSourceTree(buildDir, serviceConfig);
+    const refs = getLocalAssetRefs(html);
+    for (const ref of refs) {
+        const targetPath = path.join(buildDir, ref);
+        const fileName = path.basename(ref);
+        const candidates = [
+            path.join(projectBuildPath, ref),
+            ref.startsWith("img/") ? path.join(sourcePath, "images", fileName) : "",
+            ref.startsWith("assets/images/") ? path.join(sourcePath, "images", fileName) : "",
+            ref.startsWith("assets/icons/") ? path.join(sourcePath, "images", fileName) : "",
+            ref.startsWith("uploads/") ? path.join(serviceConfig.uploadsPath || "", fileName) : "",
+            ref.startsWith("css/") ? path.join(sourcePath, "css", fileName) : "",
+            ref.startsWith("js/") ? path.join(sourcePath, "js", fileName) : ""
+        ];
+        await copyFirstExisting(candidates, targetPath);
+    }
+}
+
+function getAssetMimeType(filePath = "") {
+    const ext = path.extname(filePath).toLowerCase();
+    const types = {
+        ".avif": "image/avif",
+        ".gif": "image/gif",
+        ".ico": "image/x-icon",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+        ".webp": "image/webp"
+    };
+    return types[ext] || "application/octet-stream";
+}
+
+function isPortableImageFile(filePath = "") {
+    return /\.(?:avif|gif|ico|jpe?g|png|svg|webp)$/i.test(filePath);
+}
+
+async function importThemeBuildImagesToMedia(buildDir = "", serviceConfig = {}, cmsRepository = null) {
+    if (!buildDir || !cmsRepository || !await fs.pathExists(buildDir)) {
+        return [];
+    }
+    const files = await listThemeBuildFiles(buildDir);
+    const imageFiles = files
+        .filter((file) => /^(build\/img\/|build\/assets\/images\/|build\/assets\/icons\/|build\/src\/images\/)/.test(file))
+        .filter(isPortableImageFile);
+    const imported = [];
+    const now = new Date().toISOString();
+
+    await fs.ensureDir(serviceConfig.uploadsPath);
+
+    for (const manifestPath of imageFiles) {
+        const relativePath = manifestPath.replace(/^build\//, "");
+        const sourcePath = path.join(buildDir, relativePath);
+        if (!await fs.pathExists(sourcePath)) {
+            continue;
+        }
+        const buffer = await fs.readFile(sourcePath);
+        if (!buffer.length) {
+            continue;
+        }
+        const hash = crypto.createHash("sha1").update(buffer).digest("hex").slice(0, 12);
+        const fileName = sanitizeFileName(path.basename(sourcePath), "theme-asset");
+        const storedName = `theme-${hash}-${fileName}`;
+        const targetPath = path.join(serviceConfig.uploadsPath, storedName);
+        await fs.writeFile(targetPath, buffer);
+
+        const existing = await cmsRepository.dbGet(
+            "SELECT id FROM cms_media_assets WHERE stored_name = ?",
+            [storedName]
+        );
+        if (existing) {
+            await cmsRepository.dbRun(
+                "UPDATE cms_media_assets SET file_name = ?, mime_type = ?, size_bytes = ?, updated_at = ? WHERE id = ?",
+                [fileName, getAssetMimeType(sourcePath), buffer.length, now, existing.id]
+            );
+            imported.push({ id: existing.id, fileName, url: `/uploads/${storedName}`, source: manifestPath });
+            continue;
+        }
+
+        const result = await cmsRepository.dbRun(
+            `
+                INSERT INTO cms_media_assets (
+                    file_name, stored_name, mime_type, size_bytes, width, height, url, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            [
+                fileName,
+                storedName,
+                getAssetMimeType(sourcePath),
+                buffer.length,
+                null,
+                null,
+                `/uploads/${storedName}`,
+                now,
+                now
+            ]
+        );
+        imported.push({ id: result.lastID, fileName, url: `/uploads/${storedName}`, source: manifestPath });
+    }
+
+    return imported;
+}
+
+async function syncCompleteSourceTree(buildDir = "", serviceConfig = {}) {
+    const sourcePath = serviceConfig.sourcePath || "";
+    if (!buildDir || !sourcePath || !await fs.pathExists(sourcePath)) {
+        return false;
+    }
+
+    await copyIfExists(sourcePath, path.join(buildDir, "src"));
+    await copyIfExists(path.join(sourcePath, "css"), path.join(buildDir, "assets", "css"));
+    await copyIfExists(path.join(sourcePath, "js"), path.join(buildDir, "assets", "js"));
+    await copyIfExists(path.join(sourcePath, "images"), path.join(buildDir, "assets", "images"));
+    await copyIfExists(path.join(sourcePath, "resources"), path.join(buildDir, "assets", "resources"));
+    await copyIfExists(path.join(sourcePath, "scss"), path.join(buildDir, "assets", "scss"));
+    await copyIfExists(path.join(sourcePath, "config"), path.join(buildDir, "assets", "config"));
+    await copyIfExists(path.join(sourcePath, "css"), path.join(buildDir, "css"));
+    await copyIfExists(path.join(sourcePath, "js"), path.join(buildDir, "js"));
+    await copyIfExists(path.join(sourcePath, "images"), path.join(buildDir, "img"));
+    return true;
+}
+
+async function listThemeBuildFiles(buildDir = "") {
+    if (!buildDir || !await fs.pathExists(buildDir)) {
+        return [];
+    }
+    const files = [];
+    const walk = async (currentDir) => {
+        const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+            const entryPath = path.join(currentDir, entry.name);
+            if (entry.isDirectory()) {
+                await walk(entryPath);
+            } else if (entry.isFile()) {
+                files.push(`build/${path.relative(buildDir, entryPath).replace(/\\/g, "/")}`);
+            }
+        }
+    };
+    await walk(buildDir);
+    return files.sort();
+}
+
+async function getThemeSourceAssetManifest(buildDir = "", serviceConfig = {}) {
+    const files = await listThemeBuildFiles(buildDir);
+    const sourcePrefix = "build/src/";
+    const sourceFiles = files.filter((file) => file.startsWith(sourcePrefix));
+    const isStyle = (file) => /\.(?:css|scss|sass)$/i.test(file);
+    const isScript = (file) => /\.(?:js|mjs|cjs|ts)$/i.test(file);
+    const isImage = (file) => /\.(?:avif|gif|ico|jpe?g|png|svg|webp)$/i.test(file);
+    const resourceFiles = sourceFiles.filter((file) => file.startsWith("build/src/resources/"));
+    const configFiles = sourceFiles.filter((file) => file.startsWith("build/src/config/"));
+
+    return {
+        sourceRoot: serviceConfig.sourcePath || "",
+        runtimeRoot: "build",
+        styles: files.filter((file) => isStyle(file) && !file.startsWith("build/src/resources/")).sort(),
+        scripts: files.filter((file) => isScript(file) && !file.startsWith("build/src/resources/")).sort(),
+        images: files.filter(isImage).sort(),
+        resources: resourceFiles.sort(),
+        config: configFiles.sort(),
+        sourceFiles
+    };
+}
+
+async function updateActiveThemeAssetManifest(themePath = "", buildDir = "", serviceConfig = {}) {
+    if (!themePath || !buildDir) {
+        return null;
+    }
+    const manifestPath = path.join(themePath, "theme.json");
+    const manifest = await fs.readJson(manifestPath).catch(() => ({}));
+    const buildFiles = await listThemeBuildFiles(buildDir);
+    const existingFiles = Array.isArray(manifest.files) ? manifest.files : [];
+    const nextManifest = {
+        ...manifest,
+        assets: await getThemeSourceAssetManifest(buildDir, serviceConfig),
+        files: Array.from(new Set([...existingFiles, ...buildFiles])).sort(),
+        updatedAt: new Date().toISOString()
+    };
+    await fs.writeJson(manifestPath, nextManifest, { spaces: 2 });
+    return nextManifest;
+}
+
 async function compilePaniniPages(serviceConfig = {}, outputPath) {
     const pagesRoot = serviceConfig.pagesPath;
     const layoutsRoot = serviceConfig.layoutsPath;
@@ -2540,9 +3142,15 @@ async function cmsComponentPathExists(componentPath, serviceConfig = {}, activeT
         return false;
     }
     const theme = activeTheme || resolveActiveThemeInfo(serviceConfig);
+    const runtimeThemePath = await getThemeRuntimePath(theme.themePath || "");
     const candidates = [
+        path.join(runtimeThemePath || "", componentPath),
+        path.join(runtimeThemePath || "", "partials", componentPath),
+        path.join(runtimeThemePath || "", "components", componentPath.replace(/^micro[\\/]/, "")),
+        path.join(theme.themePath || "", componentPath),
         path.join(theme.themePath || "", "partials", componentPath),
         path.join(theme.themePath || "", "components", componentPath.replace(/^micro[\\/]/, "")),
+        path.join(serviceConfig.projectRoot || "", componentPath),
         path.join(serviceConfig.partialsPath || "", componentPath),
     ];
     for (const candidate of candidates) {
@@ -2789,23 +3397,25 @@ function normalizeThemeRegionId(value, fallback = "main") {
         above_content: "content-above",
         content_below: "content-below",
         contentbelow: "content-below",
-        below_content: "content-below"
+        below_content: "content-below",
+        project: "main",
+        projects: "main",
+        supporters: "content-below",
+        supporter: "content-below"
     };
-    const allowed = new Set(["header", "hero", "side-navigation", "content-above", "main", "content-below", "footer"]);
     const normalizeToken = (input) => String(input || "")
         .trim()
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/[^a-z0-9_-]+/g, "_")
         .replace(/^_+|_+$/g, "");
     const raw = normalizeToken(value);
-    const firstToken = raw.includes("_") ? raw.split("_")[0] : raw;
-    const normalized = aliases[raw] || aliases[firstToken] || raw.replace(/_/g, "-");
-    if (allowed.has(normalized)) {
+    const normalized = aliases[raw] || raw;
+    if (normalized) {
         return normalized;
     }
     const fallbackRaw = normalizeToken(fallback);
-    const fallbackRegion = aliases[fallbackRaw] || fallbackRaw.replace(/_/g, "-") || "main";
-    return allowed.has(fallbackRegion) ? fallbackRegion : "main";
+    const fallbackRegion = aliases[fallbackRaw] || fallbackRaw || "main";
+    return fallbackRegion || "main";
 }
 
 function sortThemeRegions(regionIds = []) {
@@ -2873,9 +3483,44 @@ function buildThemePageTemplate(regionDefinitions = []) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page.title }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            heading: ['Space Grotesk', 'sans-serif']
+          },
+          lineHeight: {
+            'tight-08': '0.8',
+            'tight-09': '0.9'
+          },
+          letterSpacing: {
+            'ultra-tight': '-0.06em',
+            'widest-xl': '0.5em'
+          },
+          colors: {
+            background: {
+              light: '#fafafa',
+              dark: '#0a0a0a'
+            },
+            text: {
+              light: '#1a1a1a',
+              dark: '#f0f0f0'
+            }
+          }
+        }
+      }
+    };
+  </script>
   {{{ assets.styles }}}
 </head>
-<body class="{{ page.bodyClass }}">
+<body class="bg-background-light text-text-light dark:bg-background-dark dark:text-text-dark transition-colors duration-700 overflow-x-hidden font-sans antialiased {{ page.bodyClass }}">
 ${beforeMain.map(renderRegionInclude).join("\n")}
   <main id="main-content" data-theme-region-group="main">
 ${mainRegions.map((regionId) => `    {{> regions/${regionId} }}`).join("\n")}
@@ -2904,7 +3549,8 @@ function resolveActiveThemeInfo(serviceConfig = {}, settings = {}) {
         slug,
         themeRoot,
         themePath,
-        manifestPath: path.join(themePath, "theme.json")
+        manifestPath: path.join(themePath, "theme.json"),
+        infoPath: path.join(themePath, `${slug}.info.yml`)
     };
 }
 
@@ -2917,16 +3563,191 @@ async function readStoredSettingsForTheme(serviceConfig = {}, defaults = {}) {
 }
 
 async function readActiveThemeManifest(activeTheme = {}) {
-    if (!activeTheme.manifestPath || !await fs.pathExists(activeTheme.manifestPath)) {
+    const jsonManifest = activeTheme.manifestPath && await fs.pathExists(activeTheme.manifestPath)
+        ? await fs.readJson(activeTheme.manifestPath).catch(() => null)
+        : null;
+    const infoManifest = await readActiveThemeInfoManifest(activeTheme);
+
+    if (!jsonManifest && !infoManifest) {
         return null;
     }
-    return fs.readJson(activeTheme.manifestPath).catch(() => null);
+    if (!infoManifest) {
+        return jsonManifest;
+    }
+
+    return {
+        ...(jsonManifest || {}),
+        ...infoManifest,
+        source: {
+            ...(jsonManifest?.source || {}),
+            ...(infoManifest.source || {})
+        },
+        regions: infoManifest.regions,
+        regionDefinitions: infoManifest.regionDefinitions,
+        templates: Array.isArray(jsonManifest?.templates) ? jsonManifest.templates : createThemeTemplateManifest(infoManifest.regions)
+    };
+}
+
+async function listThemePartials(themePath = "", serviceConfig = {}) {
+    const sourcePartialsRoot = serviceConfig.partialsPath || "";
+    const runtimeThemePath = await getThemeRuntimePath(themePath);
+    const partialsRoot = sourcePartialsRoot && await fs.pathExists(sourcePartialsRoot)
+        ? sourcePartialsRoot
+        : path.join(runtimeThemePath || "", "partials");
+    if (!partialsRoot || !await fs.pathExists(partialsRoot)) {
+        return [];
+    }
+    const results = [];
+    const walk = async (currentDir) => {
+        const entries = await fs.readdir(currentDir, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+            const entryPath = path.join(currentDir, entry.name);
+            if (entry.isDirectory()) {
+                await walk(entryPath);
+            } else if (entry.isFile() && /\.html?$/i.test(entry.name)) {
+                const relativePath = path.relative(partialsRoot, entryPath).replace(/\\/g, "/");
+                if (relativePath === "micro" || relativePath.startsWith("micro/")) {
+                    continue;
+                }
+                const componentPath = `partials/${relativePath}`;
+                results.push({
+                    name: humanizeRegionLabel(path.basename(entry.name, path.extname(entry.name))),
+                    componentPath,
+                    partial: componentPath,
+                    group: path.dirname(relativePath).replace(/\\/g, "/").replace(/^\.$/, ""),
+                    ready: true
+                });
+            }
+        }
+    };
+    await walk(partialsRoot);
+    return results.sort((left, right) => left.componentPath.localeCompare(right.componentPath));
+}
+
+async function readActiveThemeInfoManifest(activeTheme = {}) {
+    const candidates = [];
+    if (activeTheme.infoPath) {
+        candidates.push(activeTheme.infoPath);
+    }
+    if (activeTheme.themePath && await fs.pathExists(activeTheme.themePath)) {
+        const entries = await fs.readdir(activeTheme.themePath).catch(() => []);
+        entries
+            .filter((entry) => /\.info\.ya?ml$/i.test(entry))
+            .forEach((entry) => candidates.push(path.join(activeTheme.themePath, entry)));
+    }
+    const infoPath = candidates.find((candidate) => candidate && fs.existsSync(candidate));
+    if (!infoPath) {
+        return null;
+    }
+    const content = await fs.readFile(infoPath, "utf8").catch(() => "");
+    const parsed = parseThemeInfoYml(content);
+    const regions = Object.keys(parsed.regions || {}).map((regionId) => normalizeThemeRegionId(regionId, regionId));
+    if (!regions.length) {
+        return {
+            ...parsed,
+            source: { infoFile: path.basename(infoPath), infoPath },
+            regions: [],
+            regionDefinitions: []
+        };
+    }
+    const hidden = new Set((parsed.regionsHidden || []).map((regionId) => normalizeThemeRegionId(regionId, regionId)));
+    const required = new Set(["header", "main", "footer", "content"]);
+    const regionDefinitions = regions
+        .filter((regionId) => !hidden.has(regionId))
+        .map((regionId) => ({
+            id: regionId,
+            label: parsed.regions[regionId] || humanizeRegionLabel(regionId),
+            required: required.has(regionId),
+            template: `build/templates/regions/${regionId}.html`,
+            defaultPartial: null,
+            source: "info.yml"
+        }));
+    return {
+        name: parsed.name || formatThemeName(activeTheme.slug),
+        slug: activeTheme.slug,
+        type: parsed.type || "theme",
+        description: parsed.description || "",
+        version: parsed.version || "1.0.0",
+        baseTheme: parsed.baseTheme || "",
+        coreVersionRequirement: parsed.coreVersionRequirement || "",
+        source: { infoFile: path.basename(infoPath), infoPath },
+        regions: regionDefinitions.map((region) => region.id),
+        regionDefinitions,
+        info: parsed
+    };
+}
+
+function parseThemeInfoYml(content = "") {
+    const result = { regions: {}, regionsHidden: [] };
+    let activeMap = "";
+    String(content || "").split(/\r?\n/).forEach((line) => {
+        const withoutComment = line.replace(/\s+#.*$/, "");
+        if (!withoutComment.trim()) {
+            return;
+        }
+        const indent = withoutComment.match(/^\s*/)?.[0].length || 0;
+        const trimmed = withoutComment.trim();
+        if (indent === 0) {
+            activeMap = "";
+            const match = trimmed.match(/^([^:]+):\s*(.*)$/);
+            if (!match) {
+                return;
+            }
+            const key = match[1].trim();
+            const value = parseThemeInfoScalar(match[2]);
+            if (key === "regions") {
+                activeMap = "regions";
+                return;
+            }
+            if (key === "regions_hidden") {
+                activeMap = "regions_hidden";
+                if (Array.isArray(value)) {
+                    result.regionsHidden = value;
+                }
+                return;
+            }
+            if (key === "base theme") result.baseTheme = value;
+            else if (key === "core_version_requirement") result.coreVersionRequirement = value;
+            else result[key.replace(/[-\s]+([a-z])/g, (_match, letter) => letter.toUpperCase())] = value;
+            return;
+        }
+        if (activeMap === "regions") {
+            const match = trimmed.match(/^([^:]+):\s*(.*)$/);
+            if (match) {
+                const id = normalizeThemeRegionId(match[1], match[1]);
+                result.regions[id] = parseThemeInfoScalar(match[2]) || humanizeRegionLabel(id);
+            }
+            return;
+        }
+        if (activeMap === "regions_hidden") {
+            const match = trimmed.match(/^-\s*(.+)$/);
+            if (match) {
+                result.regionsHidden.push(parseThemeInfoScalar(match[1]));
+            }
+        }
+    });
+    return result;
+}
+
+function parseThemeInfoScalar(value = "") {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        return trimmed.slice(1, -1).split(",").map((item) => parseThemeInfoScalar(item)).filter(Boolean);
+    }
+    if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith("\"") && trimmed.endsWith("\""))) {
+        return trimmed.slice(1, -1);
+    }
+    if (trimmed === "false") return false;
+    if (trimmed === "true") return true;
+    return trimmed;
 }
 
 async function validateActiveThemeFolder(activeTheme = {}, manifest = null) {
     const warnings = [];
     const errors = [];
     const themePath = activeTheme.themePath || "";
+    const runtimeThemePath = await getThemeRuntimePath(themePath);
     const manifestPath = activeTheme.manifestPath || "";
 
     if (!themePath || !await fs.pathExists(themePath)) {
@@ -2946,15 +3767,37 @@ async function validateActiveThemeFolder(activeTheme = {}, manifest = null) {
         return { errors, warnings };
     }
 
-    const expectedDirs = ["templates", "templates/regions", "layouts", "pages", "regions", "partials", "components", "assets", "data/fallback", "bindings"];
-    for (const dir of expectedDirs) {
-        const dirPath = path.join(themePath, dir);
-        if (!await fs.pathExists(dirPath)) {
-            warnings.push({
-                code: "THEME_ACTIVE_DIR_MISSING",
-                message: `Active theme directory is missing: ${dir}.`,
-                path: dir
-            });
+    const manifestFiles = Array.isArray(manifest.files) ? manifest.files.filter(Boolean) : [];
+    if (manifestFiles.length) {
+        for (const filePath of manifestFiles) {
+            const relativePath = String(filePath || "").replace(/\\/g, "/");
+            if (path.isAbsolute(relativePath) || relativePath.includes("..")) {
+                warnings.push({
+                    code: "THEME_ACTIVE_FILE_PATH_INVALID",
+                    message: `Theme manifest contains an invalid file path: ${relativePath}.`,
+                    path: relativePath
+                });
+                continue;
+            }
+            if (!await fs.pathExists(path.join(themePath, relativePath))) {
+                warnings.push({
+                    code: "THEME_ACTIVE_FILE_MISSING",
+                    message: `Theme manifest file is missing: ${relativePath}.`,
+                    path: relativePath
+                });
+            }
+        }
+    } else {
+        const expectedDirs = ["templates", "templates/regions", "layouts", "pages", "regions", "partials", "components", "assets", "data/fallback", "bindings"];
+        for (const dir of expectedDirs) {
+            const dirPath = path.join(runtimeThemePath, dir);
+            if (!await fs.pathExists(dirPath)) {
+                warnings.push({
+                    code: "THEME_ACTIVE_DIR_MISSING",
+                    message: `Active theme directory is missing: build/${dir}.`,
+                    path: `build/${dir}`
+                });
+            }
         }
     }
 
